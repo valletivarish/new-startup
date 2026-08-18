@@ -249,3 +249,21 @@ export function canModifyMembershipOf(
   if (subjectRole === 'owner') return actorRole === 'owner';
   return actorRole === 'owner' || actorRole === 'administrator';
 }
+
+/**
+ * Whether a role is the Owner role.
+ *
+ * The last-owner invariant is inherently about a specific role, not about a
+ * permission — "keep at least one Owner" cannot be expressed as a permission
+ * check. Naming it here keeps the comparison in the one module allowed to
+ * make it, so call sites read as invariants rather than as role-based
+ * authorization (ADR-004), and the lint rule can stay strict everywhere else.
+ */
+export function isOwnerRole(roleKey: string): boolean {
+  return roleKey === 'owner';
+}
+
+/** Would this role change remove Owner authority from a membership? */
+export function isOwnerDemotion(fromRoleKey: string, toRoleKey: string): boolean {
+  return isOwnerRole(fromRoleKey) && !isOwnerRole(toRoleKey);
+}

@@ -116,6 +116,24 @@ multi-agent audit         → 6 dimensions, 54 agents, 47 confirmed / 2 refuted 
 
 ## Final Recommendation
 
-**FIX THESE ITEMS BEFORE PHASE 2** — specifically open item #1 (pg-boss worker + OTel + compose services), which is the only substantive one; items #2–#6 are small and could ride along with it as a single "Phase 1 closeout" task. Everything security-critical found by the audit is already fixed and regression-tested.
+**READY FOR PHASE 2.**
 
-On your approval of that closeout task, the foundation is ready to carry Phase 2 — Agent Foundation.
+### Closeout addendum — 2026-08-18
+
+All seven open items were subsequently fixed and verified; the recommendation above is superseded.
+
+| # | Item | Resolution |
+|---|---|---|
+| 1 | pg-boss worker, OTel, compose services | pg-boss in its own `pgboss` schema (migration 0004) with `createSchema: false`, so `platform_app` still holds **no CREATE on `public` or the database**; worker as a second entrypoint; OpenTelemetry initialised, vendor-neutral, disabled by default; Dockerfile plus `api`/`worker` compose services under an `app` profile |
+| 2 | Pagination conventions | Keyset cursor pagination with an `id` tiebreaker on `/audit`; forged cursors are 422, page size capped |
+| 3 | Not a git repository | `git init` + initial commit; `.env` confirmed ignored and unstaged, zero `node_modules` entries |
+| 4 | Web tsconfig / strictness | `apps/web` now extends `tsconfig.base.json`; the `strictPropertyInitialization` exception is documented and scoped |
+| 5 | Evadable lint rule | Broadened to five selectors (either operand, role-named variables, `switch`/`case`, `.includes`). **It immediately caught four real violations** in `members.service.ts`, fixed by introducing named `isOwnerRole` / `isOwnerDemotion` invariant helpers rather than suppressing |
+| 6 | Tenant-context contract drift | The two bootstrap exceptions are now stated in the module docstring |
+| 7 | Platform-level audit read path | Unchanged — deferred by design until platform admin tooling is specified |
+
+**Verification after closeout:** 136 tests passing (8 suites), lint clean, typecheck clean in all five packages, clean-database migration verified across all five migrations (11 tables, RLS forced on 4, 9 policies, 51/171 seed, `pgboss` present, app role without CREATE or BYPASSRLS), re-run is a no-op.
+
+**Live end-to-end run** with API and worker as separate processes: sign-up → organization creation → invitation, with **two emails delivered through the real queue** and the invitation token reaching the email body. This run caught an integration bug no unit test did — pg-boss attempting `CREATE SCHEMA` and being correctly refused — which is why `createSchema: false` exists.
+
+The foundation is ready to carry Phase 2 — Agent Foundation.

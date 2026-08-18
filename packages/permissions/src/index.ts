@@ -15,6 +15,8 @@ export {
   SYSTEM_ROLE_DEFINITIONS,
   canAssignRole,
   canModifyMembershipOf,
+  isOwnerDemotion,
+  isOwnerRole,
   isSystemRole,
   systemRole,
   type SystemRole,

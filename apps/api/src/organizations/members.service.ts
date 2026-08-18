@@ -22,6 +22,8 @@ import { sql, withTenantContext, type Database } from '@platform/db';
 import {
   canAssignRole,
   canModifyMembershipOf,
+  isOwnerDemotion,
+  isOwnerRole,
   isSystemRole,
   type SystemRole,
 } from '@platform/permissions';
@@ -217,8 +219,7 @@ export function createMembersService(
 
           // Invariant 1: demoting the last active Owner is refused.
           if (
-            target.role_key === 'owner' &&
-            roleKey !== 'owner' &&
+            isOwnerDemotion(target.role_key, roleKey) &&
             (await otherActiveOwners(tx, actor.organizationId, membershipId)) === 0
           ) {
             throw ApiError.conflict(
@@ -267,7 +268,7 @@ export function createMembersService(
 
           if (
             status === 'suspended' &&
-            target.role_key === 'owner' &&
+            isOwnerRole(target.role_key) &&
             (await otherActiveOwners(tx, actor.organizationId, membershipId)) === 0
           ) {
             throw ApiError.conflict(
@@ -314,7 +315,7 @@ export function createMembersService(
           await assertCanModifyAudited(actor, target);
 
           if (
-            target.role_key === 'owner' &&
+            isOwnerRole(target.role_key) &&
             (await otherActiveOwners(tx, actor.organizationId, membershipId)) === 0
           ) {
             throw ApiError.conflict(

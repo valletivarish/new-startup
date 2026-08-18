@@ -7,8 +7,9 @@ First commercial wedge: recruitment screening and interview scheduling, India.
 Decisions are recorded as ADRs in `BRD's/10_ADRs/` and are never edited once
 accepted — changing one requires a superseding ADR.
 
-**Current phase:** Phase 1 — Platform Foundation. **Complete** — see
-`PHASE_1_COMPLETION_REPORT.md`. 108 tests passing against real PostgreSQL.
+**Current phase:** Phase 1 — Platform Foundation. **Complete and audited** —
+see `PHASE_1_COMPLETION_REPORT.md` and `PHASE_1_AUDIT_REPORT.md`.
+136 tests passing against real PostgreSQL.
 
 ---
 
@@ -50,6 +51,7 @@ running.
 | `pnpm db:migrate` | Apply pending migrations |
 | `pnpm test` | Full test suite against real PostgreSQL |
 | `pnpm typecheck` | Typecheck every package |
+| `pnpm lint` | ESLint, including the no-role-name-checks rule |
 
 After changing the permission catalogue, regenerate the seed migration:
 
@@ -62,8 +64,19 @@ pnpm --filter @platform/db exec tsx src/scripts/generate-seed-migration.ts
 Run the stack locally:
 
 ```bash
-pnpm dev:api   # http://localhost:3001 — API (health at /health)
-pnpm dev:web   # http://localhost:3000 — dashboard (proxies to the API)
+pnpm dev:api      # http://localhost:3001 — API (health at /health)
+pnpm dev:worker   # background job worker (email delivery)
+pnpm dev:web      # http://localhost:3000 — dashboard (proxies to the API)
+```
+
+The worker is a second entrypoint from the same codebase, not a separate
+service. Without it running, invitation and verification emails queue but are
+never delivered — set `JOBS_ENABLED=false` to send inline instead.
+
+To run the whole stack in containers (one image, two entrypoints):
+
+```bash
+BETTER_AUTH_SECRET=$(openssl rand -base64 32) docker compose --profile app up --build
 ```
 
 ```

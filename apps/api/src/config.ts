@@ -44,6 +44,12 @@ const EnvSchema = z.object({
   RATE_LIMIT_MAX: z.coerce.number().int().min(1).default(100),
   RATE_LIMIT_WINDOW_MS: z.coerce.number().int().min(1000).default(60_000),
 
+  /**
+   * Root for the local ObjectStorage adapter. Cloudflare R2 replaces this
+   * adapter entirely at deployment; nothing above the interface changes.
+   */
+  STORAGE_ROOT: z.string().default('.storage'),
+
   NOTIFICATION_TRANSPORT: z.enum(['console']).default('console'),
   EMAIL_FROM: z.string().default('no-reply@localhost'),
 

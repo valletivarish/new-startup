@@ -15,6 +15,7 @@ import { PgBoss } from 'pg-boss';
 import type { Logger } from 'pino';
 
 export const EMAIL_QUEUE = 'notifications.email';
+export const DOCUMENT_QUEUE = 'knowledge.document.process';
 
 export interface EmailJob {
   readonly to: string;
@@ -29,10 +30,26 @@ export interface EmailJob {
   readonly organizationId?: string;
 }
 
+/**
+ * Document indexing. The payload carries the document VERSION, which is what
+ * makes a stale retry detectable: the processor compares it against the row
+ * and exits without touching anything if the document has moved on.
+ */
+export interface DocumentJob {
+  readonly organizationId: string;
+  readonly actorUserId: string;
+  readonly documentId: string;
+  readonly version: number;
+}
+
 export interface JobQueue {
   start(): Promise<void>;
   stop(): Promise<void>;
   enqueueEmail(job: EmailJob, idempotencyKey?: string): Promise<void>;
+  enqueueDocumentProcessing(
+    job: DocumentJob,
+    idempotencyKey?: string,
+  ): Promise<void>;
   readonly boss: PgBoss;
 }
 
@@ -67,6 +84,11 @@ export function createJobQueue(
     boss,
     async start() {
       await boss.start();
+      await boss.createQueue(DOCUMENT_QUEUE, {
+        // Bounded retention; indexing jobs carry no secrets, only ids.
+        retentionSeconds: 86_400,
+        deleteAfterSeconds: 3600,
+      });
       await boss.createQueue(EMAIL_QUEUE, {
         // Email payloads carry invitation links, and an invitation link
         // carries the raw token. pg-boss tables are not RLS-protected, so
@@ -75,11 +97,27 @@ export function createJobQueue(
         retentionSeconds: 3600,
         deleteAfterSeconds: 120,
       });
-      logger.info({ queue: EMAIL_QUEUE }, 'jobs.queue_ready');
+      logger.info(
+        { queues: [EMAIL_QUEUE, DOCUMENT_QUEUE] },
+        'jobs.queue_ready',
+      );
     },
     async stop() {
       await boss.stop({ graceful: true });
     },
+    async enqueueDocumentProcessing(job, idempotencyKey) {
+      await boss.send(DOCUMENT_QUEUE, job as unknown as object, {
+        // BOUNDED retries with backoff — never an infinite loop. After these
+        // attempts the document is left in an explicit `failed` state with a
+        // reason, which is the honest outcome.
+        retryLimit: 3,
+        retryDelay: 15,
+        retryBackoff: true,
+        expireInSeconds: 600,
+        ...(idempotencyKey ? { singletonKey: idempotencyKey } : {}),
+      });
+    },
+
     async enqueueEmail(job, idempotencyKey) {
       await boss.send(EMAIL_QUEUE, job as unknown as object, {
         retryLimit: 5,

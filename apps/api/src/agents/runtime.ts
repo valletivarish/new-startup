@@ -20,6 +20,8 @@ import type {
   AgentRuntimeResult,
   ConversationState,
   ExecutionStrategy,
+  KnowledgeRetriever,
+  RetrievalOutcome,
 } from '@platform/providers';
 import { sql, withTenantContext, type Database } from '@platform/db';
 
@@ -42,6 +44,7 @@ export function createDeterministicStrategy(): ExecutionStrategy {
       const config = input.configuration as AgentConfiguration;
       const rules = config.rules as readonly AgentRule[];
       const message = input.lastUserMessage ?? '';
+
 
       // Guardrails outrank rules: a forbidden topic ends the turn regardless
       // of what any rule would otherwise have matched.
@@ -84,9 +87,39 @@ export function createDeterministicStrategy(): ExecutionStrategy {
         return { kind: 'reply', content: rule.reply || config.conversation.greeting };
       }
 
-      // No rule matched. Without an intelligence layer there is nothing
-      // meaningful to say, so acknowledge rather than fabricate — the same
-      // discipline `refuseWhenNoKnowledge` encodes for retrieval.
+      // No rule matched. NOW consider knowledge.
+      //
+      // `input.knowledge` is present only when the agent actually has
+      // knowledge sources attached — an agent configured purely with rules
+      // has nothing to be missing, and must not refuse on that basis. That
+      // ordering matters: an explicit operator rule outranks a generic
+      // refusal, and a forbidden topic outranks both.
+      const knowledge = input.knowledge;
+      if (config.guardrails.refuseWhenNoKnowledge && knowledge) {
+        // The three outcomes stay distinct: "the lookup broke" and "nothing
+        // relevant exists" call for different answers, and NEITHER may be
+        // presented as though it were an answer (`02_BRD` §7).
+        if (knowledge.outcome === 'failed') {
+          return {
+            kind: 'reply',
+            content:
+              'I cannot reach my knowledge sources right now, so I would rather not answer than guess. Please try again shortly.',
+          };
+        }
+        if (
+          knowledge.outcome === 'no_knowledge' ||
+          knowledge.outcome === 'below_threshold'
+        ) {
+          return {
+            kind: 'reply',
+            content:
+              'I do not have approved information on that, so I would rather not guess. I can pass this to a colleague if that helps.',
+          };
+        }
+      }
+
+      // Without an intelligence layer there is nothing meaningful to say, so
+      // acknowledge rather than fabricate.
       return {
         kind: 'reply',
         content:
@@ -101,6 +134,7 @@ export function createAgentRuntime(
   database: Database,
   sessions: SessionsService,
   strategy: ExecutionStrategy = createDeterministicStrategy(),
+  retriever?: KnowledgeRetriever,
 ): AgentRuntime {
   return {
     strategyName: strategy.name,
@@ -211,10 +245,56 @@ export function createAgentRuntime(
         causedByEventId: appended.event.id,
       });
 
+      // Retrieve BEFORE deciding, so the strategy can act on what knowledge
+      // is actually available. The retrieval context is built here from the
+      // validated actor — the configuration cannot widen it, and neither can
+      // anything the user typed.
+      let knowledge:
+        | { outcome: RetrievalOutcome; chunkCount: number }
+        | undefined;
+      if (retriever && conversation.lastUserMessage) {
+        // Which sources this agent is permitted to draw on. If none are
+        // attached, retrieval is skipped entirely and `knowledge` stays
+        // undefined — the agent has no knowledge to be missing.
+        const sourceIds = await withTenantContext(
+          database.db,
+          { organizationId: actor.organizationId, userId: actor.userId },
+          async (tx) => {
+            const rows = await tx.execute<{ source_id: string }>(sql`
+              select a.source_id
+              from agent_knowledge_sources a
+              join agent_sessions s on s.agent_id = a.agent_id
+              where s.id = ${sessionId}
+                and a.organization_id = ${actor.organizationId}
+            `);
+            return rows.map((r) => r.source_id);
+          },
+        );
+
+        if (sourceIds.length > 0) {
+          const result = await retriever.retrieve(
+            conversation.lastUserMessage,
+            {
+              organizationId: actor.organizationId,
+              actorUserId: actor.userId,
+              // Scoped to the agent's OWN sources — an agent cannot reach
+              // organization knowledge it was not given.
+              sourceIds,
+            },
+            { topK: 5 },
+          );
+          knowledge = {
+            outcome: result.outcome,
+            chunkCount: result.chunks.length,
+          };
+        }
+      }
+
       const decision = await strategy.decide({
         configuration: parsed.data,
         turnCount: conversation.turnCount,
         lastUserMessage: conversation.lastUserMessage,
+        ...(knowledge ? { knowledge } : {}),
       });
 
       const outbound = [requested.event];

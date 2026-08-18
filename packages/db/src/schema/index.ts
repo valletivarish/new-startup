@@ -12,6 +12,14 @@ export {
   agentSessions,
   agentEvents,
 } from './agents.js';
+export {
+  EMBEDDING_DIMENSIONS,
+  knowledgeSources,
+  knowledgeDocuments,
+  knowledgeChunks,
+  agentKnowledgeSources,
+  knowledgeProcessingRuns,
+} from './knowledge.js';
 
 /**
  * Tables deliberately exempt from row-level security.
@@ -56,4 +64,13 @@ export const AGENT_TABLES = [
   'agent_versions',
   'agent_sessions',
   'agent_events',
+] as const;
+
+/** Phase 3 knowledge tables. Plain tenant policies, same posture as above. */
+export const KNOWLEDGE_TABLES = [
+  'knowledge_sources',
+  'knowledge_documents',
+  'knowledge_chunks',
+  'agent_knowledge_sources',
+  'knowledge_processing_runs',
 ] as const;

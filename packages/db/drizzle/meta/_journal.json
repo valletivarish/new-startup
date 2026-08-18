@@ -64,6 +64,20 @@
       "when": 1787045092661,
       "tag": "0008_seed_permission_matrix_v2",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1787053618087,
+      "tag": "0009_knowledge_foundation",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1787053618395,
+      "tag": "0010_knowledge_rls",
+      "breakpoints": true
     }
   ]
 }

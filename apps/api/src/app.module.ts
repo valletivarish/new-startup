@@ -9,6 +9,7 @@
 import { Module, type DynamicModule } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import type { Database } from '@platform/db';
+import type { JobQueue } from './jobs/queue.js';
 import type { NotificationProvider } from '@platform/providers';
 import type { Logger } from 'pino';
 
@@ -24,6 +25,12 @@ import { createInvitationsService } from './organizations/invitations.service.js
 import { createAgentsService } from './agents/agents.service.js';
 import { createSessionsService } from './agents/sessions.service.js';
 import { createAgentRuntime } from './agents/runtime.js';
+import { createKnowledgeService } from './knowledge/knowledge.service.js';
+import { createKnowledgeRetriever } from './knowledge/retriever.js';
+import { createDeterministicEmbeddingProvider } from './knowledge/deterministic-embedding-provider.js';
+import { createLocalObjectStorage } from './knowledge/local-object-storage.js';
+import { createDocumentProcessor } from './knowledge/processor.js';
+import { createChunker } from './knowledge/chunker.js';
 import {
   AUDIT_SERVICE,
   AUTH_CONTEXT_SERVICE,
@@ -39,6 +46,9 @@ import {
 import {
   AGENTS_SERVICE,
   AGENT_RUNTIME,
+  KNOWLEDGE_RETRIEVER,
+  KNOWLEDGE_SERVICE,
+  OBJECT_STORAGE,
   SESSIONS_SERVICE,
   SESSION_SERVICE,
 } from './tokens.more.js';
@@ -55,6 +65,7 @@ import {
   AgentsController,
   AgentSessionsController,
 } from './agents/agents.controller.js';
+import { KnowledgeController } from './knowledge/knowledge.controller.js';
 
 export interface AppDeps {
   readonly env: Env;
@@ -62,6 +73,8 @@ export interface AppDeps {
   readonly auth: BetterAuthInstance;
   readonly notifications: NotificationProvider;
   readonly logger: Logger;
+  /** Null when jobs are disabled (tests); ingestion then runs inline. */
+  readonly jobs: JobQueue | null;
 }
 
 @Module({})
@@ -79,6 +92,7 @@ export class AppModule {
         CatalogueController,
         AgentsController,
         AgentSessionsController,
+        KnowledgeController,
       ],
       providers: [
         { provide: ENV, useValue: deps.env },
@@ -139,9 +153,68 @@ export class AppModule {
           // Phase 2 uses the deterministic strategy. Phase 4 swaps in an
           // LLM-backed one here and nothing else changes.
           provide: AGENT_RUNTIME,
-          inject: [SESSIONS_SERVICE],
-          useFactory: (sessions: ReturnType<typeof createSessionsService>) =>
-            createAgentRuntime(deps.database, sessions),
+          inject: [SESSIONS_SERVICE, KNOWLEDGE_RETRIEVER],
+          useFactory: (
+            sessions: ReturnType<typeof createSessionsService>,
+            retriever: ReturnType<typeof createKnowledgeRetriever>,
+          ) =>
+            createAgentRuntime(
+              deps.database,
+              sessions,
+              undefined,
+              retriever,
+            ),
+        },
+        {
+          provide: OBJECT_STORAGE,
+          useFactory: () => createLocalObjectStorage(deps.env.STORAGE_ROOT),
+        },
+        {
+          provide: KNOWLEDGE_SERVICE,
+          inject: [AUDIT_SERVICE, OBJECT_STORAGE],
+          useFactory: (
+            audit: ReturnType<typeof createAuditService>,
+            storage: ReturnType<typeof createLocalObjectStorage>,
+          ) => {
+            // The same processor the worker runs. When a worker IS present
+            // this is never invoked; when one is not, documents still index.
+            const processInline = createDocumentProcessor({
+              database: deps.database,
+              embeddings: createDeterministicEmbeddingProvider(),
+              chunker: createChunker(),
+              storage,
+              logger: deps.logger,
+              onAudit: async (event) => {
+                await audit.record({
+                  organizationId: event.organizationId,
+                  actorUserId: event.actorUserId,
+                  eventType: event.eventType,
+                  resourceType: 'knowledge_document',
+                  resourceId: event.documentId,
+                  metadata: event.metadata,
+                });
+              },
+            });
+            return createKnowledgeService(
+              deps.database,
+              audit,
+              deps.jobs,
+              storage,
+              processInline,
+            );
+          },
+        },
+        {
+          // No embedding provider is selected (ADR-006 condition); the
+          // deterministic one implements the same interface so retrieval is
+          // real and testable without embedding a vendor choice.
+          provide: KNOWLEDGE_RETRIEVER,
+          useFactory: () =>
+            createKnowledgeRetriever(
+              deps.database,
+              createDeterministicEmbeddingProvider(),
+              deps.logger,
+            ),
         },
         { provide: APP_GUARD, useClass: AuthzGuard },
       ],

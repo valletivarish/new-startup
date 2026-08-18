@@ -63,6 +63,11 @@ export interface AgentsService {
   ): Promise<void>;
   transition(actor: Actor, agentId: string, to: AgentStatus): Promise<void>;
 
+  /** Knowledge sources this agent may draw on. */
+  listKnowledge(actor: Actor, agentId: string): Promise<readonly { id: string; name: string }[]>;
+  attachKnowledge(actor: Actor, agentId: string, sourceId: string): Promise<void>;
+  detachKnowledge(actor: Actor, agentId: string, sourceId: string): Promise<void>;
+
   listVersions(actor: Actor, agentId: string): Promise<readonly VersionRow[]>;
   getVersion(actor: Actor, agentId: string, versionId: string): Promise<VersionRow>;
   createDraft(
@@ -318,6 +323,85 @@ export function createAgentsService(
         resourceType: 'agent',
         resourceId: agentId,
         metadata: { status: to },
+      });
+    },
+
+    async listKnowledge(actor, agentId) {
+      return withTenantContext(
+        database.db,
+        { organizationId: actor.organizationId, userId: actor.userId },
+        async (tx) => {
+          await loadAgent(tx, actor, agentId);
+          const rows = await tx.execute<{ id: string; name: string }>(sql`
+            select s.id, s.name
+            from agent_knowledge_sources a
+            join knowledge_sources s
+              on s.id = a.source_id and s.organization_id = a.organization_id
+            where a.agent_id = ${agentId}
+              and a.organization_id = ${actor.organizationId}
+              and s.status <> 'archived'
+            order by s.name
+          `);
+          return rows.map((r) => ({ id: r.id, name: r.name }));
+        },
+      );
+    },
+
+    async attachKnowledge(actor, agentId, sourceId) {
+      await withTenantContext(
+        database.db,
+        { organizationId: actor.organizationId, userId: actor.userId },
+        async (tx) => {
+          await loadAgent(tx, actor, agentId);
+
+          // The source must exist IN THIS ORGANIZATION. Without this check a
+          // caller could name another tenant's source id and have the agent
+          // reference it — RLS would then hide the rows, but the association
+          // itself would be wrong. Validate rather than rely on the backstop.
+          const source = await tx.execute<{ id: string }>(sql`
+            select id from knowledge_sources
+            where id = ${sourceId} and organization_id = ${actor.organizationId}
+              and status <> 'archived'
+          `);
+          if (source.length === 0) throw ApiError.notFound('Knowledge source');
+
+          await tx.execute(sql`
+            insert into agent_knowledge_sources (organization_id, agent_id, source_id)
+            values (${actor.organizationId}, ${agentId}, ${sourceId})
+            on conflict (agent_id, source_id) do nothing
+          `);
+        },
+      );
+      await audit.record({
+        organizationId: actor.organizationId,
+        actorUserId: actor.userId,
+        eventType: 'agent.knowledge.attached',
+        resourceType: 'agent',
+        resourceId: agentId,
+        metadata: { sourceId },
+      });
+    },
+
+    async detachKnowledge(actor, agentId, sourceId) {
+      await withTenantContext(
+        database.db,
+        { organizationId: actor.organizationId, userId: actor.userId },
+        async (tx) => {
+          await loadAgent(tx, actor, agentId);
+          await tx.execute(sql`
+            delete from agent_knowledge_sources
+            where agent_id = ${agentId} and source_id = ${sourceId}
+              and organization_id = ${actor.organizationId}
+          `);
+        },
+      );
+      await audit.record({
+        organizationId: actor.organizationId,
+        actorUserId: actor.userId,
+        eventType: 'agent.knowledge.detached',
+        resourceType: 'agent',
+        resourceId: agentId,
+        metadata: { sourceId },
       });
     },
 

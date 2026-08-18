@@ -10,9 +10,20 @@ import { pino } from 'pino';
 import { createDatabase } from '@platform/db';
 
 import { loadEnv } from '../config.js';
-import { createJobQueue, EMAIL_QUEUE, type EmailJob } from './queue.js';
+import {
+  createJobQueue,
+  DOCUMENT_QUEUE,
+  EMAIL_QUEUE,
+  type DocumentJob,
+  type EmailJob,
+} from './queue.js';
 import { createConsoleNotificationProvider } from '../notifications/console-notification-provider.js';
 import { startTelemetry } from '../observability/telemetry.js';
+import { createDocumentProcessor } from '../knowledge/processor.js';
+import { createDeterministicEmbeddingProvider } from '../knowledge/deterministic-embedding-provider.js';
+import { createChunker } from '../knowledge/chunker.js';
+import { createLocalObjectStorage } from '../knowledge/local-object-storage.js';
+import { createAuditService } from '../audit/audit.service.js';
 
 const env = loadEnv();
 
@@ -49,6 +60,37 @@ await queue.boss.work<EmailJob>(EMAIL_QUEUE, async (jobs) => {
       ...(job.data.html !== undefined ? { html: job.data.html } : {}),
     });
     logger.info({ jobId: job.id, to: job.data.to }, 'jobs.email_sent');
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Knowledge indexing.
+//
+// The whole point of doing this here: extraction, chunking and embedding are
+// slow and retryable, so they belong on the worker rather than in a request.
+// ---------------------------------------------------------------------------
+const audit = createAuditService(database, logger);
+const processDocument = createDocumentProcessor({
+  database,
+  embeddings: createDeterministicEmbeddingProvider(),
+  chunker: createChunker(),
+  storage: createLocalObjectStorage(env.STORAGE_ROOT),
+  logger,
+  onAudit: async (event) => {
+    await audit.record({
+      organizationId: event.organizationId,
+      actorUserId: event.actorUserId,
+      eventType: event.eventType,
+      resourceType: 'knowledge_document',
+      resourceId: event.documentId,
+      metadata: event.metadata,
+    });
+  },
+});
+
+await queue.boss.work<DocumentJob>(DOCUMENT_QUEUE, async (jobs) => {
+  for (const job of jobs) {
+    await processDocument(job.data);
   }
 });
 

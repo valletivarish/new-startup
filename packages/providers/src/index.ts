@@ -50,3 +50,17 @@ export type {
   ToolExecutor,
   ToolRegistry,
 } from './runtime.js';
+
+export type {
+  Chunker,
+  ChunkInput,
+  KnowledgeRetriever,
+  ObjectStorage,
+  RetrievalContext,
+  RetrievalOptions,
+  RetrievalOutcome,
+  RetrievalResult,
+  RetrievedChunk,
+  StoredObject,
+  TextChunk,
+} from './knowledge.js';

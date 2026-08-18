@@ -188,3 +188,87 @@ export const sendSessionMessage = (sessionId: string, content: string) =>
     method: 'POST',
     body: JSON.stringify({ type: 'UserMessageReceived', payload: { content } }),
   });
+
+// --- Knowledge (Phase 3) ----------------------------------------------------
+
+export interface KnowledgeSource {
+  id: string;
+  name: string;
+  description: string;
+  type: string;
+  status: string;
+  documentCount: number;
+}
+
+export interface KnowledgeDocument {
+  id: string;
+  sourceId: string;
+  name: string;
+  contentType: string;
+  byteSize: number;
+  status: string;
+  version: number;
+  indexedVersion: number | null;
+  chunkCount: number;
+  failureReason: string | null;
+  failureCategory: string | null;
+}
+
+export interface RetrievedChunk {
+  chunkId: string;
+  documentId: string;
+  documentName: string;
+  content: string;
+  similarity: number;
+  section: string | null;
+}
+
+export const listKnowledgeSources = () =>
+  call<{ sources: KnowledgeSource[] }>('/backend/knowledge/sources');
+export const createKnowledgeSource = (name: string, description?: string) =>
+  call<{ id: string }>('/backend/knowledge/sources', {
+    method: 'POST',
+    body: JSON.stringify({ name, description }),
+  });
+export const deleteKnowledgeSource = (id: string) =>
+  call(`/backend/knowledge/sources/${id}`, { method: 'DELETE' });
+
+export const listKnowledgeDocuments = (sourceId?: string) =>
+  call<{ documents: KnowledgeDocument[] }>(
+    `/backend/knowledge/documents${sourceId ? `?sourceId=${sourceId}` : ''}`,
+  );
+export const uploadKnowledgeDocument = (input: {
+  sourceId: string;
+  name: string;
+  contentType: string;
+  content: string;
+}) =>
+  call<{ id: string; deduplicated: boolean }>('/backend/knowledge/documents', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+export const deleteKnowledgeDocument = (id: string) =>
+  call(`/backend/knowledge/documents/${id}`, { method: 'DELETE' });
+export const reindexKnowledgeDocument = (id: string) =>
+  call<{ version: number }>(`/backend/knowledge/documents/${id}/reindex`, {
+    method: 'POST',
+    body: '{}',
+  });
+
+export const searchKnowledge = (query: string, topK = 5) =>
+  call<{ outcome: string; chunks: RetrievedChunk[]; error?: string }>(
+    '/backend/knowledge/search',
+    { method: 'POST', body: JSON.stringify({ query, topK }) },
+  );
+
+export const listAgentKnowledge = (agentId: string) =>
+  call<{ sources: { id: string; name: string }[] }>(
+    `/backend/agents/${agentId}/knowledge`,
+  );
+export const attachAgentKnowledge = (agentId: string, sourceId: string) =>
+  call(`/backend/agents/${agentId}/knowledge`, {
+    method: 'POST',
+    body: JSON.stringify({ sourceId }),
+  });
+export const detachAgentKnowledge = (agentId: string, sourceId: string) =>
+  call(`/backend/agents/${agentId}/knowledge/${sourceId}`, { method: 'DELETE' });

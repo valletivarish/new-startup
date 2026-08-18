@@ -28,6 +28,7 @@ import {
   AgentsController,
   AgentSessionsController,
 } from '../src/agents/agents.controller.js';
+import { KnowledgeController } from '../src/knowledge/knowledge.controller.js';
 
 // The complete controller list. app.module.ts must register exactly these;
 // the companion assertion below keeps the two lists from drifting.
@@ -41,6 +42,7 @@ const CONTROLLERS = [
   CatalogueController,
   AgentsController,
   AgentSessionsController,
+  KnowledgeController,
 ];
 
 interface RouteInfo {

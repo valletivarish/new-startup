@@ -112,7 +112,7 @@ export async function buildApp(
   });
 
   const app = await NestFactory.create<NestFastifyApplication>(
-    AppModule.forRoot({ env, database, auth, notifications, logger }),
+    AppModule.forRoot({ env, database, auth, notifications, logger, jobs }),
     adapter,
     { logger: false },
   );

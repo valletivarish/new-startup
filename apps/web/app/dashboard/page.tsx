@@ -175,6 +175,10 @@ export default function DashboardPage() {
               <a href="/agents" style={{ color: '#0d6e63' }}>
                 Manage agents →
               </a>
+              {' · '}
+              <a href="/knowledge" style={{ color: '#0d6e63' }}>
+                Knowledge →
+              </a>
             </p>
             <p style={{ fontSize: 13, color: '#545c56' }}>
               {active.permissions.length} permissions in this organization.

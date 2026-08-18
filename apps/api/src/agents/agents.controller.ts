@@ -123,6 +123,44 @@ export class AgentsController {
     return { status: 'archived' };
   }
 
+  // ---- Knowledge association ---------------------------------------------
+  //
+  // Knowledge is REFERENCED, never copied: one organization source can back
+  // several agents, each keeping its own configuration.
+
+  @RequirePermission('agents.read')
+  @Get(':id/knowledge')
+  async listKnowledge(@Req() req: RequestWithAuth, @Param('id') id: string) {
+    return { sources: await this.agents.listKnowledge(actorOf(req), parse(Uuid, id)) };
+  }
+
+  @RequirePermission('agents.update')
+  @Post(':id/knowledge')
+  async attachKnowledge(
+    @Req() req: RequestWithAuth,
+    @Param('id') id: string,
+    @Body() body: unknown,
+  ) {
+    const input = parse(z.object({ sourceId: z.string().uuid() }), body);
+    await this.agents.attachKnowledge(actorOf(req), parse(Uuid, id), input.sourceId);
+    return { attached: true };
+  }
+
+  @RequirePermission('agents.update')
+  @Delete(':id/knowledge/:sourceId')
+  async detachKnowledge(
+    @Req() req: RequestWithAuth,
+    @Param('id') id: string,
+    @Param('sourceId') sourceId: string,
+  ) {
+    await this.agents.detachKnowledge(
+      actorOf(req),
+      parse(Uuid, id),
+      parse(Uuid, sourceId),
+    );
+    return { detached: true };
+  }
+
   // ---- Versions -----------------------------------------------------------
 
   @RequirePermission('agents.read')

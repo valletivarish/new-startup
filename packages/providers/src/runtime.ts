@@ -15,6 +15,8 @@
  * only the first has an implementation.
  */
 
+import type { RetrievalOutcome } from './knowledge.js';
+
 /** Conversation state — the working memory of one session. */
 export interface ConversationState {
   readonly sessionId: string;
@@ -33,6 +35,17 @@ export interface StrategyInput {
   readonly configuration: unknown;
   readonly turnCount: number;
   readonly lastUserMessage: string | null;
+  /**
+   * What the knowledge layer found, when a retriever is wired.
+   *
+   * The OUTCOME is what matters to a strategy without an LLM: it can refuse
+   * honestly rather than answer from nothing. A grounded answer built from
+   * the chunks themselves arrives with the intelligence layer.
+   */
+  readonly knowledge?: {
+    readonly outcome: RetrievalOutcome;
+    readonly chunkCount: number;
+  };
 }
 
 /**

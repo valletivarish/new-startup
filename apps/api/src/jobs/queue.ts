@@ -43,12 +43,16 @@ export function createJobQueue(
   const boss = new PgBoss({
     connectionString,
     schema: 'pgboss',
-    // The schema is created by migration 0004, owned by the migrator. Telling
-    // pg-boss not to create it is what keeps platform_app free of CREATE on
-    // the database — it needs CREATE on the `pgboss` schema only, for its own
-    // tables. Without this, start() attempts CREATE SCHEMA and is (correctly)
-    // refused.
+    // Every pg-boss object is installed by the MIGRATOR in migration 0005 and
+    // owned by it. The library performs NO DDL at runtime, which is what lets
+    // platform_app hold zero CREATE privileges anywhere — not on the database,
+    // not on public, not on pgboss. Both flags are required: createSchema
+    // suppresses CREATE SCHEMA, migrate suppresses version upgrades.
+    //
+    // On a pg-boss upgrade, generate a new migration from getMigrationPlans()
+    // rather than letting the library self-migrate at runtime.
     createSchema: false,
+    migrate: false,
     // Small pool: the worker's tenant work uses the application database
     // client, not this one.
     max: 3,

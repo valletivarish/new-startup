@@ -118,6 +118,13 @@ await withTenantContext(db, { organizationId, userId }, async (tx) => {
 
 **Never** take tenant context from a header, query parameter, or request body.
 
+Two database roles, and the split is absolute: `platform_migrator` owns every
+object and runs migrations; `platform_app` serves requests with DML only and
+holds **no CREATE privilege anywhere** — not on the database, not on `public`,
+not on `pgboss`. Every pg-boss object is installed by migration, so the job
+library performs no DDL at runtime either. If something ever fails for want of
+CREATE, the fix is a migration, never a grant.
+
 The application connects as `platform_app`: not the table owner, no DDL, no
 `BYPASSRLS`. It cannot disable RLS or drop a policy — there are tests proving
 both. A forgotten `WHERE organization_id` returns **zero rows**, not another

@@ -40,13 +40,14 @@ describe('CLOSEOUT: background jobs (pg-boss) exist and are wired', () => {
       );
       expect(rows.length).toBe(1);
 
-      // The app role may create INSIDE pgboss (its own queue tables) but
-      // still holds no CREATE on public — the privilege split survives.
+      // Superseded by migration 0005: pg-boss's objects are installed by the
+      // migrator, so the runtime role now holds NO create privilege anywhere
+      // — pgboss included. Full coverage lives in jobs-initialization.test.ts.
       const priv = await su.db.execute<{ pgboss: boolean; pub: boolean }>(sql`
         select has_schema_privilege('platform_app', 'pgboss', 'CREATE') as pgboss,
                has_schema_privilege('platform_app', 'public', 'CREATE') as pub
       `);
-      expect(priv[0]?.pgboss).toBe(true);
+      expect(priv[0]?.pgboss).toBe(false);
       expect(priv[0]?.pub).toBe(false);
     } finally {
       await su.close();

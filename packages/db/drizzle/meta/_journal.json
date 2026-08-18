@@ -36,6 +36,13 @@
       "when": 1787043393909,
       "tag": "0004_jobs_schema",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1787044283645,
+      "tag": "0005_pgboss_install",
+      "breakpoints": true
     }
   ]
 }

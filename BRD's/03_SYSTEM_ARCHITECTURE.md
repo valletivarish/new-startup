@@ -387,6 +387,23 @@ Call
 
 Mechanism: **`pg-boss`**, backed by the existing PostgreSQL instance. No additional infrastructure (ADR-001).
 
+### Database roles and initialisation
+
+Two roles, and the split is absolute:
+
+| Role | Owns | Privileges | Used by |
+|---|---|---|---|
+| `platform_migrator` | every table, in `public` **and** `pgboss` | DDL; `CREATE` on the database and both schemas; **no** `BYPASSRLS` | migrations only — never serves a request |
+| `platform_app` | nothing | `SELECT/INSERT/UPDATE/DELETE` and schema `USAGE`; **no `CREATE` anywhere**; no DDL; no `BYPASSRLS` | API and worker processes |
+
+**All pg-boss objects are installed by the migrator at migration time**, generated verbatim from the library's own `getConstructionPlans()`. The library runs with `createSchema: false` and `migrate: false`, so it performs no DDL at runtime.
+
+This is why: pg-boss installs its schema on `start()` by default. Running as the runtime role, PostgreSQL correctly refused it — the database was right, and the initialisation belonged in a migration. Granting the runtime role `CREATE` would have silenced the error by weakening the very property the role exists to guarantee.
+
+On a pg-boss upgrade, generate a new migration from `getMigrationPlans()`. Never let the library self-migrate at runtime.
+
+Local and container startup both apply migrations before any application process starts; in Docker Compose a dedicated `migrate` service gates `api` and `worker` via `service_completed_successfully`.
+
 Background jobs must establish tenant context **per organization and per transaction** — never once per batch (ADR-003).
 
 Use background processing for:

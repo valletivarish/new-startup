@@ -37,6 +37,24 @@ services:
   # still starts only PostgreSQL, which is what local development against
   # `pnpm dev:api` wants.
   # ---------------------------------------------------------------------
+  # Runs the migration chain as the MIGRATOR role, then exits. Both app
+  # services wait for it to complete successfully, so a clean `docker compose
+  # --profile app up` always reaches a fully initialised database — including
+  # every pg-boss object, which the runtime role cannot create for itself.
+  migrate:
+    profiles: ["app"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: platform-migrate
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_MIGRATION_URL: postgresql://platform_migrator:migrator_local_dev@postgres:5432/platform
+    command: ["node_modules/.bin/tsx", "packages/db/src/scripts/migrate.ts"]
+
   api:
     profiles: ["app"]
     build:
@@ -47,6 +65,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     environment:
       NODE_ENV: production
       DATABASE_URL: postgresql://platform_app:app_local_dev@postgres:5432/platform
@@ -70,6 +90,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     environment:
       NODE_ENV: production
       DATABASE_URL: postgresql://platform_app:app_local_dev@postgres:5432/platform

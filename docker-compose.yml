@@ -1,0 +1,86 @@
+services:
+  postgres:
+    # pgvector is required from Phase 1 so that tenant isolation of vector
+    # search is proven before Phase 3 depends on it (ADR-003, ADR-001).
+    image: pgvector/pgvector:pg16
+    container_name: platform-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres_local_dev
+      POSTGRES_DB: platform
+    ports:
+      # 5434 on the host to avoid colliding with a local PostgreSQL install.
+      # (5432 and 5433 were both already bound on the development machine.)
+      - "5434:5432"
+    volumes:
+      - platform-pgdata:/var/lib/postgresql/data
+      # Runs once, on first initialisation of the volume. Creates the
+      # migrator/application roles and the extensions.
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d platform"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    command:
+      - "postgres"
+      # Statement logging is useful while building the tenant-context wrapper.
+      - "-c"
+      - "log_statement=none"
+      - "-c"
+      - "max_connections=100"
+
+  # ---------------------------------------------------------------------
+  # Application and worker: ONE image, two entrypoints (A4 inventory).
+  # Opt in with `docker compose --profile app up` — plain `docker compose up`
+  # still starts only PostgreSQL, which is what local development against
+  # `pnpm dev:api` wants.
+  # ---------------------------------------------------------------------
+  api:
+    profiles: ["app"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: platform-api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://platform_app:app_local_dev@postgres:5432/platform
+      API_URL: http://localhost:3001
+      WEB_URL: http://localhost:3000
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET}
+      COOKIE_SECURE: ${COOKIE_SECURE:-true}
+      TRUST_PROXY: "true"
+      OTEL_ENABLED: ${OTEL_ENABLED:-false}
+    ports:
+      - "3001:3001"
+    command: ["node", "apps/api/dist/main.js"]
+
+  worker:
+    profiles: ["app"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: platform-worker
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://platform_app:app_local_dev@postgres:5432/platform
+      API_URL: http://localhost:3001
+      WEB_URL: http://localhost:3000
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET}
+      COOKIE_SECURE: ${COOKIE_SECURE:-true}
+      OTEL_ENABLED: ${OTEL_ENABLED:-false}
+      OTEL_SERVICE_NAME: platform-worker
+    command: ["node", "apps/api/dist/jobs/worker.js"]
+
+volumes:
+  platform-pgdata:
+    name: platform-pgdata

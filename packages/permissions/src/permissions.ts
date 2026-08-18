@@ -39,8 +39,20 @@ export const PERMISSIONS = [
 
   // Agent deployment — deliberately separate from agents.update. Editing a
   // draft is free; deploying spends money and reaches real people.
+  //
+  // `agents.deploy` IS publishing a version — the same act — so no separate
+  // publish permission exists. Creating a draft version is `agents.update`,
+  // and listing versions is `agents.read`: version history is part of the
+  // agent, not a separate resource.
   'agents.deploy',
   'agents.pause',
+  // Archiving is terminal, which `delete` does not convey: an archived agent
+  // is retained for audit and history, not removed.
+  'agents.archive',
+
+  // Agent sessions.
+  'agents.sessions.read',
+  'agents.sessions.manage',
 
   // Knowledge
   'knowledge.read',
@@ -115,6 +127,9 @@ export const SENSITIVE_PERMISSIONS = [
   'candidates.export',
   'calls.read_transcript',
   'calls.read_recording',
+  // Session events contain what was actually said in a conversation. Reading
+  // them is the same class of access as reading a call transcript.
+  'agents.sessions.read',
 ] as const satisfies readonly Permission[];
 
 export type SensitivePermission = (typeof SENSITIVE_PERMISSIONS)[number];

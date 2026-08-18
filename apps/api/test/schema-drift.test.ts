@@ -111,12 +111,15 @@ describe('the seeded permission catalogue matches the code', () => {
     expect(inDb).toEqual(inCode);
   });
 
-  it('has 51 permissions, as the approved matrix specifies', async () => {
+  it('has 54 permissions: the approved 51 plus three added by Phase 2', async () => {
+    // Phase 2 added agents.archive, agents.sessions.read and
+    // agents.sessions.manage. Publishing reuses agents.deploy, version
+    // creation reuses agents.update, and version listing reuses agents.read.
     const rows = await db.db.execute<{ n: string }>(
       sql`select count(*)::text as n from permissions`,
     );
-    expect(rows[0]?.n).toBe('51');
-    expect(PERMISSIONS.length).toBe(51);
+    expect(rows[0]?.n).toBe('54');
+    expect(PERMISSIONS.length).toBe(54);
   });
 
   it('flags exactly the personal-data permissions as sensitive', async () => {

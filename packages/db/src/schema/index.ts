@@ -6,6 +6,12 @@ export {
   organizationInvitations,
 } from './membership.js';
 export { auditEvents } from './audit.js';
+export {
+  agents,
+  agentVersions,
+  agentSessions,
+  agentEvents,
+} from './agents.js';
 
 /**
  * Tables deliberately exempt from row-level security.
@@ -38,4 +44,16 @@ export const RLS_BOOTSTRAP_TABLES = [
   'organization_memberships',
   'organization_invitations',
   'roles',
+] as const;
+
+/**
+ * Phase 2 agent tables. Plain tenant policies — no bootstrap exception is
+ * needed, because every access happens inside an established organization
+ * context.
+ */
+export const AGENT_TABLES = [
+  'agents',
+  'agent_versions',
+  'agent_sessions',
+  'agent_events',
 ] as const;

@@ -171,6 +171,11 @@ export default function DashboardPage() {
             <h2 style={{ marginTop: 0, fontSize: 17 }}>
               Your role: {active.role}
             </h2>
+            <p style={{ fontSize: 14 }}>
+              <a href="/agents" style={{ color: '#0d6e63' }}>
+                Manage agents →
+              </a>
+            </p>
             <p style={{ fontSize: 13, color: '#545c56' }}>
               {active.permissions.length} permissions in this organization.
             </p>

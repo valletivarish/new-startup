@@ -24,6 +24,10 @@ import {
   OrganizationController,
   OrganizationCreateController,
 } from '../src/controllers.js';
+import {
+  AgentsController,
+  AgentSessionsController,
+} from '../src/agents/agents.controller.js';
 
 // The complete controller list. app.module.ts must register exactly these;
 // the companion assertion below keeps the two lists from drifting.
@@ -35,6 +39,8 @@ const CONTROLLERS = [
   MembersController,
   InvitationsController,
   CatalogueController,
+  AgentsController,
+  AgentSessionsController,
 ];
 
 interface RouteInfo {

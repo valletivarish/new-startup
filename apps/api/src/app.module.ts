@@ -21,6 +21,9 @@ import { createSessionService } from './auth/session.service.js';
 import { createOrganizationsService } from './organizations/organizations.service.js';
 import { createMembersService } from './organizations/members.service.js';
 import { createInvitationsService } from './organizations/invitations.service.js';
+import { createAgentsService } from './agents/agents.service.js';
+import { createSessionsService } from './agents/sessions.service.js';
+import { createAgentRuntime } from './agents/runtime.js';
 import {
   AUDIT_SERVICE,
   AUTH_CONTEXT_SERVICE,
@@ -33,7 +36,12 @@ import {
   NOTIFICATIONS,
   ORGANIZATIONS_SERVICE,
 } from './tokens.js';
-import { SESSION_SERVICE } from './tokens.more.js';
+import {
+  AGENTS_SERVICE,
+  AGENT_RUNTIME,
+  SESSIONS_SERVICE,
+  SESSION_SERVICE,
+} from './tokens.more.js';
 import {
   AuthController,
   CatalogueController,
@@ -43,6 +51,10 @@ import {
   OrganizationController,
   OrganizationCreateController,
 } from './controllers.js';
+import {
+  AgentsController,
+  AgentSessionsController,
+} from './agents/agents.controller.js';
 
 export interface AppDeps {
   readonly env: Env;
@@ -65,6 +77,8 @@ export class AppModule {
         MembersController,
         InvitationsController,
         CatalogueController,
+        AgentsController,
+        AgentSessionsController,
       ],
       providers: [
         { provide: ENV, useValue: deps.env },
@@ -108,6 +122,26 @@ export class AppModule {
               deps.notifications,
               deps.env.WEB_URL,
             ),
+        },
+        {
+          provide: AGENTS_SERVICE,
+          inject: [AUDIT_SERVICE],
+          useFactory: (audit: ReturnType<typeof createAuditService>) =>
+            createAgentsService(deps.database, audit),
+        },
+        {
+          provide: SESSIONS_SERVICE,
+          inject: [AUDIT_SERVICE],
+          useFactory: (audit: ReturnType<typeof createAuditService>) =>
+            createSessionsService(deps.database, audit),
+        },
+        {
+          // Phase 2 uses the deterministic strategy. Phase 4 swaps in an
+          // LLM-backed one here and nothing else changes.
+          provide: AGENT_RUNTIME,
+          inject: [SESSIONS_SERVICE],
+          useFactory: (sessions: ReturnType<typeof createSessionsService>) =>
+            createAgentRuntime(deps.database, sessions),
         },
         { provide: APP_GUARD, useClass: AuthzGuard },
       ],

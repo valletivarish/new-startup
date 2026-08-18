@@ -169,3 +169,42 @@ export async function addMember(
   );
   return userId;
 }
+
+/**
+ * Asserts an operation was refused by the DATABASE with a message matching
+ * `pattern`. Like `expectRlsDenied`, this walks the cause chain: drizzle's
+ * wrapper message is only the failed SQL, so matching the top-level message
+ * would pass for any failure at all.
+ */
+export async function expectDatabaseRejection(
+  operation: () => Promise<unknown>,
+  pattern: RegExp,
+): Promise<void> {
+  let raised: unknown;
+  try {
+    await operation();
+  } catch (error) {
+    raised = error;
+  }
+  if (raised === undefined) {
+    throw new Error('Expected the database to refuse this operation, but it succeeded.');
+  }
+
+  const chain: unknown[] = [];
+  for (let e: unknown = raised, depth = 0; e && depth < 5; depth += 1) {
+    chain.push(e);
+    e = (e as { cause?: unknown }).cause;
+  }
+
+  const matched = chain.some((e) =>
+    pattern.test((e as { message?: string }).message ?? ''),
+  );
+  if (!matched) {
+    const detail = chain
+      .map((e) => (e as { message?: string }).message ?? String(e))
+      .join('\n  caused by: ');
+    throw new Error(
+      `Operation failed, but not with ${pattern}:\n  ${detail}`,
+    );
+  }
+}

@@ -43,6 +43,27 @@
       "when": 1787044283645,
       "tag": "0005_pgboss_install",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1787045027702,
+      "tag": "0006_agent_foundation",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1787045053498,
+      "tag": "0007_agent_rls",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1787045092661,
+      "tag": "0008_seed_permission_matrix_v2",
+      "breakpoints": true
     }
   ]
 }

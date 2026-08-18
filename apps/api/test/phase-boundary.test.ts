@@ -107,10 +107,11 @@ describe('no external AI or telephony provider SDK is installed', () => {
   });
 });
 
-describe('no Phase 2-8 functionality exists', () => {
+describe('no Phase 3+ functionality exists', () => {
+  // agents / agent_versions / agent_sessions / agent_events are Phase 2
+  // deliverables and are deliberately absent from this list. Everything
+  // below still belongs to a later phase.
   const FORBIDDEN_TABLES = [
-    'agents',
-    'agent_versions',
     'knowledge_sources',
     'knowledge_documents',
     'knowledge_chunks',

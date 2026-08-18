@@ -32,3 +32,21 @@ export type {
   UsageRecord,
   VoicePipeline,
 } from './interfaces.js';
+
+export type {
+  AgentContext,
+  AgentRuntime,
+  AgentRuntimeResult,
+  ConversationState,
+  ExecutionStrategy,
+  InboundRuntimeEvent,
+  MemoryProvider,
+  RuntimeDecision,
+  RuntimeEvent,
+  StrategyInput,
+  ToolDefinition,
+  ToolExecutionRequest,
+  ToolExecutionResult,
+  ToolExecutor,
+  ToolRegistry,
+} from './runtime.js';

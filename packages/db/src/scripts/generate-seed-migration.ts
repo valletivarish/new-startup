@@ -29,13 +29,22 @@ import {
 } from '@platform/permissions';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const target = join(
-  here,
-  '..',
-  '..',
-  'drizzle',
-  '0002_seed_permission_matrix.sql',
-);
+
+/**
+ * Output file. Defaults to the original seed migration so a clean database
+ * gets the current catalogue in one step.
+ *
+ * When the catalogue CHANGES after 0002 has already been applied somewhere,
+ * pass a new migration filename instead — drizzle runs each file once, so an
+ * existing database only picks the change up from a new migration. The SQL is
+ * idempotent and prunes grants that are no longer in the catalogue, so
+ * applying every seed migration in order always converges on the same state.
+ *
+ *   pnpm --filter @platform/db exec tsx src/scripts/generate-seed-migration.ts \
+ *     0008_seed_permission_matrix_v2.sql
+ */
+const outputFile = process.argv[2] ?? '0002_seed_permission_matrix.sql';
+const target = join(here, '..', '..', 'drizzle', outputFile);
 
 const sensitive = new Set<string>(SENSITIVE_PERMISSIONS);
 

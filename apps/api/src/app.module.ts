@@ -13,7 +13,7 @@ import type { JobQueue } from './jobs/queue.js';
 import type { NotificationProvider } from '@platform/providers';
 import type { Logger } from 'pino';
 
-import type { Env } from './config.js';
+import { runtimeLimitsFrom, type Env } from './config.js';
 import type { BetterAuthInstance } from './auth/better-auth.js';
 import { createAuthContextService } from './authz/auth-context.js';
 import { AuthzGuard } from './authz/authz.guard.js';
@@ -31,6 +31,11 @@ import { createDeterministicEmbeddingProvider } from './knowledge/deterministic-
 import { createLocalObjectStorage } from './knowledge/local-object-storage.js';
 import { createDocumentProcessor } from './knowledge/processor.js';
 import { createChunker } from './knowledge/chunker.js';
+import { createToolRegistry } from './tools/registry.js';
+import { createToolExecutor } from './tools/executor.js';
+import { createToolsService } from './tools/tools.service.js';
+import { createDeterministicIntelligenceProvider } from './intelligence/deterministic-provider.js';
+import { createIntelligenceOrchestrator } from './intelligence/orchestrator.js';
 import {
   AUDIT_SERVICE,
   AUTH_CONTEXT_SERVICE,
@@ -46,11 +51,16 @@ import {
 import {
   AGENTS_SERVICE,
   AGENT_RUNTIME,
+  INTELLIGENCE_ORCHESTRATOR,
+  INTELLIGENCE_PROVIDER,
   KNOWLEDGE_RETRIEVER,
   KNOWLEDGE_SERVICE,
   OBJECT_STORAGE,
   SESSIONS_SERVICE,
   SESSION_SERVICE,
+  TOOLS_SERVICE,
+  TOOL_EXECUTOR,
+  TOOL_REGISTRY,
 } from './tokens.more.js';
 import {
   AuthController,
@@ -66,6 +76,11 @@ import {
   AgentSessionsController,
 } from './agents/agents.controller.js';
 import { KnowledgeController } from './knowledge/knowledge.controller.js';
+import {
+  AgentToolsController,
+  ToolExecutionsController,
+  ToolsController,
+} from './tools/tools.controller.js';
 
 export interface AppDeps {
   readonly env: Env;
@@ -93,6 +108,9 @@ export class AppModule {
         AgentsController,
         AgentSessionsController,
         KnowledgeController,
+        ToolsController,
+        AgentToolsController,
+        ToolExecutionsController,
       ],
       providers: [
         { provide: ENV, useValue: deps.env },
@@ -150,20 +168,69 @@ export class AppModule {
             createSessionsService(deps.database, audit),
         },
         {
-          // Phase 2 uses the deterministic strategy. Phase 4 swaps in an
-          // LLM-backed one here and nothing else changes.
+          // No production intelligence provider is selected (ADR-006
+          // condition). The deterministic one implements the SAME interface,
+          // so the orchestration layer is real and fully tested without
+          // embedding a vendor choice. Swapping in a real provider is one
+          // binding, here.
+          provide: INTELLIGENCE_PROVIDER,
+          useFactory: () => createDeterministicIntelligenceProvider(),
+        },
+        {
+          provide: TOOL_REGISTRY,
+          useFactory: () => createToolRegistry(deps.database),
+        },
+        {
+          provide: TOOL_EXECUTOR,
+          inject: [TOOL_REGISTRY, AUDIT_SERVICE],
+          useFactory: (
+            registry: ReturnType<typeof createToolRegistry>,
+            audit: ReturnType<typeof createAuditService>,
+          ) => createToolExecutor(deps.database, registry, audit),
+        },
+        {
+          provide: TOOLS_SERVICE,
+          inject: [TOOL_REGISTRY, AUDIT_SERVICE],
+          useFactory: (
+            registry: ReturnType<typeof createToolRegistry>,
+            audit: ReturnType<typeof createAuditService>,
+          ) => createToolsService(deps.database, registry, audit),
+        },
+        {
+          provide: INTELLIGENCE_ORCHESTRATOR,
+          inject: [INTELLIGENCE_PROVIDER, TOOL_EXECUTOR],
+          useFactory: (
+            provider: ReturnType<typeof createDeterministicIntelligenceProvider>,
+            executor: ReturnType<typeof createToolExecutor>,
+          ) => createIntelligenceOrchestrator(provider, executor),
+        },
+        {
+          // The runtime loop is unchanged from Phase 2. Intelligence and
+          // tools are collaborators it delegates to — the event lifecycle,
+          // ordering, idempotency and version pinning are untouched.
           provide: AGENT_RUNTIME,
-          inject: [SESSIONS_SERVICE, KNOWLEDGE_RETRIEVER],
+          inject: [
+            SESSIONS_SERVICE,
+            KNOWLEDGE_RETRIEVER,
+            INTELLIGENCE_ORCHESTRATOR,
+            TOOL_REGISTRY,
+            AUDIT_SERVICE,
+          ],
           useFactory: (
             sessions: ReturnType<typeof createSessionsService>,
             retriever: ReturnType<typeof createKnowledgeRetriever>,
+            intelligence: ReturnType<typeof createIntelligenceOrchestrator>,
+            tools: ReturnType<typeof createToolRegistry>,
+            audit: ReturnType<typeof createAuditService>,
           ) =>
-            createAgentRuntime(
-              deps.database,
-              sessions,
-              undefined,
+            createAgentRuntime(deps.database, sessions, {
               retriever,
-            ),
+              intelligence,
+              tools,
+              limits: runtimeLimitsFrom(deps.env),
+              audit,
+              logger: deps.logger,
+            }),
         },
         {
           provide: OBJECT_STORAGE,

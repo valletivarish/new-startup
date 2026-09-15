@@ -1,0 +1,46 @@
+{
+  "version": "example-2026-08-24",
+  "usdToInr": {
+    "rate": 95.74,
+    "source": "THIRD_PARTY",
+    "verifiedOn": "2026-08-18"
+  },
+  "rates": {
+    "sarvam.stt": {
+      "unit": "per_audio_hour",
+      "amount": 30,
+      "currency": "INR",
+      "source": "OFFICIAL",
+      "url": "https://docs.sarvam.ai/api-reference-docs/pricing",
+      "verifiedOn": "2026-08-18",
+      "note": "Billed per second. Diarization and translate variants are priced separately and are not used here."
+    },
+    "sarvam.tts": {
+      "unit": "per_10k_characters",
+      "amount": 15,
+      "currency": "INR",
+      "source": "OFFICIAL",
+      "url": "https://docs.sarvam.ai/api-reference-docs/pricing",
+      "verifiedOn": "2026-08-18",
+      "note": "Bulbul v2. Bulbul v3 (beta) is priced at 30 per 10K and would need its own entry."
+    },
+    "deepgram.stt": {
+      "unit": "per_audio_minute",
+      "amount": 0.0043,
+      "currency": "USD",
+      "source": "THIRD_PARTY",
+      "url": "https://deepgram.com/pricing",
+      "verifiedOn": "2026-08-24",
+      "note": "MONOLINGUAL pre-recorded rate, reported by the 2026-08-24 documentation review and NOT re-read on the pricing page by a human. Code-mixed audio sent with language=multi is billed at the higher multilingual rate and needs its own key once the corpus split is known. Confirm both before budgeting."
+    },
+    "gemini.llm": {
+      "unit": "per_1m_output_tokens",
+      "amount": 2.5,
+      "currency": "USD",
+      "source": "OFFICIAL",
+      "url": "https://ai.google.dev/gemini-api/docs/pricing",
+      "verifiedOn": "2026-09-15",
+      "note": "gemini-3.5-flash-lite paid standard tier: $0.30 input / $2.50 output per 1M tokens. Token counts cannot be derived from audio seconds or characters, so this line will report NOT PRICED until measured — which is correct, not a defect. DO NOT USE THE FREE TIER: unpaid input is used to improve Google products and may be read by human reviewers."
+    }
+  }
+}

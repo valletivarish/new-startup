@@ -64,3 +64,50 @@ export type {
   StoredObject,
   TextChunk,
 } from './knowledge.js';
+
+export {
+  DEFAULT_RUNTIME_LIMITS,
+  LLMProviderError,
+} from './intelligence.js';
+
+export type {
+  Citation,
+  ContentTrust,
+  FinishReason,
+  IntelligenceProvider,
+  LLMStreamEvent,
+  LLMToolCall,
+  LLMToolSpec,
+  LLMUsage,
+  NormalizedLLMRequest,
+  NormalizedLLMResponse,
+  NormalizedMessage,
+  ProviderFailure,
+  RuntimeLimitName,
+  RuntimeLimits,
+  RuntimeOutcome,
+} from './intelligence.js';
+
+export type {
+  AudioCodec,
+  AudioEncoding,
+  AudioFormat,
+  AudioSampleRate,
+  MediaStream,
+  NormalizedAudioFrame,
+  VoiceActivityDetector,
+} from './voice.js';
+
+export type {
+  AudioCondition,
+  BenchmarkCaseResult,
+  BenchmarkRunSummary,
+  BenchmarkStage,
+  BenchmarkSubject,
+  BenchmarkThresholds,
+  BenchmarkVerdict,
+  LatencyDistribution,
+  StageDurations,
+  TranscriptAccuracy,
+  TurnTimeline,
+} from './benchmark.js';

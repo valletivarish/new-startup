@@ -101,6 +101,55 @@ The most heavily changed file.
 
 ---
 
+## Phase 4 — Intelligence + Tool Foundation (APPLIED)
+
+### `11_PERMISSION_MATRIX.md`
+
+- **[ADD]** "Tools and permissions (Phase 4)" — the built-in tool → permission
+  mapping, the catalogue-management permissions, and the five independent
+  authorization conditions. **No new permissions**; the catalogue stays at 54.
+
+### `03_SYSTEM_ARCHITECTURE.md` intent, realised in code
+
+- **[CLARIFY]** The runtime's `ExecutionStrategy` seam now has a second
+  outcome, `defer`, meaning "no deterministic decision applies — hand the turn
+  to the intelligence layer". Guardrails, the turn ceiling and operator rules
+  are all decided *before* a model is consulted and can never be overridden by
+  one. Without an intelligence layer wired, `defer` collapses back to the
+  Phase 2/3 acknowledgement, so the earlier behaviour is preserved exactly.
+
+### Behavioural correction to the Phase 3 `refuseWhenNoKnowledge` contract
+
+- **[CORRECTION]** The guardrail now gates the **answer**, not the **turn**.
+
+  Previously it was evaluated before the model ran, and refused whenever
+  retrieval scored low. Once tools existed this became a functional defect:
+  *any* agent with a knowledge source attached refused every turn that did not
+  retrieve well — including turns that asked for a tool and turns that were not
+  knowledge questions at all. Tools became unreachable the moment knowledge was
+  attached.
+
+  The corrected semantics:
+
+  | Retrieval outcome | Behaviour |
+  |---|---|
+  | `failed` | Short-circuits before the model. The knowledge system is down and the agent depends on it; there is nothing safe to do but say so. |
+  | `no_knowledge`, `below_threshold` | The intelligence layer still runs. A **final answer** backed by neither approved knowledge nor a tool result is refused. |
+  | `ok` | Normal grounded answer, with citations. |
+
+  The Phase 3 regression fix is preserved: the guardrail applies only when the
+  agent actually has knowledge configured. Found by running the platform, not
+  by running the suite; regression tests added in `test/grounding.test.ts`.
+
+### `AgentResponseGenerated` event payload
+
+- **[ADD]** Optional `citations[]` (`chunkId`, `documentId`, `documentName`,
+  `sourceId`, `similarity`). Recorded so the platform can state honestly
+  whether a response was grounded. An answer with no citations is never
+  presented as though it were.
+
+---
+
 ## New files created by this phase
 
 | File | Purpose |

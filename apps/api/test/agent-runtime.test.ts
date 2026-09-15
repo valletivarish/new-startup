@@ -64,7 +64,11 @@ describe('the deterministic runtime', () => {
 
     const body = JSON.parse(res.body) as {
       inboundEvent: { type: string; sequence: number };
-      outboundEvents: { type: string; sequence: number; payload: { content?: string } }[];
+      outboundEvents: {
+        type: string;
+        sequence: number;
+        payload: { content?: string; strategy?: string };
+      }[];
       deduplicated: boolean;
     };
     expect(body.deduplicated).toBe(false);
@@ -73,7 +77,13 @@ describe('the deterministic runtime', () => {
       'AgentResponseRequested',
       'AgentResponseGenerated',
     ]);
-    expect(body.outboundEvents[1]?.payload.content).toContain('deterministic runtime');
+    // No rule matched, so the turn was deferred to the intelligence layer —
+    // which runs AFTER guardrails, the turn ceiling and rules, never instead
+    // of them. The response records which layer produced it.
+    expect(body.outboundEvents[1]?.payload.strategy).toBe(
+      'intelligence:deterministic',
+    );
+    expect(body.outboundEvents[1]?.payload.content).toContain('hello there');
 
     // Sequences strictly increase across the whole exchange.
     const all = [body.inboundEvent, ...body.outboundEvents].map((e) => e.sequence);

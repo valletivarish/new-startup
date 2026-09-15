@@ -28,7 +28,19 @@ export interface ConversationState {
 export type RuntimeDecision =
   | { readonly kind: 'reply'; readonly content: string }
   | { readonly kind: 'escalate'; readonly reason: string }
-  | { readonly kind: 'end'; readonly reason: string };
+  | { readonly kind: 'end'; readonly reason: string }
+  /**
+   * No DETERMINISTIC decision applies — hand the turn to the intelligence
+   * layer (Phase 4).
+   *
+   * Deliberately a distinct outcome rather than an empty reply. Guardrails,
+   * turn ceilings and operator rules are decided before a model is consulted
+   * and can never be overridden by one; `defer` is the explicit statement
+   * that none of them applied, so a reader can see exactly where application
+   * authority ends and generation begins. When no intelligence layer is
+   * wired, the runtime turns this back into an acknowledgement.
+   */
+  | { readonly kind: 'defer' };
 
 export interface StrategyInput {
   /** The PINNED version's configuration — never the agent's current one. */

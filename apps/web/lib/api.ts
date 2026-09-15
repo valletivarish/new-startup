@@ -272,3 +272,59 @@ export const attachAgentKnowledge = (agentId: string, sourceId: string) =>
   });
 export const detachAgentKnowledge = (agentId: string, sourceId: string) =>
   call(`/backend/agents/${agentId}/knowledge/${sourceId}`, { method: 'DELETE' });
+
+// --- Tools and intelligence (Phase 4) ---------------------------------------
+
+export interface Tool {
+  id: string;
+  name: string;
+  description: string;
+  inputSchema: unknown;
+  outputSchema: unknown;
+  /**
+   * The permission the ACTING USER must hold for this tool to run. Shown so an
+   * operator can see why a tool was refused. It is never sent to the model.
+   */
+  requiredPermission: string;
+  enabled: boolean;
+  version: number;
+}
+
+export interface ToolExecution {
+  id: string;
+  sessionId: string;
+  toolName: string;
+  callId: string;
+  status: string;
+  denialReason: string | null;
+  durationMs: number | null;
+  outputChars: number | null;
+  createdAt: string;
+}
+
+export const listTools = () => call<{ tools: Tool[] }>('/backend/tools');
+export const installBuiltInTools = () =>
+  call<{ tools: Tool[] }>('/backend/tools/install-builtins', {
+    method: 'POST',
+    body: '{}',
+  });
+export const setToolEnabled = (toolId: string, enabled: boolean) =>
+  call(`/backend/tools/${toolId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ enabled }),
+  });
+
+export const listAgentTools = (agentId: string) =>
+  call<{ tools: Tool[] }>(`/backend/agents/${agentId}/tools`);
+export const grantAgentTool = (agentId: string, toolId: string) =>
+  call(`/backend/agents/${agentId}/tools`, {
+    method: 'POST',
+    body: JSON.stringify({ toolId }),
+  });
+export const revokeAgentTool = (agentId: string, toolId: string) =>
+  call(`/backend/agents/${agentId}/tools/${toolId}`, { method: 'DELETE' });
+
+export const listToolExecutions = (sessionId: string) =>
+  call<{ executions: ToolExecution[] }>(
+    `/backend/sessions/${sessionId}/tool-executions`,
+  );

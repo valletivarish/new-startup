@@ -148,6 +148,45 @@ These are enforced in code and covered by tests. They are not expressible in the
 
 ---
 
+## Tools and permissions (Phase 4)
+
+Phase 4 introduced **no new permissions**. The catalogue remains at 54. A tool
+does not get a permission of its own; it *declares* one from this matrix, and
+the runtime checks that declaration against the acting membership before the
+tool runs.
+
+| Built-in tool | Declares | Effect |
+|---|---|---|
+| `calculator` | `agents.test` | Available to Owner, Administrator, Agent Manager |
+| `test_echo` | `agents.test` | Same |
+| `test_structured_output` | `agents.test` | Same |
+| `deterministic_business_action` | `workflows.run` | Available to Owner, Administrator, Agent Manager, Recruiter |
+
+Managing the catalogue is agent configuration, so it reuses the agent
+permissions rather than inventing tool-specific ones:
+
+| Operation | Permission |
+|---|---|
+| List the catalogue, list an agent's tools | `agents.read` |
+| Install built-ins, enable/disable a tool, grant/revoke to an agent | `agents.update` |
+| Read tool execution records | `agents.sessions.read` |
+
+**Five independent conditions** must all hold before a tool executes. None of
+them is derivable from anything the model produces:
+
+1. the tool exists in the caller's organization (RLS-scoped);
+2. a registered implementation exists for that name;
+3. the tool is enabled;
+4. the tool is granted to this agent;
+5. the acting membership holds the tool's declared permission.
+
+A model requesting a tool is a *suggestion*. Authorization is decided by
+`authorizeTool`, which takes no argument the model can influence — there is
+deliberately no field for the tool's arguments, because what a tool is allowed
+to do must not depend on what it was asked to do.
+
+---
+
 ## Required tests
 
 - Each role can perform exactly its granted permissions and no others — table-driven across all 51 × 7 combinations.

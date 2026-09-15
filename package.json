@@ -20,9 +20,11 @@
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
-    "test": "pnpm --filter @platform/api test",
+    "test": "pnpm --filter @platform/api test && pnpm --filter @platform/benchmark test",
     "test:watch": "pnpm --filter @platform/api test:watch",
-    "dev:worker": "pnpm --filter @platform/api dev:worker"
+    "dev:worker": "pnpm --filter @platform/api dev:worker",
+    "test:api": "pnpm --filter @platform/api test",
+    "bench": "pnpm --filter @platform/benchmark bench"
   },
   "devDependencies": {
     "@eslint/js": "^9.20.0",

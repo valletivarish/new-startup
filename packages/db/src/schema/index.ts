@@ -12,6 +12,7 @@ export {
   agentSessions,
   agentEvents,
 } from './agents.js';
+export { tools, agentTools, toolExecutions } from './tools.js';
 export {
   EMBEDDING_DIMENSIONS,
   knowledgeSources,
@@ -67,6 +68,9 @@ export const AGENT_TABLES = [
 ] as const;
 
 /** Phase 3 knowledge tables. Plain tenant policies, same posture as above. */
+/** Phase 4 tool tables. Same tenant posture as everything else. */
+export const TOOL_TABLES = ['tools', 'agent_tools', 'tool_executions'] as const;
+
 export const KNOWLEDGE_TABLES = [
   'knowledge_sources',
   'knowledge_documents',

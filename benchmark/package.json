@@ -1,0 +1,23 @@
+{
+  "name": "@platform/benchmark",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Phase 5C provider benchmark harness. NOT production code. Provider-specific adapters live here and nowhere else.",
+  "scripts": {
+    "bench": "tsx src/cli.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@platform/providers": "workspace:*",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.4",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.5"
+  }
+}

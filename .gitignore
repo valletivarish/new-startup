@@ -13,6 +13,7 @@ out/
 .env
 .env.*
 !.env.example
+!benchmark/.env.benchmark.example
 *.pem
 *.key
 secrets/
@@ -34,3 +35,33 @@ pnpm-debug.log*
 
 # Local database volumes
 docker/postgres/data/
+
+# Local object storage (STORAGE_ROOT). Uploaded documents from dev and live
+# runs — real content, never committed.
+.storage/
+apps/api/.storage/
+
+# Benchmark corpus and results.
+# Voice recordings and transcripts are personal data under the DPDP Act.
+# Manifests are committed; audio and run output never are.
+benchmark/corpus/**/*.wav
+benchmark/corpus/**/*.amr
+benchmark/corpus/**/*.raw
+benchmark/runs/
+benchmark/reports/
+
+# --runs-dir accepts any path, so the anchored rules above are not enough:
+# run output written outside benchmark/ was not ignored at all. Run output
+# contains transcripts of real people's voices.
+runs/
+reports/
+
+# Loose audio ANYWHERE in the tree. Voice recordings are personal data under the
+# DPDP Act, and a take dropped in the repo root would otherwise be committed by
+# `git add .`. Corpus audio belongs in benchmark/corpus/<name>/audio/, which is
+# already ignored above.
+*.m4a
+*.mp3
+*.aac
+*.ogg
+*.webm

@@ -29,6 +29,7 @@
  */
 
 import type { AgentSession, InboundEvent, OutboundEvent } from './agent-session.js';
+import type { MediaStream } from './voice.js';
 
 /** Common shape for anything that reports normalised usage for cost events. */
 export interface UsageRecord {
@@ -185,6 +186,20 @@ export interface TelephonyProvider {
   hangup(externalCallId: string): Promise<void>;
   /** Verify a provider webhook's authenticity (§18). */
   verifyWebhook(headers: Readonly<Record<string, string>>, rawBody: string): boolean;
+  /**
+   * Open the bidirectional media stream for a live call.
+   *
+   * Added in Phase 5C. This is the seam that keeps carrier audio formats out of
+   * the rest of the platform: the adapter speaks whatever its carrier speaks —
+   * mu-law 8 kHz for Plivo and TTBS, selectable-rate linear16 for Knowlarity —
+   * and returns `NormalizedAudioFrame`s. Nothing downstream can tell which
+   * carrier is underneath, which is the property that makes the second source
+   * usable at all.
+   *
+   * Not every carrier attaches media the same way (some dial into an endpoint
+   * you host, some expect you to connect). The adapter hides that too.
+   */
+  openMediaStream(externalCallId: string): Promise<MediaStream>;
 }
 
 /**

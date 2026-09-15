@@ -14,11 +14,16 @@ import {
   createDraft,
   createSession,
   getAgent,
+  grantAgentTool,
+  listAgentTools,
   listSessionEvents,
   listSessions,
+  listToolExecutions,
+  listTools,
   listVersions,
   me,
   publishVersion,
+  revokeAgentTool,
   sendSessionMessage,
   updateDraft,
   type Agent,
@@ -26,7 +31,21 @@ import {
   type AgentVersion,
   type Me,
   type SessionEvent,
+  type Tool,
+  type ToolExecution,
 } from '../../../lib/api';
+
+const INTELLIGENCE_TIERS = ['standard', 'advanced', 'premium'] as const;
+
+/** Reads a nested value without asserting the configuration's shape. */
+function tierOf(configuration: Record<string, unknown> | undefined): string {
+  const capabilities = configuration?.['capabilities'];
+  if (capabilities && typeof capabilities === 'object') {
+    const tier = (capabilities as Record<string, unknown>)['intelligenceTier'];
+    if (typeof tier === 'string') return tier;
+  }
+  return 'standard';
+}
 
 const shell: React.CSSProperties = { maxWidth: 900, margin: '0 auto', padding: 24 };
 const panel: React.CSSProperties = {
@@ -55,6 +74,9 @@ export default function AgentDetailPage() {
   const [events, setEvents] = useState<SessionEvent[]>([]);
   const [message, setMessage] = useState('');
   const [notice, setNotice] = useState<string | null>(null);
+  const [catalogue, setCatalogue] = useState<Tool[]>([]);
+  const [agentTools, setAgentTools] = useState<Tool[]>([]);
+  const [executions, setExecutions] = useState<ToolExecution[]>([]);
 
   const reload = useCallback(async () => {
     try {
@@ -71,6 +93,12 @@ export default function AgentDetailPage() {
       if (p.activeOrganization?.permissions.includes('agents.sessions.read')) {
         setSessions((await listSessions(agentId)).sessions);
       }
+      const [all, granted] = await Promise.all([
+        listTools(),
+        listAgentTools(agentId),
+      ]);
+      setCatalogue(all.tools);
+      setAgentTools(granted.tools);
     } catch (e) {
       if (e instanceof ApiClientError && e.status === 401) router.push('/');
       else setNotice(e instanceof ApiClientError ? e.message : 'Could not load the agent.');
@@ -98,6 +126,9 @@ export default function AgentDetailPage() {
   async function openSession(id: string) {
     setActiveSession(id);
     setEvents((await listSessionEvents(id)).events);
+    if (can('agents.sessions.read')) {
+      setExecutions((await listToolExecutions(id)).executions);
+    }
   }
 
   if (!agent) return <main style={shell}>Loading…</main>;
@@ -170,6 +201,106 @@ export default function AgentDetailPage() {
         )}
       </section>
 
+      <section style={panel}>
+        <h2 style={{ marginTop: 0, fontSize: 17 }}>Intelligence</h2>
+        <p style={{ fontSize: 13, color: '#545c56', marginTop: 0 }}>
+          A tier is a capability, not a model. Which model serves a tier is a
+          platform decision, so this setting survives changing providers.
+        </p>
+        <p style={{ fontSize: 13.5 }}>
+          Serving:{' '}
+          <strong>{published ? tierOf(published.configuration) : 'not published'}</strong>
+        </p>
+        {draft && can('agents.update') && (
+          <label style={{ fontSize: 13.5 }}>
+            Draft v{draft.version} tier{' '}
+            <select
+              value={tierOf(draft.configuration)}
+              onChange={(e) =>
+                void run(async () => {
+                  const next = {
+                    ...draft.configuration,
+                    capabilities: {
+                      ...((draft.configuration['capabilities'] as Record<
+                        string,
+                        unknown
+                      >) ?? {}),
+                      intelligenceTier: e.target.value,
+                    },
+                  };
+                  await updateDraft(agentId, draft.id, next);
+                  setDraftText(JSON.stringify(next, null, 2));
+                }, 'Intelligence tier updated on the draft.')
+              }
+            >
+              {INTELLIGENCE_TIERS.map((tier) => (
+                <option key={tier} value={tier}>
+                  {tier}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+      </section>
+
+      <section style={panel}>
+        <h2 style={{ marginTop: 0, fontSize: 17 }}>Tools</h2>
+        <p style={{ fontSize: 13, color: '#545c56', marginTop: 0 }}>
+          Granting a tool lets this agent <em>ask</em> for it. Whether it runs is
+          decided per call against the permissions of the person the agent is
+          acting for.
+        </p>
+        {catalogue.length === 0 ? (
+          <p style={{ fontSize: 13.5 }}>
+            No tools in the catalogue yet — <Link href="/tools">install them</Link>.
+          </p>
+        ) : (
+          <ul style={{ listStyle: 'none', padding: 0, margin: 0, fontSize: 14 }}>
+            {catalogue.map((tool) => {
+              const isGranted = agentTools.some((t) => t.id === tool.id);
+              return (
+                <li
+                  key={tool.id}
+                  style={{
+                    borderTop: '1px solid #e4e7e0',
+                    padding: '8px 0',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    gap: 12,
+                  }}
+                >
+                  <span>
+                    {tool.name}
+                    <span style={{ color: '#545c56', fontSize: 12.5 }}>
+                      {' '}
+                      · needs {tool.requiredPermission}
+                      {!tool.enabled && ' · disabled organization-wide'}
+                    </span>
+                  </span>
+                  {can('agents.update') && (
+                    <button
+                      onClick={() =>
+                        void run(
+                          () =>
+                            isGranted
+                              ? revokeAgentTool(agentId, tool.id)
+                              : grantAgentTool(agentId, tool.id),
+                          isGranted
+                            ? `${tool.name} revoked from this agent.`
+                            : `${tool.name} granted to this agent.`,
+                        )
+                      }
+                    >
+                      {isGranted ? 'Revoke' : 'Grant'}
+                    </button>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </section>
+
       {draft && can('agents.update') && (
         <section style={panel}>
           <h2 style={{ marginTop: 0, fontSize: 17 }}>Draft v{draft.version}</h2>
@@ -239,17 +370,62 @@ export default function AgentDetailPage() {
         <section style={panel}>
           <h2 style={{ marginTop: 0, fontSize: 17 }}>Event stream</h2>
           <ol style={{ ...mono, paddingLeft: 20 }}>
-            {events.map((e) => (
-              <li key={e.id} style={{ marginBottom: 4 }}>
-                <span style={{ color: e.direction === 'inbound' ? '#8a6108' : '#0d6e63' }}>
-                  {e.sequence}. {e.type}
-                </span>
-                {typeof e.payload?.['content'] === 'string' && (
-                  <span style={{ color: '#545c56' }}> — {String(e.payload['content'])}</span>
-                )}
-              </li>
-            ))}
+            {events.map((e) => {
+              const citations = Array.isArray(e.payload?.['citations'])
+                ? (e.payload['citations'] as { documentName: string }[])
+                : [];
+              return (
+                <li key={e.id} style={{ marginBottom: 4 }}>
+                  <span
+                    style={{
+                      color:
+                        e.type === 'ErrorOccurred' || e.type === 'ToolFailed'
+                          ? '#8a2020'
+                          : e.direction === 'inbound'
+                            ? '#8a6108'
+                            : '#0d6e63',
+                    }}
+                  >
+                    {e.sequence}. {e.type}
+                  </span>
+                  {typeof e.payload?.['content'] === 'string' && (
+                    <span style={{ color: '#545c56' }}> — {String(e.payload['content'])}</span>
+                  )}
+                  {typeof e.payload?.['message'] === 'string' && (
+                    <span style={{ color: '#545c56' }}> — {String(e.payload['message'])}</span>
+                  )}
+                  {typeof e.payload?.['toolName'] === 'string' && (
+                    <span style={{ color: '#545c56' }}> — {String(e.payload['toolName'])}</span>
+                  )}
+                  {citations.length > 0 && (
+                    <span style={{ color: '#545c56' }}>
+                      {' '}
+                      · grounded in {citations.map((c) => c.documentName).join(', ')}
+                    </span>
+                  )}
+                </li>
+              );
+            })}
           </ol>
+
+          {executions.length > 0 && (
+            <>
+              <h3 style={{ fontSize: 15, marginBottom: 6 }}>Tool calls</h3>
+              <ul style={{ ...mono, listStyle: 'none', padding: 0, margin: '0 0 14px' }}>
+                {executions.map((x) => (
+                  <li key={x.id} style={{ padding: '3px 0' }}>
+                    <span
+                      style={{ color: x.status === 'completed' ? '#0d6e63' : '#8a2020' }}
+                    >
+                      {x.toolName} — {x.status}
+                    </span>
+                    {x.denialReason && ` (${x.denialReason})`}
+                    {x.durationMs !== null && ` · ${x.durationMs}ms`}
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
           {can('agents.sessions.manage') && (
             <div style={{ display: 'flex', gap: 8 }}>
               <input
@@ -263,7 +439,7 @@ export default function AgentDetailPage() {
                   void run(async () => {
                     await sendSessionMessage(activeSession, message);
                     setMessage('');
-                    setEvents((await listSessionEvents(activeSession)).events);
+                    await openSession(activeSession);
                   }, 'Message processed.')
                 }
               >

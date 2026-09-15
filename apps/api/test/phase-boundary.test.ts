@@ -107,10 +107,11 @@ describe('no external AI or telephony provider SDK is installed', () => {
   });
 });
 
-describe('no Phase 4+ functionality exists', () => {
-  // Phase 2 (agents, versions, sessions, events) and Phase 3 (knowledge
-  // sources, documents, chunks) are deliverables and are deliberately absent
-  // from this list. Everything below still belongs to a later phase.
+describe('no Phase 5+ functionality exists', () => {
+  // Phase 2 (agents, versions, sessions, events), Phase 3 (knowledge sources,
+  // documents, chunks) and Phase 4 (tools, agent_tools, tool_executions) are
+  // deliverables and are deliberately absent from this list. Everything below
+  // still belongs to a later phase.
   const FORBIDDEN_TABLES = [
     'jobs',
     'candidates',
@@ -152,8 +153,17 @@ describe('no Phase 4+ functionality exists', () => {
     }
   });
 
-  it('the providers package contains interfaces only, no implementations', () => {
-    const files = ['agent-session.ts', 'interfaces.ts', 'index.ts'];
+  it('the providers package contains contracts only, no implementations', () => {
+    const files = [
+      'agent-session.ts',
+      'interfaces.ts',
+      'index.ts',
+      'knowledge.ts',
+      'runtime.ts',
+      // Phase 5C additions — normalized audio and benchmark measurement.
+      'voice.ts',
+      'benchmark.ts',
+    ];
     for (const file of files) {
       const src = readFileSync(
         join(repoRoot, 'packages/providers/src', file),
@@ -162,12 +172,57 @@ describe('no Phase 4+ functionality exists', () => {
       // A class or a concrete exported function would be an implementation.
       expect(
         /export\s+class\s/.test(src),
-        `${file} exports a class — Phase 1 defines interfaces only`,
+        `${file} exports a class — the providers package defines contracts only`,
       ).toBe(false);
       expect(
         /export\s+(async\s+)?function\s/.test(src),
-        `${file} exports a function — Phase 1 defines interfaces only`,
+        `${file} exports a function — the providers package defines contracts only`,
       ).toBe(false);
+    }
+  });
+
+  it('the one class in the providers package is the typed provider error', () => {
+    // `intelligence.ts` is allowed exactly two runtime values: the error type
+    // the runtime branches on, and the default limits. Neither performs work;
+    // both are part of the contract. Anything else here would be a provider
+    // implementation living in the package that exists to have none.
+    const src = readFileSync(
+      join(repoRoot, 'packages/providers/src/intelligence.ts'),
+      'utf8',
+    );
+    const classes = [...src.matchAll(/export\s+class\s+(\w+)/g)].map((m) => m[1]);
+    expect(classes).toEqual(['LLMProviderError']);
+    expect(/export\s+(async\s+)?function\s/.test(src)).toBe(false);
+  });
+
+  it('no carrier or vendor name is hardcoded in the voice contracts', () => {
+    // Provider names belong in research documents and DI bindings, never in a
+    // contract. A contract that names Plivo is not a contract, it is an adapter.
+    const src = readFileSync(
+      join(repoRoot, 'packages/providers/src/voice.ts'),
+      'utf8',
+    );
+    // Strip the comment block that deliberately cites carrier formats as
+    // evidence for why normalization exists.
+    const code = src.replace(/\/\*\*[\s\S]*?\*\//g, '');
+    for (const vendor of ['Plivo', 'Twilio', 'Exotel', 'Knowlarity', 'TTBS', 'Sarvam']) {
+      expect(code.includes(vendor), `voice.ts code references ${vendor}`).toBe(false);
+    }
+  });
+
+  it('the intelligence layer makes no network call of its own', () => {
+    // The deterministic provider must stay deterministic: the moment it
+    // reaches the network it stops being a test double and starts being an
+    // unselected vendor integration.
+    const dir = join(repoRoot, 'apps/api/src/intelligence');
+    for (const file of readdirSync(dir)) {
+      const src = readFileSync(join(dir, file), 'utf8');
+      for (const pattern of [/\bfetch\s*\(/, /https?:\/\//, /require\s*\(/]) {
+        expect(
+          pattern.test(src),
+          `${file} contains ${pattern} — the intelligence layer performs no I/O`,
+        ).toBe(false);
+      }
     }
   });
 });

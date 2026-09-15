@@ -4,6 +4,7 @@
  */
 
 import { z } from 'zod';
+import type { RuntimeLimits } from '@platform/providers';
 
 const EnvSchema = z.object({
   NODE_ENV: z
@@ -71,6 +72,23 @@ const EnvSchema = z.object({
     .string()
     .default('true')
     .transform((v) => v === 'true'),
+
+  /**
+   * Runtime safety limits (Phase 4, §25 cost safety).
+   *
+   * These are the ceilings the intelligence loop enforces in application
+   * code. They are environment-tunable so an operator can tighten them under
+   * cost pressure without a deploy — and because a limit nobody can adjust
+   * tends to get removed rather than lowered. An agent's own configuration
+   * may narrow them further; nothing can widen them.
+   */
+  RUNTIME_MAX_TOOL_CALLS_PER_TURN: z.coerce.number().int().min(0).max(20).default(3),
+  RUNTIME_MAX_TOOL_ITERATIONS: z.coerce.number().int().min(0).max(10).default(3),
+  RUNTIME_MAX_RETRIES: z.coerce.number().int().min(0).max(5).default(2),
+  RUNTIME_MAX_CONTEXT_CHARS: z.coerce.number().int().min(1_000).max(500_000).default(60_000),
+  RUNTIME_MAX_TOOL_OUTPUT_CHARS: z.coerce.number().int().min(200).max(64_000).default(8_000),
+  RUNTIME_MAX_DURATION_MS: z.coerce.number().int().min(1_000).max(300_000).default(30_000),
+  RUNTIME_MAX_HISTORY_MESSAGES: z.coerce.number().int().min(2).max(200).default(40),
 }).superRefine((env, ctx) => {
   // Fail-closed toward production (audit finding): a production process with
   // development-grade security settings must refuse to boot, not limp along.
@@ -98,6 +116,19 @@ const EnvSchema = z.object({
 });
 
 export type Env = z.infer<typeof EnvSchema>;
+
+/** The runtime limits, assembled from the validated environment. */
+export function runtimeLimitsFrom(env: Env): RuntimeLimits {
+  return {
+    maxToolCallsPerTurn: env.RUNTIME_MAX_TOOL_CALLS_PER_TURN,
+    maxToolIterations: env.RUNTIME_MAX_TOOL_ITERATIONS,
+    maxRetries: env.RUNTIME_MAX_RETRIES,
+    maxContextChars: env.RUNTIME_MAX_CONTEXT_CHARS,
+    maxToolOutputChars: env.RUNTIME_MAX_TOOL_OUTPUT_CHARS,
+    maxDurationMs: env.RUNTIME_MAX_DURATION_MS,
+    maxHistoryMessages: env.RUNTIME_MAX_HISTORY_MESSAGES,
+  };
+}
 
 export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
   const parsed = EnvSchema.safeParse(source);

@@ -88,8 +88,27 @@ export const EventPayloads = {
   AgentResponseGenerated: z
     .object({
       content: z.string().max(10_000),
-      /** How the response was produced — `deterministic` until Phase 4. */
+      /** How the response was produced: a rule, or the intelligence layer. */
       strategy: z.string().max(60),
+      /**
+       * Where a grounded answer came from.
+       *
+       * Recorded so the platform can say honestly whether a response was
+       * backed by approved knowledge. An answer with no citations must never
+       * be presented as though it were grounded (`02_BRD` §7).
+       */
+      citations: z
+        .array(
+          z.object({
+            chunkId: z.string(),
+            documentId: z.string(),
+            documentName: z.string().max(255),
+            sourceId: z.string(),
+            similarity: z.number(),
+          }),
+        )
+        .max(50)
+        .default([]),
     })
     .strict(),
   ToolRequested: z

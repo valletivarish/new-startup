@@ -1,0 +1,130 @@
+{
+  "corpusVersion": "example-0",
+  "description": "TEMPLATE ONLY. Synthetic tones, not speech. Shows the manifest shape so a real recording session produces files that load without rework. A run against this corpus can never produce a provider decision and the harness will report it as INCOMPLETE.",
+  "audio": {
+    "sampleRate": 16000,
+    "channels": 1,
+    "bitsPerSample": 16,
+    "minDurationMs": 500,
+    "maxDurationMs": 60000
+  },
+  "consent": [
+    {
+      "speakerId": "template-speaker",
+      "obtainedAt": "2026-08-01",
+      "coversCrossBorderTransfer": true,
+      "disclosedProcessors": [
+        "sarvam — Sarvam AI (processing location not documented by the provider)",
+        "deepgram — Deepgram, United States (no India region available)",
+        "azure — Microsoft Azure AI Speech, Central India",
+        "cartesia — Cartesia (endpoint region not disclosed; India is enterprise-only)",
+        "gemini — Google LLC (Gemini Developer API). Processing location NOT documented by Google; may be processed in any country where Google maintains facilities. Receives the transcript of your speech."
+      ],
+      "retentionUntil": "2027-08-01",
+      "deletionContact": "template@example.invalid"
+    }
+  ],
+  "utterances": [
+    {
+      "utteranceId": "ex-01-notice",
+      "file": "audio/ex-01-notice.wav",
+      "language": "en-IN",
+      "codeMixed": false,
+      "reference": "my notice period is ninety days but it is negotiable",
+      "entities": [
+        {
+          "name": "notice_period",
+          "kind": "duration",
+          "accept": [
+            "ninety days",
+            "90 days"
+          ],
+          "unit": "days"
+        }
+      ],
+      "speakerId": "template-speaker",
+      "environment": "quiet",
+      "conversationId": "ex-conv-1",
+      "turnIndex": 0
+    },
+    {
+      "utteranceId": "ex-02-experience",
+      "file": "audio/ex-02-experience.wav",
+      "language": "en-IN",
+      "codeMixed": false,
+      "reference": "I have nine years of experience mostly in java and spring boot",
+      "entities": [
+        {
+          "name": "years_experience",
+          "kind": "number",
+          "accept": [
+            "nine years",
+            "9 years"
+          ],
+          "unit": "years"
+        }
+      ],
+      "speakerId": "template-speaker",
+      "environment": "quiet",
+      "conversationId": "ex-conv-1",
+      "turnIndex": 1
+    },
+    {
+      "utteranceId": "ex-03-hinglish-ctc",
+      "file": "audio/ex-03-hinglish-ctc.wav",
+      "language": "hinglish",
+      "codeMixed": true,
+      "reference": "meri current ctc twelve lakhs hai aur expected fifteen lakhs",
+      "entities": [
+        {
+          "name": "current_ctc",
+          "kind": "money",
+          "accept": [
+            "twelve lakhs",
+            "12 lakhs"
+          ],
+          "unit": "lakhs"
+        }
+      ],
+      "speakerId": "template-speaker",
+      "environment": "quiet",
+      "conversationId": "ex-conv-1",
+      "turnIndex": 2,
+      "referenceAlt": "मेरी करंट सीटीसी बारह लाख है और एक्सपेक्टेड पंद्रह लाख"
+    },
+    {
+      "utteranceId": "ex-04-relocation",
+      "file": "audio/ex-04-relocation.wav",
+      "language": "en-IN",
+      "codeMixed": false,
+      "reference": "yes I can relocate to bengaluru if required",
+      "entities": [
+        {
+          "name": "relocation",
+          "kind": "text",
+          "accept": [
+            "can relocate",
+            "willing to relocate"
+          ],
+          "reject": [
+            "cannot relocate",
+            "can not relocate"
+          ]
+        },
+        {
+          "name": "city",
+          "kind": "location",
+          "accept": [
+            "bengaluru",
+            "bangalore"
+          ]
+        }
+      ],
+      "speakerId": "template-speaker",
+      "environment": "quiet",
+      "conversationId": "ex-conv-1",
+      "turnIndex": 3
+    }
+  ],
+  "transliterationAliases": {}
+}

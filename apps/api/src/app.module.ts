@@ -61,6 +61,8 @@ import {
   TOOLS_SERVICE,
   TOOL_EXECUTOR,
   TOOL_REGISTRY,
+  VOICE_SESSION_ADAPTER,
+  VOICE_SESSION_SERVICE,
 } from './tokens.more.js';
 import {
   AuthController,
@@ -81,6 +83,13 @@ import {
   ToolExecutionsController,
   ToolsController,
 } from './tools/tools.controller.js';
+import {
+  VoiceDeploymentsController,
+  VoiceSessionsController,
+  VoiceWebhookController,
+} from './providers/elevenlabs/voice.controller.js';
+import { createVoiceSessionAdapter, createStubVoiceSessionAdapter } from './providers/elevenlabs/adapter.js';
+import { createVoiceSessionService } from './providers/elevenlabs/voice-session.service.js';
 
 export interface AppDeps {
   readonly env: Env;
@@ -90,6 +99,12 @@ export interface AppDeps {
   readonly logger: Logger;
   /** Null when jobs are disabled (tests); ingestion then runs inline. */
   readonly jobs: JobQueue | null;
+  /**
+   * Optional voice session adapter override. When provided, this replaces the
+   * adapter that would otherwise be selected based on ELEVENLABS_ENABLED.
+   * Used by tests to inject the stub adapter without a real API key.
+   */
+  readonly voiceAdapter?: ReturnType<typeof createVoiceSessionAdapter>;
 }
 
 @Module({})
@@ -111,6 +126,9 @@ export class AppModule {
         ToolsController,
         AgentToolsController,
         ToolExecutionsController,
+        VoiceDeploymentsController,
+        VoiceSessionsController,
+        VoiceWebhookController,
       ],
       providers: [
         { provide: ENV, useValue: deps.env },
@@ -284,6 +302,23 @@ export class AppModule {
             ),
         },
         { provide: APP_GUARD, useClass: AuthzGuard },
+        // MVP-01 ElevenLabs browser-voice
+        {
+          provide: VOICE_SESSION_ADAPTER,
+          useFactory: () =>
+            deps.voiceAdapter ??
+            (deps.env.ELEVENLABS_ENABLED
+              ? createVoiceSessionAdapter(deps.env)
+              : createStubVoiceSessionAdapter()),
+        },
+        {
+          provide: VOICE_SESSION_SERVICE,
+          inject: [AUDIT_SERVICE, VOICE_SESSION_ADAPTER],
+          useFactory: (
+            audit: ReturnType<typeof createAuditService>,
+            adapter: ReturnType<typeof createVoiceSessionAdapter>,
+          ) => createVoiceSessionService(deps.database, deps.env, audit, adapter),
+        },
       ],
     };
   }

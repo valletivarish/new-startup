@@ -328,3 +328,71 @@ export const listToolExecutions = (sessionId: string) =>
   call<{ executions: ToolExecution[] }>(
     `/backend/sessions/${sessionId}/tool-executions`,
   );
+
+// --- Voice sessions (MVP-01 ElevenLabs) -------------------------------------
+
+export interface VoiceDeployment {
+  id: string;
+  agentVersionId: string;
+  provider: string;
+  environment: string;
+  externalAgentId: string;
+  llmModel: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TranscriptTurn {
+  role: 'agent' | 'user';
+  message: string;
+  timeInCallSecs?: number;
+}
+
+export interface VoiceSession {
+  id: string;
+  sessionId: string;
+  deploymentId: string;
+  provider: string;
+  externalConversationId: string | null;
+  status: 'pending' | 'active' | 'ended' | 'failed';
+  transcript: TranscriptTurn[] | null;
+  summary: string | null;
+  structuredAnswers: Record<string, unknown> | null;
+  durationSeconds: number | null;
+  costCredits: number | null;
+  startedAt: string;
+  endedAt: string | null;
+}
+
+/** Provision / re-sync an ElevenLabs agent for the current published version. */
+export const provisionVoiceDeployment = (
+  agentId: string,
+  input: { voiceId?: string } = {},
+) =>
+  call<{ deployment: VoiceDeployment }>(
+    `/backend/agents/${agentId}/voice-deployments`,
+    { method: 'POST', body: JSON.stringify(input) },
+  );
+
+/**
+ * Start a test voice session.
+ * Returns the conversationToken for the ElevenLabs React SDK.
+ */
+export const startVoiceSession = (agentId: string) =>
+  call<{ voiceSessionId: string; conversationToken: string; voiceSession: VoiceSession }>(
+    `/backend/agents/${agentId}/voice-sessions`,
+    { method: 'POST', body: '{}' },
+  );
+
+/** Get the current state of a voice session (no token returned). */
+export const getVoiceSession = (agentId: string, voiceSessionId: string) =>
+  call<{ voiceSession: VoiceSession }>(
+    `/backend/agents/${agentId}/voice-sessions/${voiceSessionId}`,
+  );
+
+/** Pull the latest result from the provider. */
+export const reconcileVoiceSession = (agentId: string, voiceSessionId: string) =>
+  call<{ voiceSession: VoiceSession }>(
+    `/backend/agents/${agentId}/voice-sessions/${voiceSessionId}/reconcile`,
+    { method: 'POST', body: '{}' },
+  );

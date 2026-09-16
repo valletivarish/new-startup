@@ -14,6 +14,7 @@
     "start:worker": "node dist/jobs/worker.js"
   },
   "dependencies": {
+    "@elevenlabs/elevenlabs-js": "^2.68.0",
     "@fastify/cookie": "^11.0.2",
     "@fastify/helmet": "^13.0.1",
     "@fastify/rate-limit": "^10.2.2",

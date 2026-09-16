@@ -34,6 +34,11 @@ import {
   ToolExecutionsController,
   ToolsController,
 } from '../src/tools/tools.controller.js';
+import {
+  VoiceDeploymentsController,
+  VoiceSessionsController,
+  VoiceWebhookController,
+} from '../src/providers/elevenlabs/voice.controller.js';
 
 // The complete controller list. app.module.ts must register exactly these;
 // the companion assertion below keeps the two lists from drifting.
@@ -51,6 +56,10 @@ const CONTROLLERS = [
   ToolsController,
   AgentToolsController,
   ToolExecutionsController,
+  // MVP-01 ElevenLabs browser-voice
+  VoiceDeploymentsController,
+  VoiceSessionsController,
+  VoiceWebhookController,
 ];
 
 interface RouteInfo {
@@ -121,6 +130,12 @@ describe('every route declares its authorization requirement', () => {
       .map((r) => `${r.controller}.${r.handler}`)
       .sort();
     // Growing this list is a security decision and must be visible in review.
-    expect(publicRoutes).toEqual(['HealthController.health']);
+    // VoiceWebhookController.webhook is @Public because ElevenLabs cannot
+    // present a session cookie — instead it is verified by HMAC-SHA256 signature
+    // inside the handler itself.
+    expect(publicRoutes).toEqual([
+      'HealthController.health',
+      'VoiceWebhookController.webhook',
+    ]);
   });
 });

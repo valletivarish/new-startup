@@ -89,9 +89,65 @@ const EnvSchema = z.object({
   RUNTIME_MAX_TOOL_OUTPUT_CHARS: z.coerce.number().int().min(200).max(64_000).default(8_000),
   RUNTIME_MAX_DURATION_MS: z.coerce.number().int().min(1_000).max(300_000).default(30_000),
   RUNTIME_MAX_HISTORY_MESSAGES: z.coerce.number().int().min(2).max(200).default(40),
+
+  // -------------------------------------------------------------------------
+  // MVP-01 ElevenLabs browser-voice
+  //
+  // ELEVENLABS_ENABLED=false by default — the feature is entirely off until
+  // an operator explicitly turns it on, so a misconfigured key can never
+  // silently start spending money.
+  // -------------------------------------------------------------------------
+
+  /** Master kill switch. Off by default: no credentials needed unless enabled. */
+  ELEVENLABS_ENABLED: z
+    .string()
+    .default('false')
+    .transform((v) => v === 'true'),
+
+  /**
+   * ElevenLabs API key. Required only when ELEVENLABS_ENABLED=true.
+   * The Zod superRefine below enforces this.
+   */
+  ELEVENLABS_API_KEY: z.string().default(''),
+
+  /**
+   * HMAC secret for webhook signature verification.
+   * Obtained from the ElevenLabs dashboard → Webhooks → Signing Secret.
+   */
+  ELEVENLABS_WEBHOOK_SECRET: z.string().default(''),
+
+  /** Default voice ID to assign to provisioned agents when none is specified. */
+  ELEVENLABS_DEFAULT_VOICE_ID: z.string().default(''),
+
+  /** Maximum single-session length in minutes (cost guard). */
+  ELEVENLABS_MAX_TEST_MINUTES: z.coerce.number().int().min(1).max(30).default(5),
+
+  /** Maximum number of test voice sessions per org per calendar day. */
+  ELEVENLABS_DAILY_TEST_SESSIONS: z.coerce.number().int().min(1).max(100).default(10),
+
+  /** Maximum total voice minutes per org per calendar day. */
+  ELEVENLABS_DAILY_TEST_MINUTES: z.coerce.number().int().min(1).max(300).default(30),
 }).superRefine((env, ctx) => {
   // Fail-closed toward production (audit finding): a production process with
   // development-grade security settings must refuse to boot, not limp along.
+  // ElevenLabs: when enabled, key and webhook secret must be present.
+  if (env.ELEVENLABS_ENABLED) {
+    if (!env.ELEVENLABS_API_KEY) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['ELEVENLABS_API_KEY'],
+        message: 'ELEVENLABS_API_KEY is required when ELEVENLABS_ENABLED=true',
+      });
+    }
+    if (!env.ELEVENLABS_WEBHOOK_SECRET) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['ELEVENLABS_WEBHOOK_SECRET'],
+        message: 'ELEVENLABS_WEBHOOK_SECRET is required when ELEVENLABS_ENABLED=true',
+      });
+    }
+  }
+
   if (env.NODE_ENV === 'production') {
     if (!env.COOKIE_SECURE) {
       ctx.addIssue({

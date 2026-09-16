@@ -12,6 +12,7 @@ import 'reflect-metadata';
 import type { InjectOptions, LightMyRequestResponse } from 'fastify';
 import type { NotificationProvider } from '@platform/providers';
 import { buildApp, type BuiltApp } from '../../src/server.js';
+import type { VoiceSessionAdapter } from '../../src/providers/elevenlabs/adapter.js';
 
 export interface CapturedEmail {
   readonly to: string;
@@ -28,6 +29,7 @@ export interface ApiHarness {
 
 export async function startApi(
   extraEnv: Record<string, string> = {},
+  voiceAdapter?: VoiceSessionAdapter,
 ): Promise<ApiHarness> {
   const url = process.env['TEST_DATABASE_URL'];
   if (!url) throw new Error('TEST_DATABASE_URL not set — global setup did not run');
@@ -55,7 +57,10 @@ export async function startApi(
       JOBS_ENABLED: 'false',
       ...extraEnv,
     },
-    { notifications: capturingProvider },
+    {
+      notifications: capturingProvider,
+      ...(voiceAdapter ? { voiceAdapter } : {}),
+    },
   );
   await built.app.init();
   const fastify = built.app.getHttpAdapter().getInstance();

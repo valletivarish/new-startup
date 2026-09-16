@@ -34,6 +34,7 @@ import {
   type Tool,
   type ToolExecution,
 } from '../../../lib/api';
+import { VoiceTestPanel } from '../../../src/integrations/elevenlabs/VoiceTestPanel';
 
 const INTELLIGENCE_TIERS = ['standard', 'advanced', 'premium'] as const;
 
@@ -365,6 +366,13 @@ export default function AgentDetailPage() {
           </ul>
         </section>
       )}
+
+      {/* MVP-01: Voice test panel (ElevenLabs browser-voice) */}
+      <VoiceTestPanel
+        agentId={agentId}
+        canTest={can('agents.test')}
+        agentPublished={agent.status === 'published'}
+      />
 
       {activeSession && (
         <section style={panel}>

@@ -78,3 +78,11 @@ export const KNOWLEDGE_TABLES = [
   'agent_knowledge_sources',
   'knowledge_processing_runs',
 ] as const;
+
+/** MVP-01 ElevenLabs voice tables. Plain tenant RLS, same posture as above. */
+export const VOICE_TABLES = [
+  'voice_provider_deployments',
+  'voice_sessions',
+] as const;
+
+export { voiceProviderDeployments, voiceSessions } from './voice.js';

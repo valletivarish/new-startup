@@ -27,8 +27,13 @@ function deps(pkgRelPath: string): string[] {
 }
 
 /**
- * Every AI and telephony provider named as a candidate in
- * `06_PROVIDER_AND_COST_SPEC`, plus the SDK package names they ship under.
+ * Every AI and telephony provider SDK that must NOT appear in production
+ * packages. This list covers unselected candidates.
+ *
+ * MVP-01 selected ElevenLabs for browser voice. Its SDKs are deliberately
+ * absent from this list and are verified separately below — they are allowed
+ * ONLY in apps/api (@elevenlabs/elevenlabs-js) and apps/web (@elevenlabs/react).
+ * No other package may depend on them.
  */
 const FORBIDDEN_PROVIDER_SDKS = [
   '@anthropic-ai/sdk',
@@ -39,8 +44,6 @@ const FORBIDDEN_PROVIDER_SDKS = [
   '@google-cloud/text-to-speech',
   'twilio',
   'plivo',
-  'elevenlabs',
-  '@elevenlabs/elevenlabs-js',
   '@deepgram/sdk',
   'sarvamai',
   '@aws-sdk/client-polly',
@@ -57,6 +60,15 @@ const FORBIDDEN_PROVIDER_SDKS = [
   '@ai-sdk/google',
 ];
 
+/**
+ * ElevenLabs SDK allowlist: selected for MVP-01, confined to exactly the two
+ * packages listed. Any other package that tries to import them is rejected.
+ */
+const ELEVENLABS_ALLOWED: Record<string, string[]> = {
+  'apps/api': ['@elevenlabs/elevenlabs-js'],
+  'apps/web': ['@elevenlabs/react'],
+};
+
 const PACKAGES = [
   'apps/api',
   'apps/web',
@@ -66,14 +78,27 @@ const PACKAGES = [
 ];
 
 describe('no external AI or telephony provider SDK is installed', () => {
-  it.each(PACKAGES)('%s declares no provider SDK', (pkg) => {
+  it.each(PACKAGES)('%s declares no forbidden provider SDK', (pkg) => {
     const declared = deps(pkg);
-    const found = declared.filter((d) => FORBIDDEN_PROVIDER_SDKS.includes(d));
+    // Forbidden everywhere
+    const foundForbidden = declared.filter((d) => FORBIDDEN_PROVIDER_SDKS.includes(d));
     expect(
-      found,
-      `${pkg} declares a provider SDK. Providers stay behind interfaces until ` +
+      foundForbidden,
+      `${pkg} declares a forbidden provider SDK. Providers stay behind interfaces until ` +
         `selected on benchmark evidence at their phase (ADR-006 condition, ` +
         `12_ARCHITECTURE_DECISIONS_FINAL.md D2).`,
+    ).toEqual([]);
+
+    // ElevenLabs is allowed only in its designated packages
+    const elevenLabsAllowedHere = ELEVENLABS_ALLOWED[pkg] ?? [];
+    const elevenLabsSdks = ['@elevenlabs/elevenlabs-js', '@elevenlabs/react', 'elevenlabs'];
+    const foundElevenLabs = declared.filter(
+      (d) => elevenLabsSdks.includes(d) && !elevenLabsAllowedHere.includes(d),
+    );
+    expect(
+      foundElevenLabs,
+      `${pkg} declares an ElevenLabs SDK that is not allowed here. ` +
+        `@elevenlabs/elevenlabs-js belongs only in apps/api; @elevenlabs/react only in apps/web.`,
     ).toEqual([]);
   });
 
@@ -86,8 +111,9 @@ describe('no external AI or telephony provider SDK is installed', () => {
     expect(Object.keys(pkg.dependencies ?? {})).toEqual([]);
   });
 
-  it('no provider SDK appears anywhere in the installed tree', () => {
+  it('no forbidden provider SDK appears anywhere in the installed tree', () => {
     // A transitive pull-in would be just as much of a lock-in as a direct one.
+    // ElevenLabs SDKs ARE expected in the lockfile (selected for MVP-01).
     const lock = join(repoRoot, 'pnpm-lock.yaml');
     // A missing lockfile FAILS: this guard must never pass vacuously
     // (audit finding — the previous version silently returned).
@@ -103,7 +129,23 @@ describe('no external AI or telephony provider SDK is installed', () => {
       // not match inside 'chai' or 'dockerignore'.
       return new RegExp(`\\n\\s+'?${escaped}@\\d`, 'i').test(contents);
     });
-    expect(found, 'provider SDKs found in the lockfile').toEqual([]);
+    expect(found, 'forbidden provider SDKs found in the lockfile').toEqual([]);
+  });
+
+  it('ElevenLabs SDKs appear in the lockfile (MVP-01 selected)', () => {
+    // This is a positive assertion: the selected SDKs MUST be present.
+    const lock = join(repoRoot, 'pnpm-lock.yaml');
+    if (!existsSync(lock)) return; // Covered by the previous test
+    const contents = readFileSync(lock, 'utf8');
+    const ELEVENLABS_SDKS = ['@elevenlabs/elevenlabs-js', '@elevenlabs/react'];
+    for (const sdk of ELEVENLABS_SDKS) {
+      const escaped = sdk.replace(/[/@.\-+]/g, '\\$&');
+      const present = new RegExp(`\\n\\s+'?${escaped}@\\d`, 'i').test(contents);
+      expect(
+        present,
+        `${sdk} is not in the lockfile — it must be installed (apps/api or apps/web dependency)`,
+      ).toBe(true);
+    }
   });
 });
 

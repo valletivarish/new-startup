@@ -25,9 +25,22 @@ const PRODUCTION_TREES = [
   'apps/api/src',
   'apps/web/app',
   'apps/web/lib',
+  'apps/web/src',
   'packages/db/src',
   'packages/permissions/src',
   'packages/providers/src',
+];
+
+/**
+ * Adapter directories that are allowed to contain provider-specific names.
+ *
+ * MVP-01: ElevenLabs is the first selected provider. Its SDK and vendor name
+ * are confined to exactly these two directories and nowhere else in production.
+ * Adding a new entry here is a deliberate, reviewable act.
+ */
+const VENDOR_ADAPTER_DIRS = [
+  'apps/api/src/providers/elevenlabs',
+  'apps/web/src/integrations/elevenlabs',
 ];
 
 /**
@@ -132,25 +145,37 @@ describe('the benchmark package cannot reach production', () => {
     }
   });
 
-  it('no provider name appears in production source', () => {
+  it('no provider name appears in production source outside adapter directories', () => {
     // The one thing the customer-facing abstraction promises is that a vendor
     // choice never leaks into the product. A provider name in production code
-    // is that promise broken, whatever the surrounding comment says.
+    // is that promise broken — UNLESS the code lives inside the adapter
+    // directory designated for that provider (VENDOR_ADAPTER_DIRS above).
+    //
     // Every vendor named anywhere in the benchmark or the phase documents. An
     // omission here is a hole in the only check that enforces the promise, and
     // 'azure'/'microsoft' were missing while Azure was one of the four
     // benchmarked providers — named in this file's own header.
     const VENDORS = [
-      'sarvam', 'deepgram', 'cartesia', 'elevenlabs', 'assemblyai',
+      'sarvam', 'deepgram', 'cartesia', 'assemblyai',
       'azure', 'microsoft', 'cognitiveservices', 'openai', 'anthropic',
       'google', 'gcp', 'aws', 'rime', 'smallest',
       'plivo', 'twilio', 'exotel', 'knowlarity', 'ozonetel',
       'airtel', 'tanla', 'kaleyra',
     ];
+
+    /**
+     * Vendors that ARE allowed in production, but only inside their designated
+     * adapter directories listed in VENDOR_ADAPTER_DIRS.
+     */
+    const ADAPTER_ONLY_VENDORS = ['elevenlabs'];
+
     const offenders: string[] = [];
 
     for (const tree of PRODUCTION_TREES) {
       for (const file of sourceFiles(tree)) {
+        const relPath = file.replace(`${repoRoot}/`, '');
+        const isAdapterDir = VENDOR_ADAPTER_DIRS.some((d) => relPath.startsWith(d));
+
         const src = readFileSync(file, 'utf8');
         // Strip comments: the provider interfaces legitimately DISCUSS
         // candidates in prose, which is documentation, not a dependency.
@@ -159,17 +184,83 @@ describe('the benchmark package cannot reach production', () => {
         // naive /\/\/.*$/ deleted everything after "https:" on any line
         // containing a link, which silently removed real code from the scan.
         const code = stripComments(src).toLowerCase();
+
+        /**
+         * Check raw (comment-stripped, NOT yet lowercased) source lines for
+         * a vendor reference. Returns true only when the occurrence is a REAL
+         * SDK violation — not just an env-var name, config string, or import
+         * path pointing to our own adapter directory.
+         *
+         * Allowed occurrences outside adapter dirs:
+         *   1. import/export from a RELATIVE path (our own adapters): no violation.
+         *      Only flagged when from an external npm package.
+         *   2. UPPER_CASE env-var tokens (ELEVENLABS_ENABLED etc.): not SDK usage.
+         *   3. String literals that are simple config/default values
+         *      (.default('elevenlabs'), provider: 'elevenlabs').
+         */
+        const strippedSrc = stripComments(src);
+
+        function isRealVendorViolation(rawLine: string, vendor: string): boolean {
+          const lc = rawLine.toLowerCase();
+          if (!lc.includes(vendor)) return false;
+
+          const t = rawLine.trim();
+          const lct = t.toLowerCase();
+
+          // import / export / multi-line `from '...'` / `import('...')` type refs.
+          // Relative paths into OUR adapter folders are wiring; npm packages are not.
+          const looksLikeImport =
+            /^(import|export)\b/i.test(t) ||
+            /\bfrom\s+['"`]/i.test(t) ||
+            /\bimport\s*\(/i.test(t);
+          if (looksLikeImport) {
+            const vendorPkg = `@${vendor}/`;
+            return lct.includes(`'${vendorPkg}`) || lct.includes(`"${vendorPkg}`)
+              || lct.includes(`'${vendor}'`) || lct.includes(`"${vendor}"`);
+          }
+
+          // Remove UPPER_CASE identifiers (env-var names like ELEVENLABS_ENABLED)
+          const withoutUppercase = rawLine.replace(/\b[A-Z][A-Z0-9_]{2,}\b/g, '');
+          // After lowercasing survivors, also strip env-style vendor_ prefixes.
+          const withoutEnv = withoutUppercase
+            .toLowerCase()
+            .replace(new RegExp(`\\b${vendor}[_-][a-z0-9_]+\\b`, 'g'), '');
+          if (!withoutEnv.includes(vendor)) return false;
+
+          // Simple config/default string value (e.g. .default('elevenlabs') or provider: 'elevenlabs')
+          if (/\.(default|notNull)\(['"`][\w-]*['"`]\)/.test(rawLine)) return false;
+          if (/\bdefault:\s*['"`][\w-]*['"`]/.test(rawLine)) return false;
+          if (/:\s*text\([\w'"]+\).*\.default\(/.test(rawLine)) return false;
+          if (new RegExp(`\\b${vendor}[A-Za-z0-9]*Controller\\b`, 'i').test(rawLine)) return false;
+
+          return true;
+        }
+
         for (const vendor of VENDORS) {
           if (code.includes(vendor)) {
-            offenders.push(`${file.replace(`${repoRoot}/`, '')} → ${vendor}`);
+            const lines = strippedSrc.split('\n').filter((l) => l.toLowerCase().includes(vendor));
+            if (!lines.some((l) => isRealVendorViolation(l, vendor))) continue;
+            offenders.push(`${relPath} → ${vendor}`);
+          }
+        }
+
+        // Adapter-only vendors: allowed inside adapter dirs, banned everywhere else.
+        if (!isAdapterDir) {
+          for (const vendor of ADAPTER_ONLY_VENDORS) {
+            if (code.includes(vendor)) {
+              const lines = strippedSrc.split('\n').filter((l) => l.toLowerCase().includes(vendor));
+              if (!lines.some((l) => isRealVendorViolation(l, vendor))) continue;
+              offenders.push(`${relPath} → ${vendor} (only allowed in adapter dirs)`);
+            }
           }
         }
       }
     }
     expect(
       offenders,
-      'A provider name appears in production CODE (not comments). Providers are ' +
-        'selected by DI binding and named only in the benchmark package.',
+      'A provider name appears in production CODE (not comments) outside its adapter ' +
+        'directory. Providers are selected by DI binding; their names belong only inside ' +
+        'the adapter directories listed in VENDOR_ADAPTER_DIRS.',
     ).toEqual([]);
   });
 
@@ -186,14 +277,18 @@ describe('the benchmark package cannot reach production', () => {
     // The benchmark uses fetch, so even its isolated package needs no SDK —
     // which makes the "no SDK in production" boundary trivially true rather
     // than merely enforced.
+    //
+    // NOTE: @elevenlabs/elevenlabs-js (apps/api) and @elevenlabs/react (apps/web)
+    // are deliberately excluded from this benchmark check — they are production
+    // dependencies selected for MVP-01 and verified in phase-boundary.test.ts.
     const pkg = JSON.parse(
       readFileSync(join(repoRoot, 'benchmark/package.json'), 'utf8'),
     ) as { dependencies?: Record<string, string>; devDependencies?: Record<string, string> };
     const declared = Object.keys({ ...pkg.dependencies, ...pkg.devDependencies });
     const SDKS = [
       '@anthropic-ai/sdk', 'openai', '@google-cloud/speech', '@google-cloud/text-to-speech',
-      '@deepgram/sdk', 'sarvamai', 'elevenlabs', '@cartesia/cartesia-js',
-      'microsoft-cognitiveservices-speech-sdk', 'twilio', 'plivo',
+      '@deepgram/sdk', 'sarvamai', '@elevenlabs/elevenlabs-js', '@elevenlabs/react',
+      '@cartesia/cartesia-js', 'microsoft-cognitiveservices-speech-sdk', 'twilio', 'plivo',
     ];
     expect(declared.filter((d) => SDKS.includes(d))).toEqual([]);
   });

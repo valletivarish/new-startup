@@ -92,6 +92,20 @@
       "when": 1787054955117,
       "tag": "0012_tool_rls",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1789500000000,
+      "tag": "0013_elevenlabs_foundation",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1789500001000,
+      "tag": "0014_elevenlabs_rls",
+      "breakpoints": true
     }
   ]
 }

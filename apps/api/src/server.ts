@@ -26,6 +26,7 @@ import { createConsoleNotificationProvider } from './notifications/console-notif
 import { createAuditService } from './audit/audit.service.js';
 import { AppModule } from './app.module.js';
 import { ApiExceptionFilter } from './http-exception.filter.js';
+import type { VoiceSessionAdapter } from './providers/elevenlabs/adapter.js';
 
 export interface BuiltApp {
   readonly app: NestFastifyApplication;
@@ -44,6 +45,11 @@ export interface BuildOverrides {
    * invitation emails the way a recipient would.
    */
   readonly notifications?: NotificationProvider;
+  /**
+   * Substitute voice session adapter. Tests inject the stub so no live
+   * ElevenLabs network calls are made.
+   */
+  readonly voiceAdapter?: VoiceSessionAdapter;
 }
 
 export async function buildApp(
@@ -112,7 +118,15 @@ export async function buildApp(
   });
 
   const app = await NestFactory.create<NestFastifyApplication>(
-    AppModule.forRoot({ env, database, auth, notifications, logger, jobs }),
+    AppModule.forRoot({
+      env,
+      database,
+      auth,
+      notifications,
+      logger,
+      jobs,
+      ...(overrides.voiceAdapter ? { voiceAdapter: overrides.voiceAdapter } : {}),
+    }),
     adapter,
     { logger: false },
   );

@@ -6,7 +6,6 @@ import {
   createOrganization,
   inviteAndCaptureToken,
   registerUser,
-  sessionCookie,
   startApi,
   type ApiHarness,
 } from './setup/api-harness.js';

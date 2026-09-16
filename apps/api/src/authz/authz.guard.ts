@@ -22,7 +22,11 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import type { FastifyRequest } from 'fastify';
-import { isPermission, isSensitivePermission } from '@platform/permissions';
+import {
+  isPermission,
+  isSensitivePermission,
+  type Permission,
+} from '@platform/permissions';
 
 import { ApiError } from '../errors.js';
 import {
@@ -98,14 +102,17 @@ export class AuthzGuard implements CanActivate {
       );
     }
 
-    let granted: string | undefined;
+    let granted: Permission | undefined;
     let deniedLabel: string;
 
     if (anyRequired !== undefined) {
       if (anyRequired.length === 0 || anyRequired.some((p) => !isPermission(p))) {
         throw ApiError.forbidden('Route declares no valid permission');
       }
-      granted = firstMatchingPermission(ctx.organization.permissions, anyRequired);
+      granted = firstMatchingPermission(
+        ctx.organization.permissions,
+        anyRequired as readonly Permission[],
+      );
       deniedLabel = anyRequired.join('|');
     } else if (required !== undefined && isPermission(required)) {
       granted = ctx.organization.permissions.has(required) ? required : undefined;

@@ -1,4 +1,5 @@
 import {
+  check,
   index,
   pgTable,
   text,
@@ -6,6 +7,7 @@ import {
   uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
 
 import { organizations } from './organizations.js';
 import { users } from './auth.js';
@@ -35,6 +37,10 @@ export const jobs = pgTable(
       .defaultNow(),
   },
   (t) => [
+    check(
+      'jobs_status_check',
+      sql`${t.status} in ('draft', 'open', 'closed')`,
+    ),
     index('jobs_org_status_idx').on(t.organizationId, t.status),
     index('jobs_org_created_idx').on(t.organizationId, t.createdAt),
   ],
@@ -60,6 +66,10 @@ export const candidates = pgTable(
       .defaultNow(),
   },
   (t) => [
+    check(
+      'candidates_source_check',
+      sql`${t.source} in ('manual', 'resume')`,
+    ),
     index('candidates_org_created_idx').on(t.organizationId, t.createdAt),
   ],
 );
@@ -80,6 +90,10 @@ export const jobCandidates = pgTable(
     status: text('status').notNull().default('new'),
   },
   (t) => [
+    check(
+      'job_candidates_status_check',
+      sql`${t.status} in ('new', 'screening', 'reviewed')`,
+    ),
     uniqueIndex('job_candidates_job_candidate_unique').on(t.jobId, t.candidateId),
     index('job_candidates_org_job_idx').on(t.organizationId, t.jobId),
     index('job_candidates_org_status_idx').on(t.organizationId, t.status),

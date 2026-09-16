@@ -3,7 +3,7 @@ CREATE TABLE "jobs" (
   "organization_id" uuid NOT NULL,
   "title" text NOT NULL,
   "description" text DEFAULT '' NOT NULL,
-  "status" text DEFAULT 'draft' NOT NULL,
+  "status" text DEFAULT 'draft' NOT NULL CHECK ("status" IN ('draft', 'open', 'closed')),
   "agent_id" uuid,
   "created_by_user_id" uuid,
   "created_at" timestamp with time zone DEFAULT now() NOT NULL,
@@ -17,7 +17,7 @@ CREATE TABLE "candidates" (
   "phone" text,
   "email" text,
   "resume_text" text,
-  "source" text DEFAULT 'manual' NOT NULL,
+  "source" text DEFAULT 'manual' NOT NULL CHECK ("source" IN ('manual', 'resume')),
   "created_at" timestamp with time zone DEFAULT now() NOT NULL,
   "updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
@@ -27,7 +27,7 @@ CREATE TABLE "job_candidates" (
   "organization_id" uuid NOT NULL,
   "job_id" uuid NOT NULL,
   "candidate_id" uuid NOT NULL,
-  "status" text DEFAULT 'new' NOT NULL
+  "status" text DEFAULT 'new' NOT NULL CHECK ("status" IN ('new', 'screening', 'reviewed'))
 );
 --> statement-breakpoint
 ALTER TABLE "jobs"

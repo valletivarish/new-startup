@@ -238,6 +238,30 @@ describe('hiring wizard create', () => {
     expect(sources).toHaveLength(1);
     expect(sources[0]?.id).toBe(sourceId);
   });
+
+  it('create with invalid knowledgeSourceIds rolls back and leaves no agent', async () => {
+    const owner = await registerUser(api, 'pack-knowledge-invalid');
+    await createOrganization(api, owner, 'Pack Knowledge Invalid Org');
+    const cookie = owner.cookie;
+    const bogusId = '00000000-0000-4000-8000-000000000001';
+
+    const res = await api.request({
+      method: 'POST',
+      url: '/agents',
+      cookie,
+      payload: {
+        name: 'Should not persist',
+        agentType: 'hiring',
+        purpose: 'Screen for the open role',
+        knowledgeSourceIds: [bogusId],
+      },
+    });
+    expect(res.statusCode).toBe(404);
+
+    const listRes = await api.request({ method: 'GET', url: '/agents', cookie });
+    const { agents } = JSON.parse(listRes.body) as { agents: { name: string }[] };
+    expect(agents.some((a) => a.name === 'Should not persist')).toBe(false);
+  });
 });
 
 describe('agent creation quota', () => {

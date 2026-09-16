@@ -206,6 +206,21 @@ export function createAgentsService(
     `);
   }
 
+  async function recordKnowledgeAttachedAudit(
+    actor: Actor,
+    agentId: string,
+    sourceId: string,
+  ): Promise<void> {
+    await audit.record({
+      organizationId: actor.organizationId,
+      actorUserId: actor.userId,
+      eventType: 'agent.knowledge.attached',
+      resourceType: 'agent',
+      resourceId: agentId,
+      metadata: { sourceId },
+    });
+  }
+
   async function attachKnowledge(
     actor: Actor,
     agentId: string,
@@ -216,14 +231,7 @@ export function createAgentsService(
       { organizationId: actor.organizationId, userId: actor.userId },
       async (tx) => attachKnowledgeInTx(tx, actor, agentId, sourceId),
     );
-    await audit.record({
-      organizationId: actor.organizationId,
-      actorUserId: actor.userId,
-      eventType: 'agent.knowledge.attached',
-      resourceType: 'agent',
-      resourceId: agentId,
-      metadata: { sourceId },
-    });
+    await recordKnowledgeAttachedAudit(actor, agentId, sourceId);
   }
 
   return {
@@ -332,6 +340,11 @@ export function createAgentsService(
           `);
           const versionId = versionRows[0]?.id;
           if (!versionId) throw new Error('version insert returned no id');
+
+          for (const sourceId of knowledgeSourceIds) {
+            await attachKnowledgeInTx(tx, actor, agentId, sourceId);
+          }
+
           return { id: agentId, versionId };
         },
       );
@@ -346,7 +359,7 @@ export function createAgentsService(
       });
 
       for (const sourceId of knowledgeSourceIds) {
-        await attachKnowledge(actor, created.id, sourceId);
+        await recordKnowledgeAttachedAudit(actor, created.id, sourceId);
       }
 
       return created;

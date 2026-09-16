@@ -32,6 +32,7 @@ import {
   SESSIONS_SERVICE,
 } from '../tokens.more.js';
 import type { AgentsService } from './agents.service.js';
+import { listEnabledPacks } from './packs/index.js';
 import type { SessionsService } from './sessions.service.js';
 import type { AgentRuntime } from '@platform/providers';
 import { InboundEventInput } from './events.js';
@@ -80,6 +81,12 @@ export class AgentsController {
   @Get()
   async list(@Req() req: RequestWithAuth) {
     return { agents: await this.agents.list(actorOf(req)) };
+  }
+
+  @RequirePermission('agents.read')
+  @Get('packs')
+  listPacks() {
+    return { packs: listEnabledPacks() };
   }
 
   @RequirePermission('agents.create')

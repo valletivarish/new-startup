@@ -35,6 +35,41 @@ describe('packs registry', () => {
   });
 });
 
+describe('GET /agents/packs', () => {
+  let api: ApiHarness;
+
+  beforeAll(async () => {
+    api = await startApi();
+  }, 120_000);
+
+  afterAll(async () => {
+    await api?.close();
+  });
+
+  it('returns enabled packs with hiring wizard fields and no vendor names', async () => {
+    const owner = await registerUser(api, 'packs-list');
+    await createOrganization(api, owner, 'Packs List Org');
+    const cookie = owner.cookie;
+
+    const res = await api.request({
+      method: 'GET',
+      url: '/agents/packs',
+      cookie,
+    });
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body) as {
+      packs: { id: string; label: string; wizardFields: { key: string }[] }[];
+    };
+    expect(body.packs.map((p) => p.id)).toEqual(['hiring', 'custom']);
+    const hiring = body.packs.find((p) => p.id === 'hiring');
+    expect(hiring).toBeDefined();
+    expect(hiring!.wizardFields.map((f) => f.key)).toEqual(
+      expect.arrayContaining(['purpose', 'mustAskQuestions', 'transferPhones']),
+    );
+    expect(res.body.toLowerCase()).not.toMatch(/elevenlabs|exotel|gemini/);
+  });
+});
+
 describe('hiring wizard create', () => {
   let api: ApiHarness;
 

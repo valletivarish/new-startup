@@ -14,6 +14,10 @@ export function listPacks(): PackDefinition[] {
   return Object.values(PACKS);
 }
 
+export function listEnabledPacks(): PackDefinition[] {
+  return [getPack('hiring'), getPack('custom')];
+}
+
 export function getPack(id: AgentType): PackDefinition {
   const pack = PACKS[id];
   if (!pack) throw new Error(`Unknown pack: ${id}`);

@@ -17,6 +17,7 @@
  */
 
 import { z } from 'zod';
+import { AGENT_TYPES } from './packs/types.js';
 
 /** Business capability tiers — never provider or model names. */
 export const IntelligenceTier = z.enum(['standard', 'advanced', 'premium']);
@@ -91,6 +92,8 @@ const Escalation = z.object({
     .default('on_request'),
   /** Business-level target, resolved by the notification layer. */
   notifyEmails: z.array(z.string().email()).max(20).default([]),
+  /** E.164 or local digits — resolved by telephony adapter later; never store vendor ids here */
+  transferPhones: z.array(z.string().trim().min(5).max(20)).max(10).default([]),
 });
 
 const FollowUp = z.object({
@@ -123,6 +126,7 @@ const Evaluation = z.object({
  */
 export const AgentConfiguration = z
   .object({
+    agentType: z.enum(AGENT_TYPES).default('custom'),
     identity: Identity,
     purpose: z.string().trim().min(1).max(2000),
     conversation: Conversation.prefault({}),

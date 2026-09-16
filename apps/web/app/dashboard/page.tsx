@@ -181,18 +181,23 @@ export default function DashboardPage() {
         >
           <strong>Dashboard</strong>
           <span style={{ display: 'flex', gap: 12, alignItems: 'center', fontSize: 14 }}>
-            <select
-              value={active?.id ?? ''}
-              onChange={(e) => void onSwitch(e.target.value)}
-              aria-label="Active organization"
-            >
-              {!active && <option value="">No organization</option>}
-              {orgs.map((o) => (
-                <option key={o.id} value={o.id}>
-                  {o.name} · {o.roleKey}
-                </option>
-              ))}
-            </select>
+            {orgs.length > 1 ? (
+              <select
+                value={active?.id ?? ''}
+                onChange={(e) => void onSwitch(e.target.value)}
+                aria-label="Company"
+              >
+                {orgs.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.name}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <span style={{ color: '#475569' }}>
+                {orgs[0]?.name ?? 'Your company'}
+              </span>
+            )}
             {profile.user.email}
             <button
               onClick={() => void signOut().then(() => router.push('/'))}
@@ -211,16 +216,16 @@ export default function DashboardPage() {
 
         {!active && (
           <section style={panel}>
-            <h2 style={{ marginTop: 0, fontSize: 17 }}>Create your organization</h2>
+            <h2 style={{ marginTop: 0, fontSize: 17 }}>Create your company</h2>
             <p style={{ fontSize: 14, color: '#545c56' }}>
-              You are not a member of any organization yet. Create one, or accept
-              an invitation from your email.
+              You do not have a company workspace yet. Name it here, or accept an
+              invite from your email.
             </p>
             <form onSubmit={onCreateOrg} style={{ display: 'flex', gap: 8 }}>
               <input
                 value={newOrgName}
                 onChange={(e) => setNewOrgName(e.target.value)}
-                placeholder="Organization name"
+                placeholder="Company name"
                 required
                 minLength={2}
                 style={{ flex: 1, padding: '8px 10px' }}

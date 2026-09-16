@@ -267,7 +267,7 @@ describe('permission enforcement (strings, not role names)', () => {
       cookie: drifter.cookie,
     });
     expect(res.statusCode).toBe(403);
-    expect(res.body).toContain('switch-organization');
+    expect(res.body).toContain('Create or open your company first');
   });
 });
 

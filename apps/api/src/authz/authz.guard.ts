@@ -97,9 +97,7 @@ export class AuthzGuard implements CanActivate {
     );
 
     if (!ctx.organization) {
-      throw ApiError.forbidden(
-        'Select an organization first (POST /auth/switch-organization)',
-      );
+      throw ApiError.forbidden('Create or open your company first.');
     }
 
     let granted: Permission | undefined;

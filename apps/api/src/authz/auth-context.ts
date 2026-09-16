@@ -143,9 +143,7 @@ export function requireOrganization(
   ctx: AuthContext,
 ): AuthContext & { organization: NonNullable<AuthContext['organization']> } {
   if (!ctx.organization) {
-    throw ApiError.forbidden(
-      'Select an organization first (POST /auth/switch-organization)',
-    );
+    throw ApiError.forbidden('Create or open your company first.');
   }
   return ctx as AuthContext & {
     organization: NonNullable<AuthContext['organization']>;

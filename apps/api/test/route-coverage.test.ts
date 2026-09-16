@@ -41,6 +41,7 @@ import {
   VoiceWebhookController,
 } from '../src/providers/elevenlabs/voice.controller.js';
 import { JobsController } from '../src/hiring/jobs.controller.js';
+import { CandidatesController } from '../src/hiring/candidates.controller.js';
 
 // The complete controller list. app.module.ts must register exactly these;
 // the companion assertion below keeps the two lists from drifting.
@@ -63,6 +64,7 @@ const CONTROLLERS = [
   VoiceSessionsController,
   VoiceWebhookController,
   JobsController,
+  CandidatesController,
 ];
 
 interface RouteInfo {

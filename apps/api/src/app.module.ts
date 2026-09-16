@@ -64,6 +64,7 @@ import {
   VOICE_SESSION_ADAPTER,
   VOICE_SESSION_SERVICE,
   JOBS_SERVICE,
+  CANDIDATES_SERVICE,
 } from './tokens.more.js';
 import {
   AuthController,
@@ -90,9 +91,11 @@ import {
   VoiceWebhookController,
 } from './providers/elevenlabs/voice.controller.js';
 import { JobsController } from './hiring/jobs.controller.js';
+import { CandidatesController } from './hiring/candidates.controller.js';
 import { createVoiceSessionAdapter, createStubVoiceSessionAdapter } from './providers/elevenlabs/adapter.js';
 import { createVoiceSessionService } from './providers/elevenlabs/voice-session.service.js';
 import { createJobsService } from './hiring/jobs.service.js';
+import { createCandidatesService } from './hiring/candidates.service.js';
 
 export interface AppDeps {
   readonly env: Env;
@@ -133,6 +136,7 @@ export class AppModule {
         VoiceSessionsController,
         VoiceWebhookController,
         JobsController,
+        CandidatesController,
       ],
       providers: [
         { provide: ENV, useValue: deps.env },
@@ -326,6 +330,10 @@ export class AppModule {
         {
           provide: JOBS_SERVICE,
           useFactory: () => createJobsService(deps.database),
+        },
+        {
+          provide: CANDIDATES_SERVICE,
+          useFactory: () => createCandidatesService(deps.database),
         },
       ],
     };

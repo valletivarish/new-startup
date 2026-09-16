@@ -177,7 +177,7 @@ export class AppModule {
           provide: AGENTS_SERVICE,
           inject: [AUDIT_SERVICE],
           useFactory: (audit: ReturnType<typeof createAuditService>) =>
-            createAgentsService(deps.database, audit),
+            createAgentsService(deps.database, audit, deps.env.ORG_AGENT_LIMIT),
         },
         {
           provide: SESSIONS_SERVICE,

@@ -127,6 +127,9 @@ const EnvSchema = z.object({
 
   /** Maximum total voice minutes per org per calendar day. */
   ELEVENLABS_DAILY_TEST_MINUTES: z.coerce.number().int().min(1).max(300).default(30),
+
+  /** Maximum agents per organization until billing tables exist. */
+  ORG_AGENT_LIMIT: z.coerce.number().int().min(1).max(1000).default(5),
 }).superRefine((env, ctx) => {
   // Fail-closed toward production (audit finding): a production process with
   // development-grade security settings must refuse to boot, not limp along.

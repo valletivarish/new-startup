@@ -23,6 +23,7 @@ import {
   assertVersionTransition,
   type AgentStatus,
 } from './lifecycle.js';
+import { assertCanCreateAgent } from './quota.js';
 
 export interface Actor {
   readonly organizationId: string;
@@ -154,6 +155,7 @@ function parseConfiguration(input: unknown): AgentConfiguration {
 export function createAgentsService(
   database: Database,
   audit: AuditService,
+  agentLimit: number,
 ): AgentsService {
   /** Load an agent within the caller's organization, or an identical 404. */
   async function loadAgent(
@@ -235,6 +237,15 @@ export function createAgentsService(
         database.db,
         { organizationId: actor.organizationId, userId: actor.userId },
         async (tx) => {
+          await assertCanCreateAgent(async () => {
+            const rows = await tx.execute<{ count: number }>(sql`
+              select count(*)::int as count
+              from agents
+              where organization_id = ${actor.organizationId}
+            `);
+            return rows[0]?.count ?? 0;
+          }, agentLimit);
+
           let agentId: string;
           try {
             const rows = await tx.execute<{ id: string }>(sql`

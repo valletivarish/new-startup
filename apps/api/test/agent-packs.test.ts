@@ -85,3 +85,42 @@ describe('hiring wizard create', () => {
     expect(cfg.escalation.transferPhones).toContain('+919876543210');
   });
 });
+
+describe('agent creation quota', () => {
+  let api: ApiHarness;
+
+  beforeAll(async () => {
+    api = await startApi({ ORG_AGENT_LIMIT: '3' });
+  }, 120_000);
+
+  afterAll(async () => {
+    await api?.close();
+  });
+
+  it('returns 409 when org agent limit is reached', async () => {
+    const owner = await registerUser(api, 'quota');
+    await createOrganization(api, owner, 'Quota Org');
+    const cookie = owner.cookie;
+
+    for (let i = 1; i <= 3; i++) {
+      const res = await api.request({
+        method: 'POST',
+        url: '/agents',
+        cookie,
+        payload: { name: `Agent ${i}`, agentType: 'hiring' },
+      });
+      expect(res.statusCode, `create ${i}`).toBe(201);
+    }
+
+    const blocked = await api.request({
+      method: 'POST',
+      url: '/agents',
+      cookie,
+      payload: { name: 'Over limit', agentType: 'hiring' },
+    });
+    expect(blocked.statusCode).toBe(409);
+    const body = JSON.parse(blocked.body) as { message: string };
+    expect(body.message.toLowerCase()).toMatch(/limit|plan/);
+    expect(body.message.toLowerCase()).not.toMatch(/eleven|exotel|gemini/);
+  });
+});

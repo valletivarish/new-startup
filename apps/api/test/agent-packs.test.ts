@@ -189,6 +189,55 @@ describe('hiring wizard create', () => {
     const { sources } = JSON.parse(linkedRes.body) as { sources: { id: string }[] };
     expect(sources.map((s) => s.id)).toContain(sourceId);
   });
+
+  it('create deduplicates knowledgeSourceIds in configuration and links', async () => {
+    const owner = await registerUser(api, 'pack-knowledge-dedupe');
+    await createOrganization(api, owner, 'Pack Knowledge Dedupe Org');
+    const cookie = owner.cookie;
+
+    const sourceRes = await api.request({
+      method: 'POST',
+      url: '/knowledge/sources',
+      cookie,
+      payload: { name: 'Role docs', type: 'text' },
+    });
+    expect(sourceRes.statusCode).toBe(201);
+    const sourceId = (JSON.parse(sourceRes.body) as { id: string }).id;
+
+    const res = await api.request({
+      method: 'POST',
+      url: '/agents',
+      cookie,
+      payload: {
+        name: 'Deduped screener',
+        agentType: 'hiring',
+        purpose: 'Screen for the open role',
+        knowledgeSourceIds: [sourceId, sourceId],
+      },
+    });
+    expect(res.statusCode).toBe(201);
+    const agent = JSON.parse(res.body) as { id: string; versionId: string };
+
+    const versionRes = await api.request({
+      method: 'GET',
+      url: `/agents/${agent.id}/versions/${agent.versionId}`,
+      cookie,
+    });
+    const { configuration: cfg } = JSON.parse(versionRes.body) as {
+      configuration: { knowledge: { knowledgeSourceId: string }[] };
+    };
+    expect(cfg.knowledge).toHaveLength(1);
+    expect(cfg.knowledge[0]?.knowledgeSourceId).toBe(sourceId);
+
+    const linkedRes = await api.request({
+      method: 'GET',
+      url: `/agents/${agent.id}/knowledge`,
+      cookie,
+    });
+    const { sources } = JSON.parse(linkedRes.body) as { sources: { id: string }[] };
+    expect(sources).toHaveLength(1);
+    expect(sources[0]?.id).toBe(sourceId);
+  });
 });
 
 describe('agent creation quota', () => {

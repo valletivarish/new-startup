@@ -139,6 +139,10 @@ function toVersion(r: VersionRecord): VersionRow {
   };
 }
 
+function uniqueKnowledgeSourceIds(ids: readonly string[]): string[] {
+  return [...new Set(ids)];
+}
+
 /** Validates configuration against the contract; invalid input is a 422. */
 function parseConfiguration(input: unknown): AgentConfiguration {
   const result = AgentConfiguration.safeParse(input);
@@ -180,6 +184,48 @@ export function createAgentsService(
     return agent;
   }
 
+  async function attachKnowledgeInTx(
+    tx: Parameters<Parameters<typeof withTenantContext>[2]>[0],
+    actor: Actor,
+    agentId: string,
+    sourceId: string,
+  ): Promise<void> {
+    await loadAgent(tx, actor, agentId);
+
+    const source = await tx.execute<{ id: string }>(sql`
+      select id from knowledge_sources
+      where id = ${sourceId} and organization_id = ${actor.organizationId}
+        and status <> 'archived'
+    `);
+    if (source.length === 0) throw ApiError.notFound('Knowledge source');
+
+    await tx.execute(sql`
+      insert into agent_knowledge_sources (organization_id, agent_id, source_id)
+      values (${actor.organizationId}, ${agentId}, ${sourceId})
+      on conflict (agent_id, source_id) do nothing
+    `);
+  }
+
+  async function attachKnowledge(
+    actor: Actor,
+    agentId: string,
+    sourceId: string,
+  ): Promise<void> {
+    await withTenantContext(
+      database.db,
+      { organizationId: actor.organizationId, userId: actor.userId },
+      async (tx) => attachKnowledgeInTx(tx, actor, agentId, sourceId),
+    );
+    await audit.record({
+      organizationId: actor.organizationId,
+      actorUserId: actor.userId,
+      eventType: 'agent.knowledge.attached',
+      resourceType: 'agent',
+      resourceId: agentId,
+      metadata: { sourceId },
+    });
+  }
+
   return {
     async list(actor) {
       const rows = await withTenantContext(
@@ -211,12 +257,13 @@ export function createAgentsService(
     async create(actor, input) {
       const pack = getPack(input.agentType);
       const purpose = input.purpose ?? pack.description;
+      const knowledgeSourceIds = uniqueKnowledgeSourceIds(input.knowledgeSourceIds);
       const criteria = input.mustAskQuestions.map((label, i) => ({
         id: `q${i + 1}`,
         label,
         required: true,
       }));
-      const knowledge = input.knowledgeSourceIds.map((knowledgeSourceId) => ({
+      const knowledge = knowledgeSourceIds.map((knowledgeSourceId) => ({
         knowledgeSourceId,
         label: '',
       }));
@@ -285,22 +332,6 @@ export function createAgentsService(
           `);
           const versionId = versionRows[0]?.id;
           if (!versionId) throw new Error('version insert returned no id');
-
-          for (const sourceId of input.knowledgeSourceIds) {
-            const source = await tx.execute<{ id: string; name: string }>(sql`
-              select id, name from knowledge_sources
-              where id = ${sourceId} and organization_id = ${actor.organizationId}
-                and status <> 'archived'
-            `);
-            if (source.length === 0) throw ApiError.notFound('Knowledge source');
-
-            await tx.execute(sql`
-              insert into agent_knowledge_sources (organization_id, agent_id, source_id)
-              values (${actor.organizationId}, ${agentId}, ${sourceId})
-              on conflict (agent_id, source_id) do nothing
-            `);
-          }
-
           return { id: agentId, versionId };
         },
       );
@@ -313,6 +344,11 @@ export function createAgentsService(
         resourceId: created.id,
         metadata: { name: input.name, type: input.type ?? input.agentType },
       });
+
+      for (const sourceId of knowledgeSourceIds) {
+        await attachKnowledge(actor, created.id, sourceId);
+      }
+
       return created;
     },
 
@@ -413,40 +449,7 @@ export function createAgentsService(
       );
     },
 
-    async attachKnowledge(actor, agentId, sourceId) {
-      await withTenantContext(
-        database.db,
-        { organizationId: actor.organizationId, userId: actor.userId },
-        async (tx) => {
-          await loadAgent(tx, actor, agentId);
-
-          // The source must exist IN THIS ORGANIZATION. Without this check a
-          // caller could name another tenant's source id and have the agent
-          // reference it — RLS would then hide the rows, but the association
-          // itself would be wrong. Validate rather than rely on the backstop.
-          const source = await tx.execute<{ id: string }>(sql`
-            select id from knowledge_sources
-            where id = ${sourceId} and organization_id = ${actor.organizationId}
-              and status <> 'archived'
-          `);
-          if (source.length === 0) throw ApiError.notFound('Knowledge source');
-
-          await tx.execute(sql`
-            insert into agent_knowledge_sources (organization_id, agent_id, source_id)
-            values (${actor.organizationId}, ${agentId}, ${sourceId})
-            on conflict (agent_id, source_id) do nothing
-          `);
-        },
-      );
-      await audit.record({
-        organizationId: actor.organizationId,
-        actorUserId: actor.userId,
-        eventType: 'agent.knowledge.attached',
-        resourceType: 'agent',
-        resourceId: agentId,
-        metadata: { sourceId },
-      });
-    },
+    attachKnowledge,
 
     async detachKnowledge(actor, agentId, sourceId) {
       await withTenantContext(

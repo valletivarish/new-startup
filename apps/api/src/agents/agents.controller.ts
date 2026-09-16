@@ -60,7 +60,11 @@ const CreateAgent = z
       .default('hiring'),
     mustAskQuestions: z.array(z.string().trim().min(1).max(300)).max(30).default([]),
     transferPhones: z.array(z.string().trim().min(5).max(20)).max(10).default([]),
-    knowledgeSourceIds: z.array(z.string().uuid()).max(100).default([]),
+    knowledgeSourceIds: z
+      .array(z.string().uuid())
+      .max(100)
+      .default([])
+      .transform((ids) => [...new Set(ids)]),
   })
   .strict();
 

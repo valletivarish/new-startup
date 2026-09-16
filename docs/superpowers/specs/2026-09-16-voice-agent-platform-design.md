@@ -186,3 +186,19 @@ MVP-01 browser voice remains an internal/demo path; customer “live job” path
 - Admin creates roles; widgets follow permissions.
 - Hide internal tools from customers.
 - SOLID + ports; no unnecessary patterns (ponytail).
+
+---
+
+## 13. Visual reference (locked 2026-09-16)
+
+User-provided landing/desk mock (asset ).
+
+**Working product name:** ai voice agent (lowercase).
+
+**Palette:** white surfaces; primary deep blue CTAs; soft pastel use-case tiles; dark navy process band; dark sidebar + light main for app chrome.
+
+**Landing:** hero with real person on phone + floating call UI chips; use-case grid (Hiring, Support, Sales, Appointments, Reminders, Custom); 5-step how-it-works; dashboard preview; India cues (“Built for India”, +91); CTAs Get started / Watch a demo.
+
+**App:** sidebar Dashboard, Agents, Calls, Contacts, Analytics, Settings; metric cards (Total / Completed / In progress / Human transfer); recent calls table with status pills; permission-gated widgets.
+
+**Copy rules:** no vendor/tool brand names; plain language; demo before live; human transfer emphasized.

@@ -30,6 +30,7 @@ import {
 
 import { organizations } from './organizations.js';
 import { agentVersions } from './agents.js';
+import { jobs, candidates } from './hiring.js';
 
 export const voiceProviderDeployments = pgTable(
   'voice_provider_deployments',
@@ -77,6 +78,11 @@ export const voiceSessions = pgTable(
     sessionId: uuid('session_id').notNull(),
     /** The deployment that was used. */
     deploymentId: uuid('deployment_id').notNull(),
+    /** Optional hiring-desk link for screening result review. */
+    jobId: uuid('job_id').references(() => jobs.id, { onDelete: 'set null' }),
+    candidateId: uuid('candidate_id').references(() => candidates.id, {
+      onDelete: 'set null',
+    }),
     provider: text('provider').notNull().default('elevenlabs'),
     /** Provider-side conversation ID. NULL until the session actually starts. */
     externalConversationId: text('external_conversation_id'),
@@ -111,5 +117,10 @@ export const voiceSessions = pgTable(
     uniqueIndex('vs_session_unique').on(t.sessionId),
     index('vs_org_status_idx').on(t.organizationId, t.status),
     index('vs_org_started_idx').on(t.organizationId, t.startedAt),
+    index('vs_org_job_candidate_idx').on(
+      t.organizationId,
+      t.jobId,
+      t.candidateId,
+    ),
   ],
 );

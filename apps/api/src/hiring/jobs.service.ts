@@ -25,6 +25,15 @@ export interface JobCandidateRow {
   readonly source: string;
 }
 
+export interface CandidateScreeningResults {
+  readonly voiceSessionId: string | null;
+  readonly status: string | null;
+  readonly transcript: readonly unknown[] | null;
+  readonly summary: string | null;
+  readonly structuredAnswers: Readonly<Record<string, unknown>> | null;
+  readonly costCredits: number | null;
+}
+
 export interface JobsService {
   list(actor: Actor): Promise<readonly JobRow[]>;
   get(actor: Actor, jobId: string): Promise<JobRow>;
@@ -57,6 +66,11 @@ export interface JobsService {
     candidateId: string,
     status: string,
   ): Promise<void>;
+  getCandidateResults(
+    actor: Actor,
+    jobId: string,
+    candidateId: string,
+  ): Promise<CandidateScreeningResults>;
 }
 
 type JobRecord = {
@@ -167,6 +181,21 @@ export function createJobsService(database: Database): JobsService {
       where id = ${candidateId} and organization_id = ${actor.organizationId}
     `);
     if (rows.length === 0) throw ApiError.notFound('Candidate');
+  }
+
+  async function loadAssignment(
+    tx: Parameters<Parameters<typeof withTenantContext>[2]>[0],
+    actor: Actor,
+    jobId: string,
+    candidateId: string,
+  ): Promise<void> {
+    const rows = await tx.execute<{ id: string }>(sql`
+      select id from job_candidates
+      where job_id = ${jobId}
+        and candidate_id = ${candidateId}
+        and organization_id = ${actor.organizationId}
+    `);
+    if (rows.length === 0) throw ApiError.notFound('Job candidate');
   }
 
   return {
@@ -329,6 +358,62 @@ export function createJobsService(database: Database): JobsService {
           if (rows.length === 0) throw ApiError.notFound('Job candidate');
         },
       );
+    },
+
+    async getCandidateResults(actor, jobId, candidateId) {
+      const row = await withTenantContext(
+        database.db,
+        { organizationId: actor.organizationId, userId: actor.userId },
+        async (tx) => {
+          await loadJob(tx, actor, jobId);
+          await loadCandidate(tx, actor, candidateId);
+          await loadAssignment(tx, actor, jobId, candidateId);
+
+          const rows = await tx.execute<{
+            id: string;
+            status: string;
+            transcript: unknown;
+            summary: string | null;
+            structured_answers: unknown;
+            cost_credits: string | null;
+          }>(sql`
+            select id, status, transcript, summary, structured_answers,
+                   cost_credits::text
+            from voice_sessions
+            where organization_id = ${actor.organizationId}
+              and job_id = ${jobId}
+              and candidate_id = ${candidateId}
+            order by started_at desc
+            limit 1
+          `);
+          return rows[0] ?? null;
+        },
+      );
+
+      if (!row) {
+        return {
+          voiceSessionId: null,
+          status: null,
+          transcript: null,
+          summary: null,
+          structuredAnswers: null,
+          costCredits: null,
+        };
+      }
+
+      return {
+        voiceSessionId: row.id,
+        status: row.status,
+        transcript: Array.isArray(row.transcript) ? row.transcript : null,
+        summary: row.summary,
+        structuredAnswers:
+          row.structured_answers &&
+          typeof row.structured_answers === 'object' &&
+          !Array.isArray(row.structured_answers)
+            ? (row.structured_answers as Record<string, unknown>)
+            : null,
+        costCredits: row.cost_credits !== null ? Number(row.cost_credits) : null,
+      };
     },
   };
 }

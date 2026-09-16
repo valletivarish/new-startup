@@ -141,6 +141,22 @@ export class JobsController {
     };
   }
 
+  @RequirePermission('jobs.read')
+  @Get(':jobId/candidates/:candidateId/results')
+  async getCandidateResults(
+    @Req() req: RequestWithAuth,
+    @Param('jobId') jobId: string,
+    @Param('candidateId') candidateId: string,
+  ) {
+    requireCandidatesRead(req);
+    const results = await this.jobs.getCandidateResults(
+      actorOf(req),
+      parse(Uuid, jobId),
+      parse(Uuid, candidateId),
+    );
+    return { results };
+  }
+
   @RequirePermission('jobs.update')
   @Patch(':jobId/candidates/:candidateId')
   async updateCandidateStatus(

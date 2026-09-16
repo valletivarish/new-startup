@@ -120,6 +120,13 @@
       "when": 1789600001000,
       "tag": "0016_hiring_desk_rls",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1789600002000,
+      "tag": "0017_voice_session_hiring_link",
+      "breakpoints": true
     }
   ]
 }

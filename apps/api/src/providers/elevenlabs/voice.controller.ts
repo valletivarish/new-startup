@@ -120,9 +120,30 @@ export class VoiceSessionsController {
   async start(
     @Req() req: RequestWithAuth,
     @Param('agentId') agentId: string,
+    @Body() body: unknown,
   ) {
     const actor = actorOf(req);
-    const result = await this.svc.startVoiceSession(actor, parse(Uuid, agentId));
+    const input = parse(
+      z
+        .object({
+          jobId: z.string().uuid().optional(),
+          candidateId: z.string().uuid().optional(),
+        })
+        .strict()
+        .refine(
+          (value) =>
+            (value.jobId === undefined) === (value.candidateId === undefined),
+          {
+            message: 'jobId and candidateId must be provided together',
+            path: ['jobId'],
+          },
+        ),
+      body ?? {},
+    );
+    const result = await this.svc.startVoiceSession(actor, parse(Uuid, agentId), {
+      jobId: input.jobId,
+      candidateId: input.candidateId,
+    });
     return {
       voiceSessionId: result.voiceSessionId,
       conversationToken: result.conversationToken,

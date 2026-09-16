@@ -7,6 +7,9 @@
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
+import { sql } from '@platform/db';
+
+import { createStubVoiceSessionAdapter } from '../src/providers/elevenlabs/adapter.js';
 import {
   acceptInvitation,
   createOrganization,
@@ -16,6 +19,7 @@ import {
   type ApiHarness,
   type TestActor,
 } from './setup/api-harness.js';
+import { superDatabase } from './setup/fixtures.js';
 
 let api: ApiHarness;
 let orgAOwner: TestActor;
@@ -598,5 +602,202 @@ describe('candidates tenant isolation', () => {
     });
     const candidate = JSON.parse(check.body) as { fullName: string };
     expect(candidate.fullName).toBe('Isolated Candidate');
+  });
+});
+
+const VOICE_ENV: Record<string, string> = {
+  ELEVENLABS_ENABLED: 'true',
+  ELEVENLABS_API_KEY: 'test-key',
+  ELEVENLABS_WEBHOOK_SECRET: 'test-webhook-secret-32-chars-xxxxx',
+  ELEVENLABS_MAX_TEST_MINUTES: '5',
+  ELEVENLABS_DAILY_TEST_SESSIONS: '10',
+  ELEVENLABS_DAILY_TEST_MINUTES: '60',
+};
+
+describe('candidate screening results', () => {
+  let voiceApi: ApiHarness;
+  let jobId: string;
+  let candidateId: string;
+  let agentId: string;
+  let cookie: string;
+
+  beforeAll(async () => {
+    voiceApi = await startApi(VOICE_ENV, createStubVoiceSessionAdapter());
+
+    cookie = orgAOwner.cookie;
+
+    const jobRes = await voiceApi.request({
+      method: 'POST',
+      url: '/jobs',
+      cookie,
+      payload: { title: 'Screening Role' },
+    });
+    jobId = (JSON.parse(jobRes.body) as { id: string }).id;
+
+    const candRes = await voiceApi.request({
+      method: 'POST',
+      url: '/candidates',
+      cookie,
+      payload: { fullName: 'Screened Candidate' },
+    });
+    candidateId = (JSON.parse(candRes.body) as { id: string }).id;
+
+    const assign = await voiceApi.request({
+      method: 'POST',
+      url: `/jobs/${jobId}/candidates`,
+      cookie,
+      payload: { candidateId },
+    });
+    expect(assign.statusCode).toBe(201);
+
+    const agentRes = await voiceApi.request({
+      method: 'POST',
+      url: '/agents',
+      cookie,
+      payload: {
+        name: 'Screening Bot',
+        purpose: 'Screen candidates',
+        description: 'P1 hiring desk test',
+      },
+    });
+    expect(agentRes.statusCode).toBe(201);
+    const parsed = JSON.parse(agentRes.body) as { id: string; versionId: string };
+    agentId = parsed.id;
+    const pub = await voiceApi.request({
+      method: 'POST',
+      url: `/agents/${agentId}/versions/${parsed.versionId}/publish`,
+      cookie,
+      payload: {},
+    });
+    expect([200, 201]).toContain(pub.statusCode);
+  }, 120_000);
+
+  afterAll(async () => {
+    await voiceApi?.close();
+  });
+
+  it('returns null-safe fields when no voice session is linked', async () => {
+    const res = await voiceApi.request({
+      method: 'GET',
+      url: `/jobs/${jobId}/candidates/${candidateId}/results`,
+      cookie,
+    });
+    expect(res.statusCode).toBe(200);
+    const { results } = JSON.parse(res.body) as {
+      results: {
+        voiceSessionId: string | null;
+        transcript: unknown;
+        summary: string | null;
+        structuredAnswers: unknown;
+        costCredits: number | null;
+        fitPercent?: unknown;
+      };
+    };
+    expect(results.voiceSessionId).toBeNull();
+    expect(results.transcript).toBeNull();
+    expect(results.summary).toBeNull();
+    expect(results.structuredAnswers).toBeNull();
+    expect(results.costCredits).toBeNull();
+    expect(results).not.toHaveProperty('fitPercent');
+  });
+
+  it('returns latest linked voice session result fields', async () => {
+    const start = await voiceApi.request({
+      method: 'POST',
+      url: `/agents/${agentId}/voice-sessions`,
+      cookie,
+      payload: { jobId, candidateId },
+    });
+    expect(start.statusCode).toBe(201);
+    const voiceSessionId = (JSON.parse(start.body) as { voiceSessionId: string })
+      .voiceSessionId;
+
+    const db = superDatabase();
+    try {
+      await db.db.execute(sql`
+        update voice_sessions set
+          status = 'ended',
+          transcript = ${JSON.stringify([
+            { role: 'agent', message: 'Tell me about your experience.' },
+            { role: 'user', message: 'Five years in backend engineering.' },
+          ])}::jsonb,
+          summary = 'Candidate discussed backend experience.',
+          structured_answers = ${JSON.stringify({ yearsExperience: 5 })}::jsonb,
+          cost_credits = 1.25
+        where id = ${voiceSessionId}
+      `);
+    } finally {
+      await db.close();
+    }
+
+    const res = await voiceApi.request({
+      method: 'GET',
+      url: `/jobs/${jobId}/candidates/${candidateId}/results`,
+      cookie,
+    });
+    expect(res.statusCode).toBe(200);
+    const { results } = JSON.parse(res.body) as {
+      results: {
+        voiceSessionId: string;
+        status: string;
+        transcript: { role: string; message: string }[];
+        summary: string;
+        structuredAnswers: { yearsExperience: number };
+        costCredits: number;
+        fitPercent?: unknown;
+      };
+    };
+    expect(results.voiceSessionId).toBe(voiceSessionId);
+    expect(results.status).toBe('ended');
+    expect(results.transcript).toHaveLength(2);
+    expect(results.summary).toBe('Candidate discussed backend experience.');
+    expect(results.structuredAnswers.yearsExperience).toBe(5);
+    expect(results.costCredits).toBe(1.25);
+    expect(results).not.toHaveProperty('fitPercent');
+  });
+
+  it('returns 404 when the candidate is not assigned to the job', async () => {
+    const unassigned = await voiceApi.request({
+      method: 'POST',
+      url: '/candidates',
+      cookie,
+      payload: { fullName: 'Unassigned Candidate' },
+    });
+    const unassignedId = (JSON.parse(unassigned.body) as { id: string }).id;
+
+    const res = await voiceApi.request({
+      method: 'GET',
+      url: `/jobs/${jobId}/candidates/${unassignedId}/results`,
+      cookie,
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it('returns 404 for cross-org access', async () => {
+    const res = await voiceApi.request({
+      method: 'GET',
+      url: `/jobs/${jobId}/candidates/${candidateId}/results`,
+      cookie: orgBOwner.cookie,
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it('returns 403 without candidates.read permission', async () => {
+    const viewer = await registerUser(voiceApi, 'results-viewer');
+    const token = await inviteAndCaptureToken(
+      voiceApi,
+      orgAOwner,
+      viewer.email,
+      'viewer',
+    );
+    const accepted = await acceptInvitation(voiceApi, viewer, token);
+    expect([200, 201]).toContain(accepted.statusCode);
+
+    const res = await voiceApi.request({
+      method: 'GET',
+      url: `/jobs/${jobId}/candidates/${candidateId}/results`,
+      cookie: viewer.cookie,
+    });
+    expect(res.statusCode).toBe(403);
   });
 });

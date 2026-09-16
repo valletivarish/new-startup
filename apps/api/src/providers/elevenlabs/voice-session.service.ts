@@ -134,6 +134,7 @@ export interface VoiceSessionService {
   startVoiceSession(
     actor: Actor,
     agentId: string,
+    options?: { jobId?: string; candidateId?: string },
   ): Promise<{ voiceSession: VoiceSessionResult } & VoiceSessionToken>;
 
   /**
@@ -329,8 +330,9 @@ export function createVoiceSessionService(
       return toDeployment(dep);
     },
 
-    async startVoiceSession(actor, agentId) {
+    async startVoiceSession(actor, agentId, options = {}) {
       guardEnabled();
+      const { jobId, candidateId } = options;
 
       // Resolve agent and its published version.
       const agentRows = await withTenantContext(
@@ -403,6 +405,39 @@ export function createVoiceSessionService(
             );
           }
 
+          if (jobId !== undefined || candidateId !== undefined) {
+            if (!jobId || !candidateId) {
+              throw ApiError.validation([
+                {
+                  field: 'jobId',
+                  message: 'jobId and candidateId must be provided together',
+                },
+              ]);
+            }
+
+            const jobRows = await tx.execute<{ id: string }>(sql`
+              select id from jobs
+              where id = ${jobId} and organization_id = ${actor.organizationId}
+            `);
+            if (jobRows.length === 0) throw ApiError.notFound('Job');
+
+            const candidateRows = await tx.execute<{ id: string }>(sql`
+              select id from candidates
+              where id = ${candidateId} and organization_id = ${actor.organizationId}
+            `);
+            if (candidateRows.length === 0) throw ApiError.notFound('Candidate');
+
+            const assignmentRows = await tx.execute<{ id: string }>(sql`
+              select id from job_candidates
+              where job_id = ${jobId}
+                and candidate_id = ${candidateId}
+                and organization_id = ${actor.organizationId}
+            `);
+            if (assignmentRows.length === 0) {
+              throw ApiError.notFound('Job candidate');
+            }
+          }
+
           // Create the local AgentSession (channel = 'voice').
           const sessionRows = await tx.execute<{ id: string }>(sql`
             insert into agent_sessions
@@ -418,9 +453,11 @@ export function createVoiceSessionService(
           // Insert the voice_session row (status = pending).
           const vsRows = await tx.execute<VoiceSessionRecord>(sql`
             insert into voice_sessions
-              (organization_id, session_id, deployment_id, provider, status)
+              (organization_id, session_id, deployment_id, provider, status,
+               job_id, candidate_id)
             values (
-              ${actor.organizationId}, ${localSessionId}, ${deployment!.id}, 'elevenlabs', 'pending'
+              ${actor.organizationId}, ${localSessionId}, ${deployment!.id}, 'elevenlabs', 'pending',
+              ${jobId ?? null}, ${candidateId ?? null}
             )
             returning id, organization_id, session_id, deployment_id, provider,
                       external_conversation_id, status,
@@ -463,6 +500,8 @@ export function createVoiceSessionService(
           versionId,
           externalAgentId: deployment.external_agent_id,
           maxMinutes: env.ELEVENLABS_MAX_TEST_MINUTES,
+          jobId: jobId ?? null,
+          candidateId: candidateId ?? null,
         },
       });
 

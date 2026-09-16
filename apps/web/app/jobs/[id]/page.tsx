@@ -154,12 +154,18 @@ export default function JobDetailPage() {
 
         const perms = new Set(p.activeOrganization?.permissions ?? []);
         if (perms.has('candidates.read')) {
-          const [assigned, pool] = await Promise.all([
-            listJobCandidates(jobId),
-            listCandidates(),
-          ]);
-          setAssignments(assigned.candidates);
-          setAllCandidates(pool.candidates.map((c) => ({ id: c.id, fullName: c.fullName })));
+          try {
+            const [assigned, pool] = await Promise.all([
+              listJobCandidates(jobId),
+              listCandidates(),
+            ]);
+            setAssignments(assigned.candidates);
+            setAllCandidates(pool.candidates.map((c) => ({ id: c.id, fullName: c.fullName })));
+          } catch {
+            setAssignments([]);
+            setAllCandidates([]);
+            setNotice('Could not load candidates for this job.');
+          }
         } else {
           setAssignments([]);
           setAllCandidates([]);

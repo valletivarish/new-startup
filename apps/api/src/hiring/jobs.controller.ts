@@ -29,6 +29,15 @@ function actorOf(req: RequestWithAuth) {
   };
 }
 
+function requireCandidatesRead(req: RequestWithAuth): void {
+  const ctx = requireOrganization(
+    req.authContext ?? (() => { throw ApiError.unauthorized(); })(),
+  );
+  if (!ctx.organization.permissions.has('candidates.read')) {
+    throw ApiError.forbidden();
+  }
+}
+
 const Uuid = z.string().uuid();
 
 const CreateJob = z
@@ -45,6 +54,18 @@ const UpdateJob = z
     description: z.string().trim().max(5000).optional(),
     status: z.enum(['draft', 'open', 'closed']).optional(),
     agentId: z.string().uuid().nullable().optional(),
+  })
+  .strict();
+
+const AssignCandidate = z
+  .object({
+    candidateId: z.string().uuid(),
+  })
+  .strict();
+
+const UpdateAssignmentStatus = z
+  .object({
+    status: z.enum(['new', 'screening', 'reviewed']),
   })
   .strict();
 
@@ -79,6 +100,62 @@ export class JobsController {
     @Body() body: unknown,
   ) {
     await this.jobs.update(actorOf(req), parse(Uuid, id), parse(UpdateJob, body));
+    return { updated: true };
+  }
+
+  @RequirePermission('jobs.update')
+  @Post(':jobId/candidates')
+  @HttpCode(201)
+  async assignCandidate(
+    @Req() req: RequestWithAuth,
+    @Param('jobId') jobId: string,
+    @Body() body: unknown,
+  ) {
+    const input = parse(AssignCandidate, body);
+    return this.jobs.assignCandidate(
+      actorOf(req),
+      parse(Uuid, jobId),
+      input.candidateId,
+    );
+  }
+
+  @RequirePermission('jobs.read')
+  @Get(':jobId/candidates')
+  async listCandidates(
+    @Req() req: RequestWithAuth,
+    @Param('jobId') jobId: string,
+  ) {
+    requireCandidatesRead(req);
+    const rows = await this.jobs.listCandidates(actorOf(req), parse(Uuid, jobId));
+    return {
+      candidates: rows.map((row) => ({
+        id: row.id,
+        candidateId: row.candidateId,
+        status: row.status,
+        candidate: {
+          id: row.candidateId,
+          fullName: row.fullName,
+          source: row.source,
+        },
+      })),
+    };
+  }
+
+  @RequirePermission('jobs.update')
+  @Patch(':jobId/candidates/:candidateId')
+  async updateCandidateStatus(
+    @Req() req: RequestWithAuth,
+    @Param('jobId') jobId: string,
+    @Param('candidateId') candidateId: string,
+    @Body() body: unknown,
+  ) {
+    const input = parse(UpdateAssignmentStatus, body);
+    await this.jobs.updateCandidateStatus(
+      actorOf(req),
+      parse(Uuid, jobId),
+      parse(Uuid, candidateId),
+      input.status,
+    );
     return { updated: true };
   }
 }

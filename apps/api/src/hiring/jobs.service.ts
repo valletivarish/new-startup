@@ -17,6 +17,14 @@ export interface JobRow {
   readonly updatedAt: string;
 }
 
+export interface JobCandidateRow {
+  readonly id: string;
+  readonly candidateId: string;
+  readonly status: string;
+  readonly fullName: string;
+  readonly source: string;
+}
+
 export interface JobsService {
   list(actor: Actor): Promise<readonly JobRow[]>;
   get(actor: Actor, jobId: string): Promise<JobRow>;
@@ -34,6 +42,21 @@ export interface JobsService {
       agentId?: string | null;
     },
   ): Promise<void>;
+  assignCandidate(
+    actor: Actor,
+    jobId: string,
+    candidateId: string,
+  ): Promise<{ id: string }>;
+  listCandidates(
+    actor: Actor,
+    jobId: string,
+  ): Promise<readonly JobCandidateRow[]>;
+  updateCandidateStatus(
+    actor: Actor,
+    jobId: string,
+    candidateId: string,
+    status: string,
+  ): Promise<void>;
 }
 
 type JobRecord = {
@@ -48,6 +71,17 @@ type JobRecord = {
 
 const JOB_STATUSES = ['draft', 'open', 'closed'] as const;
 type JobStatus = (typeof JOB_STATUSES)[number];
+
+const ASSIGNMENT_STATUSES = ['new', 'screening', 'reviewed'] as const;
+type AssignmentStatus = (typeof ASSIGNMENT_STATUSES)[number];
+
+type JobCandidateRecord = {
+  id: string;
+  candidate_id: string;
+  status: string;
+  full_name: string;
+  source: string;
+};
 
 function toJob(r: JobRecord): JobRow {
   return {
@@ -68,6 +102,28 @@ function assertJobStatus(status: string): JobStatus {
     ]);
   }
   return status as JobStatus;
+}
+
+function assertAssignmentStatus(status: string): AssignmentStatus {
+  if (!(ASSIGNMENT_STATUSES as readonly string[]).includes(status)) {
+    throw ApiError.validation([
+      {
+        field: 'status',
+        message: `Must be one of: ${ASSIGNMENT_STATUSES.join(', ')}`,
+      },
+    ]);
+  }
+  return status as AssignmentStatus;
+}
+
+function toJobCandidate(r: JobCandidateRecord): JobCandidateRow {
+  return {
+    id: r.id,
+    candidateId: r.candidate_id,
+    status: r.status,
+    fullName: r.full_name,
+    source: r.source,
+  };
 }
 
 export function createJobsService(database: Database): JobsService {
@@ -99,6 +155,18 @@ export function createJobsService(database: Database): JobsService {
     const job = rows[0];
     if (!job) throw ApiError.notFound('Job');
     return job;
+  }
+
+  async function loadCandidate(
+    tx: Parameters<Parameters<typeof withTenantContext>[2]>[0],
+    actor: Actor,
+    candidateId: string,
+  ): Promise<void> {
+    const rows = await tx.execute<{ id: string }>(sql`
+      select id from candidates
+      where id = ${candidateId} and organization_id = ${actor.organizationId}
+    `);
+    if (rows.length === 0) throw ApiError.notFound('Candidate');
   }
 
   return {
@@ -186,6 +254,79 @@ export function createJobsService(database: Database): JobsService {
               where id = ${jobId} and organization_id = ${actor.organizationId}
             `);
           }
+        },
+      );
+    },
+
+    async assignCandidate(actor, jobId, candidateId) {
+      return withTenantContext(
+        database.db,
+        { organizationId: actor.organizationId, userId: actor.userId },
+        async (tx) => {
+          await loadJob(tx, actor, jobId);
+          await loadCandidate(tx, actor, candidateId);
+
+          try {
+            const rows = await tx.execute<{ id: string }>(sql`
+              insert into job_candidates
+                (organization_id, job_id, candidate_id, status)
+              values (${actor.organizationId}, ${jobId}, ${candidateId}, 'new')
+              returning id
+            `);
+            const id = rows[0]?.id;
+            if (!id) throw new Error('job_candidates insert returned no id');
+            return { id };
+          } catch (error) {
+            if ((error as { cause?: { code?: string } }).cause?.code === '23505') {
+              throw ApiError.conflict(
+                'This candidate is already assigned to this job',
+              );
+            }
+            throw error;
+          }
+        },
+      );
+    },
+
+    async listCandidates(actor, jobId) {
+      const rows = await withTenantContext(
+        database.db,
+        { organizationId: actor.organizationId, userId: actor.userId },
+        async (tx) => {
+          await loadJob(tx, actor, jobId);
+          return tx.execute<JobCandidateRecord>(sql`
+            select jc.id, jc.candidate_id, jc.status,
+                   c.full_name, c.source
+            from job_candidates jc
+            inner join candidates c
+              on c.id = jc.candidate_id
+             and c.organization_id = jc.organization_id
+            where jc.job_id = ${jobId}
+              and jc.organization_id = ${actor.organizationId}
+            order by jc.id
+          `);
+        },
+      );
+      return rows.map(toJobCandidate);
+    },
+
+    async updateCandidateStatus(actor, jobId, candidateId, status) {
+      assertAssignmentStatus(status);
+
+      await withTenantContext(
+        database.db,
+        { organizationId: actor.organizationId, userId: actor.userId },
+        async (tx) => {
+          await loadJob(tx, actor, jobId, true);
+
+          const rows = await tx.execute<{ id: string }>(sql`
+            update job_candidates set status = ${status}
+            where job_id = ${jobId}
+              and candidate_id = ${candidateId}
+              and organization_id = ${actor.organizationId}
+            returning id
+          `);
+          if (rows.length === 0) throw ApiError.notFound('Job candidate');
         },
       );
     },

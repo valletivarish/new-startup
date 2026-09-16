@@ -291,6 +291,172 @@ describe('candidates PII gating', () => {
   });
 });
 
+describe('job candidate assignments', () => {
+  let jobId: string;
+  let candidateId: string;
+
+  beforeAll(async () => {
+    const jobRes = await api.request({
+      method: 'POST',
+      url: '/jobs',
+      cookie: orgAOwner.cookie,
+      payload: { title: 'Assignment Role' },
+    });
+    jobId = (JSON.parse(jobRes.body) as { id: string }).id;
+
+    const candRes = await api.request({
+      method: 'POST',
+      url: '/candidates',
+      cookie: orgAOwner.cookie,
+      payload: { fullName: 'Assignee One', phone: '9988776655' },
+    });
+    candidateId = (JSON.parse(candRes.body) as { id: string }).id;
+  });
+
+  it('assigns a candidate to a job', async () => {
+    const res = await api.request({
+      method: 'POST',
+      url: `/jobs/${jobId}/candidates`,
+      cookie: orgAOwner.cookie,
+      payload: { candidateId },
+    });
+    expect(res.statusCode).toBe(201);
+    const body = JSON.parse(res.body) as { id: string };
+    expect(body.id).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+    );
+  });
+
+  it('lists job candidates with candidate summary', async () => {
+    const res = await api.request({
+      method: 'GET',
+      url: `/jobs/${jobId}/candidates`,
+      cookie: orgAOwner.cookie,
+    });
+    expect(res.statusCode).toBe(200);
+    const { candidates } = JSON.parse(res.body) as {
+      candidates: {
+        id: string;
+        candidateId: string;
+        status: string;
+        candidate: { id: string; fullName: string; source: string };
+      }[];
+    };
+    expect(candidates.length).toBeGreaterThanOrEqual(1);
+    const row = candidates.find((c) => c.candidateId === candidateId);
+    expect(row).toBeDefined();
+    expect(row!.status).toBe('new');
+    expect(row!.candidate.fullName).toBe('Assignee One');
+    expect(row!.candidate.source).toBe('manual');
+    expect(row!.candidate).not.toHaveProperty('phone');
+    expect(row!.candidate).not.toHaveProperty('email');
+  });
+
+  it('updates assignment status', async () => {
+    const res = await api.request({
+      method: 'PATCH',
+      url: `/jobs/${jobId}/candidates/${candidateId}`,
+      cookie: orgAOwner.cookie,
+      payload: { status: 'screening' },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body) as { updated: boolean };
+    expect(body.updated).toBe(true);
+
+    const list = await api.request({
+      method: 'GET',
+      url: `/jobs/${jobId}/candidates`,
+      cookie: orgAOwner.cookie,
+    });
+    const { candidates } = JSON.parse(list.body) as {
+      candidates: { candidateId: string; status: string }[];
+    };
+    const row = candidates.find((c) => c.candidateId === candidateId);
+    expect(row?.status).toBe('screening');
+  });
+
+  it('returns 409 when assigning the same candidate twice', async () => {
+    const res = await api.request({
+      method: 'POST',
+      url: `/jobs/${jobId}/candidates`,
+      cookie: orgAOwner.cookie,
+      payload: { candidateId },
+    });
+    expect(res.statusCode).toBe(409);
+  });
+});
+
+describe('job candidate assignment isolation', () => {
+  let jobId: string;
+  let candidateId: string;
+
+  beforeAll(async () => {
+    const jobRes = await api.request({
+      method: 'POST',
+      url: '/jobs',
+      cookie: orgAOwner.cookie,
+      payload: { title: 'Isolated Assignment Role' },
+    });
+    jobId = (JSON.parse(jobRes.body) as { id: string }).id;
+
+    const candRes = await api.request({
+      method: 'POST',
+      url: '/candidates',
+      cookie: orgAOwner.cookie,
+      payload: { fullName: 'Isolated Assignee' },
+    });
+    candidateId = (JSON.parse(candRes.body) as { id: string }).id;
+
+    const assign = await api.request({
+      method: 'POST',
+      url: `/jobs/${jobId}/candidates`,
+      cookie: orgAOwner.cookie,
+      payload: { candidateId },
+    });
+    expect(assign.statusCode).toBe(201);
+  });
+
+  it("org B cannot list org A's job candidates", async () => {
+    const res = await api.request({
+      method: 'GET',
+      url: `/jobs/${jobId}/candidates`,
+      cookie: orgBOwner.cookie,
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("org B cannot assign to org A's job", async () => {
+    const res = await api.request({
+      method: 'POST',
+      url: `/jobs/${jobId}/candidates`,
+      cookie: orgBOwner.cookie,
+      payload: { candidateId },
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("org B cannot update org A's assignment status", async () => {
+    const res = await api.request({
+      method: 'PATCH',
+      url: `/jobs/${jobId}/candidates/${candidateId}`,
+      cookie: orgBOwner.cookie,
+      payload: { status: 'reviewed' },
+    });
+    expect(res.statusCode).toBe(404);
+
+    const check = await api.request({
+      method: 'GET',
+      url: `/jobs/${jobId}/candidates`,
+      cookie: orgAOwner.cookie,
+    });
+    const { candidates } = JSON.parse(check.body) as {
+      candidates: { candidateId: string; status: string }[];
+    };
+    const row = candidates.find((c) => c.candidateId === candidateId);
+    expect(row?.status).toBe('new');
+  });
+});
+
 describe('candidates tenant isolation', () => {
   let candidateId: string;
 

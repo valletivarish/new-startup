@@ -399,12 +399,19 @@ export const provisionVoiceDeployment = (
 
 /**
  * Start a test voice session.
- * Returns the conversationToken for the ElevenLabs React SDK.
+ * Returns the conversationToken for the voice SDK integration layer.
+ * Optional jobId/candidateId link the session to a hiring assignment.
  */
-export const startVoiceSession = (agentId: string) =>
+export const startVoiceSession = (
+  agentId: string,
+  options?: { jobId?: string; candidateId?: string },
+) =>
   call<{ voiceSessionId: string; conversationToken: string; voiceSession: VoiceSession }>(
     `/backend/agents/${agentId}/voice-sessions`,
-    { method: 'POST', body: '{}' },
+    {
+      method: 'POST',
+      body: JSON.stringify(options ?? {}),
+    },
   );
 
 /** Get the current state of a voice session (no token returned). */
@@ -419,3 +426,131 @@ export const reconcileVoiceSession = (agentId: string, voiceSessionId: string) =
     `/backend/agents/${agentId}/voice-sessions/${voiceSessionId}/reconcile`,
     { method: 'POST', body: '{}' },
   );
+
+// --- Hiring desk (P1) ---------------------------------------------------------
+
+export interface Job {
+  id: string;
+  title: string;
+  description: string;
+  status: string;
+  agentId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Candidate {
+  id: string;
+  fullName: string;
+  source: string;
+  createdAt: string;
+  updatedAt: string;
+  phone?: string | null;
+  email?: string | null;
+  resumeText?: string | null;
+}
+
+export interface JobCandidateAssignment {
+  id: string;
+  candidateId: string;
+  status: string;
+  candidate: {
+    id: string;
+    fullName: string;
+    source: string;
+  };
+}
+
+export interface CandidateScreeningResults {
+  voiceSessionId: string | null;
+  status: string | null;
+  transcript: readonly { role: string; message: string }[] | null;
+  summary: string | null;
+  structuredAnswers: Record<string, unknown> | null;
+  costCredits: number | null;
+}
+
+export const listJobs = () => call<{ jobs: Job[] }>('/backend/jobs');
+
+export const getJob = (id: string) => call<Job>(`/backend/jobs/${id}`);
+
+export const createJob = (input: {
+  title: string;
+  description?: string;
+  agentId?: string;
+}) =>
+  call<{ id: string }>('/backend/jobs', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+
+export const updateJob = (
+  id: string,
+  input: {
+    title?: string;
+    description?: string;
+    status?: 'draft' | 'open' | 'closed';
+    agentId?: string | null;
+  },
+) =>
+  call(`/backend/jobs/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  });
+
+export const listJobCandidates = (jobId: string) =>
+  call<{ candidates: JobCandidateAssignment[] }>(
+    `/backend/jobs/${jobId}/candidates`,
+  );
+
+export const assignCandidateToJob = (jobId: string, candidateId: string) =>
+  call<{ id: string }>(`/backend/jobs/${jobId}/candidates`, {
+    method: 'POST',
+    body: JSON.stringify({ candidateId }),
+  });
+
+export const updateJobCandidateStatus = (
+  jobId: string,
+  candidateId: string,
+  status: 'new' | 'screening' | 'reviewed',
+) =>
+  call(`/backend/jobs/${jobId}/candidates/${candidateId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ status }),
+  });
+
+export const getJobCandidateResults = (jobId: string, candidateId: string) =>
+  call<{ results: CandidateScreeningResults }>(
+    `/backend/jobs/${jobId}/candidates/${candidateId}/results`,
+  );
+
+export const listCandidates = () =>
+  call<{ candidates: Candidate[] }>('/backend/candidates');
+
+export const getCandidate = (id: string) =>
+  call<Candidate>(`/backend/candidates/${id}`);
+
+export const createCandidate = (input: {
+  fullName: string;
+  phone?: string;
+  email?: string;
+  resumeText?: string;
+}) =>
+  call<{ id: string }>('/backend/candidates', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+
+export const updateCandidate = (
+  id: string,
+  input: {
+    fullName?: string;
+    phone?: string | null;
+    email?: string | null;
+    resumeText?: string | null;
+  },
+) =>
+  call(`/backend/candidates/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  });

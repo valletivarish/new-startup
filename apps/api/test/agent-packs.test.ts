@@ -2,8 +2,11 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { AgentConfiguration } from '../src/agents/configuration.js';
 import { getPack, listPacks } from '../src/agents/packs/index.js';
 import {
+  acceptInvitation,
   createOrganization,
+  inviteAndCaptureToken,
   registerUser,
+  sessionCookie,
   startApi,
   type ApiHarness,
 } from './setup/api-harness.js';
@@ -67,6 +70,23 @@ describe('GET /agents/packs', () => {
       expect.arrayContaining(['purpose', 'mustAskQuestions', 'transferPhones']),
     );
     expect(res.body.toLowerCase()).not.toMatch(/elevenlabs|exotel|gemini/);
+  });
+
+  it('allows agent_manager (create + read) to list packs', async () => {
+    const owner = await registerUser(api, 'packs-owner');
+    await createOrganization(api, owner, 'Packs Manager Org');
+    const manager = await registerUser(api, 'packs-manager');
+    const token = await inviteAndCaptureToken(api, owner, manager.email, 'agent_manager');
+    const accepted = await acceptInvitation(api, manager, token);
+    expect([200, 201]).toContain(accepted.statusCode);
+    const cookie = manager.cookie;
+
+    const res = await api.request({
+      method: 'GET',
+      url: '/agents/packs',
+      cookie,
+    });
+    expect(res.statusCode).toBe(200);
   });
 });
 

@@ -10,6 +10,8 @@
  *                                     org creation)
  *   @RequirePermission('x.y')       — session + active organization + the
  *                                     named permission
+ *   @RequireAnyPermission('x.y', …) — session + active organization + any
+ *                                     one of the named permissions
  *
  * A route with NO marker is denied by the guard — fail closed — and the
  * route-coverage test fails the build so it never ships that way.
@@ -23,6 +25,7 @@ import type { Permission } from '@platform/permissions';
 
 export const AUTHZ_MODE = 'authz:mode';
 export const AUTHZ_PERMISSION = 'authz:permission';
+export const AUTHZ_ANY_PERMISSIONS = 'authz:anyPermissions';
 
 export type AuthzMode = 'public' | 'authenticated' | 'permission';
 
@@ -42,5 +45,16 @@ export function RequirePermission(permission: Permission): MethodDecorator {
       descriptor,
     );
     SetMetadata(AUTHZ_PERMISSION, permission)(target, key, descriptor);
+  };
+}
+
+export function RequireAnyPermission(...permissions: Permission[]): MethodDecorator {
+  return (target, key, descriptor) => {
+    SetMetadata(AUTHZ_MODE, 'permission' satisfies AuthzMode)(
+      target,
+      key,
+      descriptor,
+    );
+    SetMetadata(AUTHZ_ANY_PERMISSIONS, permissions)(target, key, descriptor);
   };
 }

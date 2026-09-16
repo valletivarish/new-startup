@@ -75,7 +75,6 @@ export default function NewAgentPage() {
   const [selectedPack, setSelectedPack] = useState<PackDefinition | null>(null);
   const [name, setName] = useState('');
   const [purpose, setPurpose] = useState('');
-  const [documentsHint, setDocumentsHint] = useState('');
   const [mustAskQuestions, setMustAskQuestions] = useState('');
   const [transferPhones, setTransferPhones] = useState('');
   const [createdId, setCreatedId] = useState<string | null>(null);
@@ -272,23 +271,33 @@ export default function NewAgentPage() {
               />
             </label>
 
-            <div style={{ marginBottom: 18 }}>
-              <p style={{ margin: '0 0 6px', fontSize: 14, color: '#334155' }}>
-                Upload job description and related docs
+            <div
+              style={{
+                marginBottom: 18,
+                padding: '14px 16px',
+                background: '#f8fafc',
+                border: `1px solid ${BORDER}`,
+                borderRadius: 8,
+              }}
+            >
+              <p style={{ margin: '0 0 6px', fontSize: 14, color: '#334155', fontWeight: 600 }}>
+                Job description and related docs
               </p>
-              <p style={{ margin: '0 0 10px', fontSize: 13, color: MUTED }}>
-                Add documents on the{' '}
-                <Link href="/knowledge" style={{ color: BLUE }}>
-                  knowledge page
-                </Link>{' '}
-                after creating the agent, then attach them from the agent detail view.
+              <p style={{ margin: '0 0 12px', fontSize: 13, color: MUTED, lineHeight: 1.5 }}>
+                Upload documents on the knowledge page, then attach them to this agent from
+                the agent detail view after you create it.
               </p>
-              <input
-                value={documentsHint}
-                onChange={(e) => setDocumentsHint(e.target.value)}
-                placeholder="Optional note (e.g. link to JD folder)"
-                style={input}
-              />
+              <Link
+                href="/knowledge"
+                style={{
+                  ...secondaryBtn,
+                  display: 'inline-block',
+                  textDecoration: 'none',
+                  fontSize: 14,
+                }}
+              >
+                Go to knowledge
+              </Link>
             </div>
 
             <label style={{ display: 'block', marginBottom: 18, fontSize: 14, color: '#334155' }}>

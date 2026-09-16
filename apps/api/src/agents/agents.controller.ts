@@ -21,7 +21,7 @@ import {
 } from '@nestjs/common';
 import { z } from 'zod';
 
-import { RequirePermission } from '../authz/decorators.js';
+import { RequireAnyPermission, RequirePermission } from '../authz/decorators.js';
 import { requireOrganization } from '../authz/auth-context.js';
 import type { RequestWithAuth } from '../authz/authz.guard.js';
 import { ApiError } from '../errors.js';
@@ -83,7 +83,7 @@ export class AgentsController {
     return { agents: await this.agents.list(actorOf(req)) };
   }
 
-  @RequirePermission('agents.read')
+  @RequireAnyPermission('agents.read', 'agents.create')
   @Get('packs')
   listPacks() {
     return { packs: listEnabledPacks() };

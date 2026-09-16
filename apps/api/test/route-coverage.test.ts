@@ -11,6 +11,7 @@ import { describe, expect, it } from 'vitest';
 import { PATH_METADATA, METHOD_METADATA } from '@nestjs/common/constants.js';
 
 import {
+  AUTHZ_ANY_PERMISSIONS,
   AUTHZ_MODE,
   AUTHZ_PERMISSION,
 } from '../src/authz/decorators.js';
@@ -68,6 +69,7 @@ interface RouteInfo {
   path: unknown;
   mode: string | undefined;
   permission: string | undefined;
+  anyPermissions: string[] | undefined;
 }
 
 function collectRoutes(): RouteInfo[] {
@@ -88,6 +90,7 @@ function collectRoutes(): RouteInfo[] {
         path: Reflect.getMetadata(PATH_METADATA, handler),
         mode: Reflect.getMetadata(AUTHZ_MODE, handler),
         permission: Reflect.getMetadata(AUTHZ_PERMISSION, handler),
+        anyPermissions: Reflect.getMetadata(AUTHZ_ANY_PERMISSIONS, handler),
       });
     }
   }
@@ -117,6 +120,16 @@ describe('every route declares its authorization requirement', () => {
       .filter((r) => r.mode === 'permission')
       .map((r) => [`${r.controller}.${r.handler}`, r] as const),
   )('%s names a real permission from the catalogue', (_label, route) => {
+    if (route.anyPermissions !== undefined) {
+      expect(route.anyPermissions.length).toBeGreaterThan(0);
+      for (const permission of route.anyPermissions) {
+        expect(
+          isPermission(permission),
+          `"${permission}" is not in the permission catalogue`,
+        ).toBe(true);
+      }
+      return;
+    }
     expect(route.permission).toBeDefined();
     expect(
       isPermission(route.permission ?? ''),

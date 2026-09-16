@@ -8,9 +8,10 @@
  *                              rely on that.
  *   3. No valid session      → 401.
  *   4. @Authenticated        → allow.
- *   5. @RequirePermission    → require an active organization whose live
- *                              membership holds the permission; 403 + audit
- *                              on denial; audit on sensitive-permission use.
+ *   5. @RequirePermission / @RequireAnyPermission → require an active
+ *                              organization whose live membership holds the
+ *                              (or any of the) named permission(s); 403 +
+ *                              audit on denial; audit on sensitive-permission use.
  */
 
 import {
@@ -25,10 +26,12 @@ import { isPermission, isSensitivePermission } from '@platform/permissions';
 
 import { ApiError } from '../errors.js';
 import {
+  AUTHZ_ANY_PERMISSIONS,
   AUTHZ_MODE,
   AUTHZ_PERMISSION,
   type AuthzMode,
 } from './decorators.js';
+import { firstMatchingPermission } from './permission-check.js';
 import type { AuthContext, AuthContextService } from './auth-context.js';
 import type { AuditService } from '../audit/audit.service.js';
 import { AUDIT_SERVICE, AUTH_CONTEXT_SERVICE } from '../tokens.js';
@@ -81,13 +84,13 @@ export class AuthzGuard implements CanActivate {
     if (mode === 'authenticated') return true;
 
     // mode === 'permission'
+    const anyRequired = this.reflector.getAllAndOverride<
+      readonly string[] | undefined
+    >(AUTHZ_ANY_PERMISSIONS, [context.getHandler(), context.getClass()]);
     const required = this.reflector.getAllAndOverride<string | undefined>(
       AUTHZ_PERMISSION,
       [context.getHandler(), context.getClass()],
     );
-    if (required === undefined || !isPermission(required)) {
-      throw ApiError.forbidden('Route declares no valid permission');
-    }
 
     if (!ctx.organization) {
       throw ApiError.forbidden(
@@ -95,13 +98,29 @@ export class AuthzGuard implements CanActivate {
       );
     }
 
-    if (!ctx.organization.permissions.has(required)) {
+    let granted: string | undefined;
+    let deniedLabel: string;
+
+    if (anyRequired !== undefined) {
+      if (anyRequired.length === 0 || anyRequired.some((p) => !isPermission(p))) {
+        throw ApiError.forbidden('Route declares no valid permission');
+      }
+      granted = firstMatchingPermission(ctx.organization.permissions, anyRequired);
+      deniedLabel = anyRequired.join('|');
+    } else if (required !== undefined && isPermission(required)) {
+      granted = ctx.organization.permissions.has(required) ? required : undefined;
+      deniedLabel = required;
+    } else {
+      throw ApiError.forbidden('Route declares no valid permission');
+    }
+
+    if (granted === undefined) {
       await this.audit.record({
         organizationId: ctx.organization.organizationId,
         actorUserId: ctx.userId,
         eventType: 'authz.denied',
         metadata: {
-          permission: required,
+          permission: deniedLabel,
           role: ctx.organization.roleKey,
           method: request.method,
           url: request.url,
@@ -111,12 +130,12 @@ export class AuthzGuard implements CanActivate {
     }
 
     // Every sensitive-permission use is audited (matrix invariant 7).
-    if (isSensitivePermission(required)) {
+    if (isSensitivePermission(granted)) {
       await this.audit.record({
         organizationId: ctx.organization.organizationId,
         actorUserId: ctx.userId,
         eventType: 'authz.sensitive_access',
-        metadata: { permission: required, method: request.method, url: request.url },
+        metadata: { permission: granted, method: request.method, url: request.url },
       });
     }
 

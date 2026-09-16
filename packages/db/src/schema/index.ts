@@ -85,4 +85,8 @@ export const VOICE_TABLES = [
   'voice_sessions',
 ] as const;
 
+/** P1 hiring desk tables. Plain tenant RLS, same posture as above. */
+export const HIRING_TABLES = ['jobs', 'candidates', 'job_candidates'] as const;
+
 export { voiceProviderDeployments, voiceSessions } from './voice.js';
+export { jobs, candidates, jobCandidates } from './hiring.js';

@@ -155,8 +155,6 @@ describe('no Phase 5+ functionality exists', () => {
   // deliverables and are deliberately absent from this list. Everything below
   // still belongs to a later phase.
   const FORBIDDEN_TABLES = [
-    'jobs',
-    'candidates',
     'conversations',
     'messages',
     'calls',

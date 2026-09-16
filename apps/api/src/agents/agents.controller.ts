@@ -48,12 +48,19 @@ function actorOf(req: RequestWithAuth) {
 
 const Uuid = z.string().uuid();
 
-const CreateAgent = z.object({
-  name: z.string().trim().min(2).max(120),
-  description: z.string().trim().max(2000).optional(),
-  purpose: z.string().trim().min(1).max(2000),
-  type: z.string().trim().min(1).max(60).optional(),
-});
+const CreateAgent = z
+  .object({
+    name: z.string().trim().min(1).max(120),
+    description: z.string().trim().max(2000).optional(),
+    purpose: z.string().trim().min(1).max(2000).optional(),
+    type: z.string().trim().max(64).optional(),
+    agentType: z
+      .enum(['hiring', 'support', 'sales', 'appointments', 'reminders', 'custom'])
+      .default('hiring'),
+    mustAskQuestions: z.array(z.string().trim().min(1).max(300)).max(30).default([]),
+    transferPhones: z.array(z.string().trim().min(5).max(20)).max(10).default([]),
+  })
+  .strict();
 
 const UpdateAgent = z.object({
   name: z.string().trim().min(2).max(120).optional(),

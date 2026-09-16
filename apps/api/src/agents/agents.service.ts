@@ -16,6 +16,8 @@ import { sql, withTenantContext, type Database } from '@platform/db';
 import { ApiError } from '../errors.js';
 import type { AuditService } from '../audit/audit.service.js';
 import { AgentConfiguration, defaultConfiguration } from './configuration.js';
+import { getPack } from './packs/index.js';
+import type { AgentType } from './packs/types.js';
 import {
   assertAgentTransition,
   assertVersionTransition,
@@ -54,7 +56,15 @@ export interface AgentsService {
   get(actor: Actor, agentId: string): Promise<AgentRow>;
   create(
     actor: Actor,
-    input: { name: string; description?: string; purpose: string; type?: string },
+    input: {
+      name: string;
+      description?: string;
+      purpose?: string;
+      type?: string;
+      agentType: AgentType;
+      mustAskQuestions: readonly string[];
+      transferPhones: readonly string[];
+    },
   ): Promise<{ id: string; versionId: string }>;
   update(
     actor: Actor,
@@ -196,7 +206,30 @@ export function createAgentsService(
     },
 
     async create(actor, input) {
-      const configuration = defaultConfiguration(input.name, input.purpose);
+      const pack = getPack(input.agentType);
+      const purpose = input.purpose ?? pack.description;
+      const criteria = input.mustAskQuestions.map((label, i) => ({
+        id: `q${i + 1}`,
+        label,
+        required: true,
+      }));
+      const configuration = AgentConfiguration.parse({
+        ...defaultConfiguration(input.name, purpose),
+        ...pack.defaultConfigSlice,
+        agentType: input.agentType,
+        purpose,
+        identity: {
+          displayName: input.name,
+          languages: ['en-IN'],
+          primaryLanguage: 'en-IN',
+        },
+        evaluation: { enabled: criteria.length > 0, criteria },
+        escalation: {
+          enabled: input.transferPhones.length > 0,
+          trigger: 'on_request',
+          transferPhones: input.transferPhones,
+        },
+      });
 
       const created = await withTenantContext(
         database.db,
@@ -208,8 +241,8 @@ export function createAgentsService(
               insert into agents
                 (organization_id, name, description, purpose, type, created_by_user_id)
               values (${actor.organizationId}, ${input.name},
-                      ${input.description ?? ''}, ${input.purpose},
-                      ${input.type ?? 'general'}, ${actor.userId})
+                      ${input.description ?? ''}, ${purpose},
+                      ${input.type ?? input.agentType}, ${actor.userId})
               returning id
             `);
             const id = rows[0]?.id;
@@ -245,7 +278,7 @@ export function createAgentsService(
         eventType: 'agent.created',
         resourceType: 'agent',
         resourceId: created.id,
-        metadata: { name: input.name, type: input.type ?? 'general' },
+        metadata: { name: input.name, type: input.type ?? input.agentType },
       });
       return created;
     },

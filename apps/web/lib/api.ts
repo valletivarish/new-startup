@@ -170,6 +170,7 @@ export const createAgent = (input: {
   agentType?: string;
   mustAskQuestions?: string[];
   transferPhones?: string[];
+  knowledgeSourceIds?: string[];
 }) =>
   call<{ id: string; versionId: string }>('/backend/agents', {
     method: 'POST',

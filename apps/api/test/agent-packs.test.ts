@@ -139,6 +139,56 @@ describe('hiring wizard create', () => {
     expect(cfg.evaluation.criteria.some((c) => c.label.includes('experience'))).toBe(true);
     expect(cfg.escalation.transferPhones).toContain('+919876543210');
   });
+
+  it('create with knowledgeSourceIds attaches refs in configuration.knowledge', async () => {
+    const owner = await registerUser(api, 'pack-knowledge');
+    await createOrganization(api, owner, 'Pack Knowledge Org');
+    const cookie = owner.cookie;
+
+    const sourceRes = await api.request({
+      method: 'POST',
+      url: '/knowledge/sources',
+      cookie,
+      payload: { name: 'Job descriptions', type: 'text' },
+    });
+    expect(sourceRes.statusCode).toBe(201);
+    const sourceId = (JSON.parse(sourceRes.body) as { id: string }).id;
+
+    const res = await api.request({
+      method: 'POST',
+      url: '/agents',
+      cookie,
+      payload: {
+        name: 'JD Screener with docs',
+        agentType: 'hiring',
+        purpose: 'Screen for the open role',
+        knowledgeSourceIds: [sourceId],
+      },
+    });
+    expect(res.statusCode).toBe(201);
+    const agent = JSON.parse(res.body) as { id: string; versionId: string };
+
+    const versionRes = await api.request({
+      method: 'GET',
+      url: `/agents/${agent.id}/versions/${agent.versionId}`,
+      cookie,
+    });
+    expect(versionRes.statusCode).toBe(200);
+    const { configuration: cfg } = JSON.parse(versionRes.body) as {
+      configuration: { knowledge: { knowledgeSourceId: string }[] };
+    };
+    expect(cfg.knowledge).toHaveLength(1);
+    expect(cfg.knowledge[0]?.knowledgeSourceId).toBe(sourceId);
+
+    const linkedRes = await api.request({
+      method: 'GET',
+      url: `/agents/${agent.id}/knowledge`,
+      cookie,
+    });
+    expect(linkedRes.statusCode).toBe(200);
+    const { sources } = JSON.parse(linkedRes.body) as { sources: { id: string }[] };
+    expect(sources.map((s) => s.id)).toContain(sourceId);
+  });
 });
 
 describe('agent creation quota', () => {

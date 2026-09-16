@@ -65,6 +65,7 @@ export interface AgentsService {
       agentType: AgentType;
       mustAskQuestions: readonly string[];
       transferPhones: readonly string[];
+      knowledgeSourceIds: readonly string[];
     },
   ): Promise<{ id: string; versionId: string }>;
   update(
@@ -215,6 +216,10 @@ export function createAgentsService(
         label,
         required: true,
       }));
+      const knowledge = input.knowledgeSourceIds.map((knowledgeSourceId) => ({
+        knowledgeSourceId,
+        label: '',
+      }));
       const configuration = AgentConfiguration.parse({
         ...defaultConfiguration(input.name, purpose),
         ...pack.defaultConfigSlice,
@@ -225,6 +230,7 @@ export function createAgentsService(
           languages: ['en-IN'],
           primaryLanguage: 'en-IN',
         },
+        knowledge,
         evaluation: { enabled: criteria.length > 0, criteria },
         escalation: {
           enabled: input.transferPhones.length > 0,
@@ -279,6 +285,22 @@ export function createAgentsService(
           `);
           const versionId = versionRows[0]?.id;
           if (!versionId) throw new Error('version insert returned no id');
+
+          for (const sourceId of input.knowledgeSourceIds) {
+            const source = await tx.execute<{ id: string; name: string }>(sql`
+              select id, name from knowledge_sources
+              where id = ${sourceId} and organization_id = ${actor.organizationId}
+                and status <> 'archived'
+            `);
+            if (source.length === 0) throw ApiError.notFound('Knowledge source');
+
+            await tx.execute(sql`
+              insert into agent_knowledge_sources (organization_id, agent_id, source_id)
+              values (${actor.organizationId}, ${agentId}, ${sourceId})
+              on conflict (agent_id, source_id) do nothing
+            `);
+          }
+
           return { id: agentId, versionId };
         },
       );

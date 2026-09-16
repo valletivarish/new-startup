@@ -146,9 +146,31 @@ export interface SessionEvent {
   payload: Record<string, unknown>;
 }
 
+export interface WizardField {
+  key: string;
+  label: string;
+  kind: 'text' | 'textarea' | 'string_list' | 'phone_list';
+  required: boolean;
+}
+
+export interface PackDefinition {
+  id: string;
+  label: string;
+  description: string;
+  wizardFields: WizardField[];
+}
+
 export const listAgents = () => call<{ agents: Agent[] }>('/backend/agents');
+export const listPacks = () => call<{ packs: PackDefinition[] }>('/backend/agents/packs');
 export const getAgent = (id: string) => call<Agent>(`/backend/agents/${id}`);
-export const createAgent = (input: { name: string; purpose: string; description?: string }) =>
+export const createAgent = (input: {
+  name: string;
+  purpose: string;
+  description?: string;
+  agentType?: string;
+  mustAskQuestions?: string[];
+  transferPhones?: string[];
+}) =>
   call<{ id: string; versionId: string }>('/backend/agents', {
     method: 'POST',
     body: JSON.stringify(input),

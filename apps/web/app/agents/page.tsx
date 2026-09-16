@@ -5,12 +5,11 @@
  * enforces every decision server-side.
  */
 
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
   ApiClientError,
-  createAgent,
   listAgents,
   me,
   type Agent,
@@ -37,8 +36,6 @@ export default function AgentsPage() {
   const router = useRouter();
   const [profile, setProfile] = useState<Me | null>(null);
   const [agents, setAgents] = useState<Agent[]>([]);
-  const [name, setName] = useState('');
-  const [purpose, setPurpose] = useState('');
   const [notice, setNotice] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
@@ -59,19 +56,6 @@ export default function AgentsPage() {
 
   const can = (p: string) => profile?.activeOrganization?.permissions.includes(p) ?? false;
 
-  async function onCreate(event: FormEvent) {
-    event.preventDefault();
-    try {
-      await createAgent({ name, purpose });
-      setName('');
-      setPurpose('');
-      setNotice('Agent created as a draft.');
-      await reload();
-    } catch (e) {
-      setNotice(e instanceof ApiClientError ? e.message : 'Could not create the agent.');
-    }
-  }
-
   return (
     <main style={shell}>
       <header style={{ display: 'flex', justifyContent: 'space-between', padding: '14px 0' }}>
@@ -86,24 +70,24 @@ export default function AgentsPage() {
       {can('agents.create') && (
         <section style={panel}>
           <h2 style={{ marginTop: 0, fontSize: 17 }}>Create an agent</h2>
-          <form onSubmit={onCreate} style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Agent name"
-              required
-              minLength={2}
-              style={{ flex: '1 1 200px', padding: '8px 10px' }}
-            />
-            <input
-              value={purpose}
-              onChange={(e) => setPurpose(e.target.value)}
-              placeholder="What should this agent do?"
-              required
-              style={{ flex: '2 1 300px', padding: '8px 10px' }}
-            />
-            <button type="submit">Create</button>
-          </form>
+          <p style={{ fontSize: 14, color: '#545c56', marginTop: 0 }}>
+            Use the guided wizard to set up a hiring or custom agent.
+          </p>
+          <Link
+            href="/agents/new"
+            style={{
+              display: 'inline-block',
+              background: '#1e40af',
+              color: '#fff',
+              padding: '10px 18px',
+              borderRadius: 8,
+              fontSize: 15,
+              fontWeight: 600,
+              textDecoration: 'none',
+            }}
+          >
+            Create agent
+          </Link>
         </section>
       )}
 

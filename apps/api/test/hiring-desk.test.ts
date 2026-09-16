@@ -386,6 +386,109 @@ describe('job candidate assignments', () => {
   });
 });
 
+describe('job candidate list permission', () => {
+  let jobId: string;
+  let viewer: TestActor;
+
+  beforeAll(async () => {
+    const jobRes = await api.request({
+      method: 'POST',
+      url: '/jobs',
+      cookie: orgAOwner.cookie,
+      payload: { title: 'Permission List Role' },
+    });
+    jobId = (JSON.parse(jobRes.body) as { id: string }).id;
+
+    const candRes = await api.request({
+      method: 'POST',
+      url: '/candidates',
+      cookie: orgAOwner.cookie,
+      payload: { fullName: 'Permission List Candidate' },
+    });
+    const candidateId = (JSON.parse(candRes.body) as { id: string }).id;
+
+    const assign = await api.request({
+      method: 'POST',
+      url: `/jobs/${jobId}/candidates`,
+      cookie: orgAOwner.cookie,
+      payload: { candidateId },
+    });
+    expect(assign.statusCode).toBe(201);
+
+    viewer = await registerUser(api, 'jc-viewer');
+    const token = await inviteAndCaptureToken(
+      api,
+      orgAOwner,
+      viewer.email,
+      'viewer',
+    );
+    const accepted = await acceptInvitation(api, viewer, token);
+    expect([200, 201]).toContain(accepted.statusCode);
+  });
+
+  it('returns 403 without candidates.read on GET list', async () => {
+    const res = await api.request({
+      method: 'GET',
+      url: `/jobs/${jobId}/candidates`,
+      cookie: viewer.cookie,
+    });
+    expect(res.statusCode).toBe(403);
+  });
+});
+
+describe('job candidate assign preconditions', () => {
+  let jobId: string;
+  const bogusId = '00000000-0000-4000-8000-000000000001';
+
+  beforeAll(async () => {
+    const jobRes = await api.request({
+      method: 'POST',
+      url: '/jobs',
+      cookie: orgAOwner.cookie,
+      payload: { title: 'Assign Preconditions Role' },
+    });
+    jobId = (JSON.parse(jobRes.body) as { id: string }).id;
+  });
+
+  it('returns 404 when job does not exist', async () => {
+    const res = await api.request({
+      method: 'POST',
+      url: `/jobs/${bogusId}/candidates`,
+      cookie: orgAOwner.cookie,
+      payload: { candidateId: bogusId },
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it('returns 404 when candidate does not exist', async () => {
+    const res = await api.request({
+      method: 'POST',
+      url: `/jobs/${jobId}/candidates`,
+      cookie: orgAOwner.cookie,
+      payload: { candidateId: bogusId },
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it('returns 404 when candidate belongs to another org', async () => {
+    const candRes = await api.request({
+      method: 'POST',
+      url: '/candidates',
+      cookie: orgBOwner.cookie,
+      payload: { fullName: 'Org B Only' },
+    });
+    const orgBCandidateId = (JSON.parse(candRes.body) as { id: string }).id;
+
+    const res = await api.request({
+      method: 'POST',
+      url: `/jobs/${jobId}/candidates`,
+      cookie: orgAOwner.cookie,
+      payload: { candidateId: orgBCandidateId },
+    });
+    expect(res.statusCode).toBe(404);
+  });
+});
+
 describe('job candidate assignment isolation', () => {
   let jobId: string;
   let candidateId: string;

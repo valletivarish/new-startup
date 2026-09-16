@@ -139,6 +139,41 @@ describe('hiring wizard create', () => {
     expect(cfg.escalation.transferPhones).toContain('+919876543210');
   });
 
+  it('create hiring agent keeps pack escalation enabled without transfer phones', async () => {
+    const owner = await registerUser(api, 'pack-escalation-default');
+    await createOrganization(api, owner, 'Pack Escalation Org');
+    const cookie = owner.cookie;
+
+    const res = await api.request({
+      method: 'POST',
+      url: '/agents',
+      cookie,
+      payload: {
+        name: 'JD Screener no phones',
+        agentType: 'hiring',
+        purpose: 'Screen for the open role',
+      },
+    });
+    expect(res.statusCode).toBe(201);
+    const agent = JSON.parse(res.body) as { id: string; versionId: string };
+
+    const versionRes = await api.request({
+      method: 'GET',
+      url: `/agents/${agent.id}/versions/${agent.versionId}`,
+      cookie,
+    });
+    expect(versionRes.statusCode).toBe(200);
+    const { configuration: cfg } = JSON.parse(versionRes.body) as {
+      configuration: {
+        escalation: { enabled: boolean; trigger: string; transferPhones: string[] };
+      };
+    };
+
+    expect(cfg.escalation.enabled).toBe(true);
+    expect(cfg.escalation.trigger).toBe('on_request');
+    expect(cfg.escalation.transferPhones).toEqual([]);
+  });
+
   it('create with knowledgeSourceIds attaches refs in configuration.knowledge', async () => {
     const owner = await registerUser(api, 'pack-knowledge');
     await createOrganization(api, owner, 'Pack Knowledge Org');
@@ -299,5 +334,45 @@ describe('agent creation quota', () => {
     const body = JSON.parse(blocked.body) as { message: string };
     expect(body.message.toLowerCase()).toMatch(/limit|plan/);
     expect(body.message.toLowerCase()).not.toMatch(/eleven|exotel|gemini/);
+  });
+});
+
+describe('agent creation quota concurrency', () => {
+  let api: ApiHarness;
+
+  beforeAll(async () => {
+    api = await startApi({ ORG_AGENT_LIMIT: '1' });
+  }, 120_000);
+
+  afterAll(async () => {
+    await api?.close();
+  });
+
+  it('allows only one concurrent create when org agent limit is 1', async () => {
+    const owner = await registerUser(api, 'quota-concurrent');
+    await createOrganization(api, owner, 'Quota Concurrent Org');
+    const cookie = owner.cookie;
+
+    const [a, b] = await Promise.all([
+      api.request({
+        method: 'POST',
+        url: '/agents',
+        cookie,
+        payload: { name: 'Concurrent A', agentType: 'hiring' },
+      }),
+      api.request({
+        method: 'POST',
+        url: '/agents',
+        cookie,
+        payload: { name: 'Concurrent B', agentType: 'hiring' },
+      }),
+    ]);
+
+    const statuses = [a.statusCode, b.statusCode].sort();
+    expect(statuses).toEqual([201, 409]);
+
+    const listRes = await api.request({ method: 'GET', url: '/agents', cookie });
+    const { agents } = JSON.parse(listRes.body) as { agents: unknown[] };
+    expect(agents).toHaveLength(1);
   });
 });

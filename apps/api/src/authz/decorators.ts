@@ -48,7 +48,9 @@ export function RequirePermission(permission: Permission): MethodDecorator {
   };
 }
 
-export function RequireAnyPermission(...permissions: Permission[]): MethodDecorator {
+export function RequireAnyPermission(
+  ...permissions: [Permission, ...Permission[]]
+): MethodDecorator {
   return (target, key, descriptor) => {
     SetMetadata(AUTHZ_MODE, 'permission' satisfies AuthzMode)(
       target,

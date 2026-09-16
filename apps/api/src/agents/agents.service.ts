@@ -275,6 +275,13 @@ export function createAgentsService(
         knowledgeSourceId,
         label: '',
       }));
+      const packEscalation = pack.defaultConfigSlice.escalation as
+        | {
+            enabled?: boolean;
+            trigger?: 'never' | 'on_request' | 'on_failure' | 'on_forbidden_topic';
+          }
+        | undefined;
+
       const configuration = AgentConfiguration.parse({
         ...defaultConfiguration(input.name, purpose),
         ...pack.defaultConfigSlice,
@@ -288,8 +295,9 @@ export function createAgentsService(
         knowledge,
         evaluation: { enabled: criteria.length > 0, criteria },
         escalation: {
-          enabled: input.transferPhones.length > 0,
-          trigger: 'on_request',
+          enabled:
+            Boolean(packEscalation?.enabled) || input.transferPhones.length > 0,
+          trigger: packEscalation?.trigger ?? 'on_request',
           transferPhones: input.transferPhones,
         },
       });
@@ -298,14 +306,19 @@ export function createAgentsService(
         database.db,
         { organizationId: actor.organizationId, userId: actor.userId },
         async (tx) => {
-          await assertCanCreateAgent(async () => {
-            const rows = await tx.execute<{ count: number }>(sql`
-              select count(*)::int as count
-              from agents
-              where organization_id = ${actor.organizationId}
-            `);
-            return rows[0]?.count ?? 0;
-          }, agentLimit);
+          await assertCanCreateAgent(
+            tx,
+            actor.organizationId,
+            async () => {
+              const rows = await tx.execute<{ count: number }>(sql`
+                select count(*)::int as count
+                from agents
+                where organization_id = ${actor.organizationId}
+              `);
+              return rows[0]?.count ?? 0;
+            },
+            agentLimit,
+          );
 
           let agentId: string;
           try {

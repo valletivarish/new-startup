@@ -20,17 +20,27 @@ export default function JobsPage() {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [notice, setNotice] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
   const reload = useCallback(async () => {
+    setLoading(true);
     try {
-      const [p, j] = await Promise.all([me(), listJobs()]);
+      const p = await me();
       setProfile(p);
-      setJobs(j.jobs);
+      try {
+        const j = await listJobs();
+        setJobs(j.jobs);
+      } catch (e) {
+        setJobs([]);
+        if (e instanceof ApiClientError && e.status === 403) {
+          setNotice('You do not have access to jobs in this organization.');
+        } else setNotice('Could not load jobs.');
+      }
     } catch (e) {
       if (e instanceof ApiClientError && e.status === 401) router.push('/');
-      else if (e instanceof ApiClientError && e.status === 403) {
-        setNotice('You do not have access to jobs in this organization.');
-      } else setNotice('Could not load jobs.');
+      else setNotice('Could not load profile.');
+    } finally {
+      setLoading(false);
     }
   }, [router]);
 
@@ -60,7 +70,17 @@ export default function JobsPage() {
   if (!profile) {
     return (
       <AppShell profile={null}>
-        <main style={shell}>Loading…</main>
+        <main style={shell}>
+          {loading ? (
+            'Loading…'
+          ) : (
+            notice && (
+              <p role="alert" style={{ fontSize: 13, color: '#a63a24' }}>
+                {notice}
+              </p>
+            )
+          )}
+        </main>
       </AppShell>
     );
   }

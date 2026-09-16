@@ -141,33 +141,44 @@ export default function JobDetailPage() {
   const [allCandidates, setAllCandidates] = useState<{ id: string; fullName: string }[]>([]);
   const [selectedCandidate, setSelectedCandidate] = useState('');
   const [notice, setNotice] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
   const reload = useCallback(async () => {
+    setLoading(true);
     try {
       const p = await me();
       setProfile(p);
-      const j = await getJob(jobId);
-      setJob(j);
+      try {
+        const j = await getJob(jobId);
+        setJob(j);
 
-      const perms = new Set(p.activeOrganization?.permissions ?? []);
-      if (perms.has('candidates.read')) {
-        const [assigned, pool] = await Promise.all([
-          listJobCandidates(jobId),
-          listCandidates(),
-        ]);
-        setAssignments(assigned.candidates);
-        setAllCandidates(pool.candidates.map((c) => ({ id: c.id, fullName: c.fullName })));
-      } else {
+        const perms = new Set(p.activeOrganization?.permissions ?? []);
+        if (perms.has('candidates.read')) {
+          const [assigned, pool] = await Promise.all([
+            listJobCandidates(jobId),
+            listCandidates(),
+          ]);
+          setAssignments(assigned.candidates);
+          setAllCandidates(pool.candidates.map((c) => ({ id: c.id, fullName: c.fullName })));
+        } else {
+          setAssignments([]);
+          setAllCandidates([]);
+        }
+      } catch (e) {
+        setJob(null);
         setAssignments([]);
         setAllCandidates([]);
+        if (e instanceof ApiClientError && e.status === 404) {
+          setNotice('Job not found.');
+        } else if (e instanceof ApiClientError && e.status === 403) {
+          setNotice('You do not have access to this job.');
+        } else setNotice('Could not load job.');
       }
     } catch (e) {
       if (e instanceof ApiClientError && e.status === 401) router.push('/');
-      else if (e instanceof ApiClientError && e.status === 404) {
-        setNotice('Job not found.');
-      } else if (e instanceof ApiClientError && e.status === 403) {
-        setNotice('You do not have access to this job.');
-      } else setNotice('Could not load job.');
+      else setNotice('Could not load profile.');
+    } finally {
+      setLoading(false);
     }
   }, [jobId, router]);
 
@@ -214,7 +225,22 @@ export default function JobDetailPage() {
   if (!profile || !job) {
     return (
       <AppShell profile={profile}>
-        <main style={shell}>{profile ? 'Loading…' : 'Loading…'}</main>
+        <main style={shell}>
+          {loading ? (
+            'Loading…'
+          ) : (
+            <>
+              <Link href="/jobs" style={{ fontSize: 14, color: '#0d6e63' }}>
+                ← All jobs
+              </Link>
+              {notice && (
+                <p role="alert" style={{ fontSize: 13, color: '#a63a24', marginTop: 12 }}>
+                  {notice}
+                </p>
+              )}
+            </>
+          )}
+        </main>
       </AppShell>
     );
   }

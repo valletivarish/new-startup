@@ -21,17 +21,27 @@ export default function CandidatesPage() {
   const [email, setEmail] = useState('');
   const [resumeText, setResumeText] = useState('');
   const [notice, setNotice] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
   const reload = useCallback(async () => {
+    setLoading(true);
     try {
-      const [p, c] = await Promise.all([me(), listCandidates()]);
+      const p = await me();
       setProfile(p);
-      setCandidates(c.candidates);
+      try {
+        const c = await listCandidates();
+        setCandidates(c.candidates);
+      } catch (e) {
+        setCandidates([]);
+        if (e instanceof ApiClientError && e.status === 403) {
+          setNotice('You do not have access to candidates in this organization.');
+        } else setNotice('Could not load candidates.');
+      }
     } catch (e) {
       if (e instanceof ApiClientError && e.status === 401) router.push('/');
-      else if (e instanceof ApiClientError && e.status === 403) {
-        setNotice('You do not have access to candidates in this organization.');
-      } else setNotice('Could not load candidates.');
+      else setNotice('Could not load profile.');
+    } finally {
+      setLoading(false);
     }
   }, [router]);
 
@@ -66,7 +76,17 @@ export default function CandidatesPage() {
   if (!profile) {
     return (
       <AppShell profile={null}>
-        <main style={shell}>Loading…</main>
+        <main style={shell}>
+          {loading ? (
+            'Loading…'
+          ) : (
+            notice && (
+              <p role="alert" style={{ fontSize: 13, color: '#a63a24' }}>
+                {notice}
+              </p>
+            )
+          )}
+        </main>
       </AppShell>
     );
   }

@@ -289,7 +289,7 @@ export default function DashboardPage() {
               permissions.has('candidates.read') &&
               hiringMetrics.recentAssignments.length > 0 && (
                 <section style={panel}>
-                  <h2 style={{ marginTop: 0, fontSize: 17 }}>Recent assignments</h2>
+                  <h2 style={{ marginTop: 0, fontSize: 17 }}>Assignments</h2>
                   <table style={{ width: '100%', fontSize: 14, borderCollapse: 'collapse' }}>
                     <thead>
                       <tr style={{ textAlign: 'left', color: '#545c56' }}>

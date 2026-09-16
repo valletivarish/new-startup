@@ -65,3 +65,4 @@ reports/
 *.aac
 *.ogg
 *.webm
+.worktrees/

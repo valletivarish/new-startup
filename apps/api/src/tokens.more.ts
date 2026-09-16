@@ -18,3 +18,5 @@ export const INTELLIGENCE_ORCHESTRATOR = Symbol('INTELLIGENCE_ORCHESTRATOR');
 /** MVP-01 ElevenLabs browser-voice */
 export const VOICE_SESSION_ADAPTER = Symbol('VOICE_SESSION_ADAPTER');
 export const VOICE_SESSION_SERVICE = Symbol('VOICE_SESSION_SERVICE');
+
+export const JOBS_SERVICE = Symbol('JOBS_SERVICE');

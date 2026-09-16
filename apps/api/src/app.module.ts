@@ -63,6 +63,7 @@ import {
   TOOL_REGISTRY,
   VOICE_SESSION_ADAPTER,
   VOICE_SESSION_SERVICE,
+  JOBS_SERVICE,
 } from './tokens.more.js';
 import {
   AuthController,
@@ -88,8 +89,10 @@ import {
   VoiceSessionsController,
   VoiceWebhookController,
 } from './providers/elevenlabs/voice.controller.js';
+import { JobsController } from './hiring/jobs.controller.js';
 import { createVoiceSessionAdapter, createStubVoiceSessionAdapter } from './providers/elevenlabs/adapter.js';
 import { createVoiceSessionService } from './providers/elevenlabs/voice-session.service.js';
+import { createJobsService } from './hiring/jobs.service.js';
 
 export interface AppDeps {
   readonly env: Env;
@@ -129,6 +132,7 @@ export class AppModule {
         VoiceDeploymentsController,
         VoiceSessionsController,
         VoiceWebhookController,
+        JobsController,
       ],
       providers: [
         { provide: ENV, useValue: deps.env },
@@ -318,6 +322,10 @@ export class AppModule {
             audit: ReturnType<typeof createAuditService>,
             adapter: ReturnType<typeof createVoiceSessionAdapter>,
           ) => createVoiceSessionService(deps.database, deps.env, audit, adapter),
+        },
+        {
+          provide: JOBS_SERVICE,
+          useFactory: () => createJobsService(deps.database),
         },
       ],
     };

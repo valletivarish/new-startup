@@ -28,4 +28,16 @@ describe('extractPhonesFromText', () => {
       '9876543210',
     ]);
   });
+
+  it('ignores +91 numbers whose mobile does not start with 6-9', () => {
+    expect(extractPhonesFromText('Wrong +91 12345 67890')).toEqual([]);
+    expect(extractPhonesFromText('Wrong +911234567890')).toEqual([]);
+  });
+
+  it('does not treat a prefix of a longer digit run as a phone', () => {
+    expect(extractPhonesFromText('Ref +9198765432101234567890')).toEqual([]);
+    expect(extractPhonesFromText('Alt +9112345678901234567890, ok 9876543210')).toEqual([
+      '9876543210',
+    ]);
+  });
 });

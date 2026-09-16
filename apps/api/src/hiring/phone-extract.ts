@@ -1,6 +1,6 @@
 const MAX_PHONES = 5;
 
-const PLUS91_PATTERN = /\+91[\s\-]?(\d[\s\-]?){10}/g;
+const PLUS91_PATTERN = /\+91[\s\-]?([6-9](?:[\s\-]?\d){9})(?!\d)/g;
 const MOBILE_PATTERN = /(?<!\d)([6-9]\d{9})(?!\d)/g;
 
 function digitsOnly(value: string): string {
@@ -11,7 +11,7 @@ function normalizeIndianMobile(raw: string): string | null {
   const digits = digitsOnly(raw);
   if (digits.length === 12 && digits.startsWith('91')) {
     const mobile = digits.slice(2);
-    return mobile.length === 10 ? `+91${mobile}` : null;
+    return mobile.length === 10 && /^[6-9]/.test(mobile) ? `+91${mobile}` : null;
   }
   if (digits.length === 10 && /^[6-9]/.test(digits)) {
     return digits;

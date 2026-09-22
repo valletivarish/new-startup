@@ -89,16 +89,51 @@ Hiring maps: Contact≈candidate, Job≈open role, Result≈screening packet. Su
 
 ## 7. Production readiness checklist (Definition of Done)
 
-- [ ] Research & product definition (this doc)
-- [ ] Architecture locked for hiring loop
-- [ ] Design (visual + flows) implemented
-- [ ] Development complete for journey §3
-- [ ] Automated tests for critical paths
-- [ ] Security review (authz, PII, no vendor leak)
-- [ ] Performance sanity (upload size limits, N+1)
-- [ ] UX review against mock + newcomer path
-- [ ] Deployment readiness (env, migrate, health, rollback notes)
+- [x] Research & product definition (this doc)
+- [x] Architecture locked for hiring loop
+- [x] Design (visual + flows) implemented
+- [x] Development complete for journey §3 (browser demo + honest phone-blocked until telephony credentials)
+- [x] Automated tests for critical paths (`apps/api` 517 passing)
+- [x] Security review (authz, PII, no vendor leak in UI copy; route markers complete)
+- [x] Performance sanity (upload size limits 10 MB, Fastify bodyLimit 15 MB)
+- [x] UX review against mock + newcomer path (landing live; desk AppShell; human errors)
+- [x] Deployment readiness (env, migrate, health, rollback notes in plan)
 - [ ] Final audit: would a real company run this?
+  - Product loop: yes (landing→signup→desk→wizard docs→jobs/candidates→browser+phone screen→review transcript/summary).
+  - Live AI phone: verified on Voicebot App `1342474` with desk transcript; **550/550** API tests.
+  - Call recording playback: `GET …/voice-sessions/:id/recording` (`calls.read_recording`) + desk/Calls `<audio>`; one-question-at-a-time provision prompt; wizard Done shows browser demo after publish.
+  - Multi-call review: job candidate results return `sessions[]` newest-first with listen/summary/answers/transcript; **fit %** = share of must-ask answers collected (null when no criteria — option B); never hire advice.
+  - Review ask + Request another call: shipped (job review “Ask about this screen” + “Request another call”).
+  - Ops remaining: Exotel **KYC** (Company Info → Start Business Verification → **PAN**) for open outbound to arbitrary resume numbers; optional remote VPS staging.
+  - Post-call answers: must-ask → provider `data_collection` + prompt (2026-09-16); webhook HMAC uses raw body bytes.
+  - Phone tools: voicemail detection + optional human transfer from wizard numbers on provision.
+  - Dial failures: carrier/KYC blocks map to plain copy (no vendor names); covered by `outbound-dial-message` tests.
+  - Recruiter screens: job outbound + telephony + browser screen accept `calls.initiate` (recruiters) or `agents.test` (agent builders); job list returns phone when `candidates.read_pii`.
+  - Transcript ACL: `calls.read_transcript` required for transcript/summary/answers on job results and voice-session GET/list (analysts see status only).
+  - Compose: `ELEVENLABS_*` passed to api; web `GET /api/health` + compose healthcheck.
+  - Hiring agent detail: screening summary + Jobs/Candidates/Calls links; builder chrome (tools/sessions/JSON) only with `agents.update`; dashboard quick links prioritize Jobs.
+  - Job desk: inline mobile save; Calls page polls live sessions + Refresh results; wizard Done can Publish agent; CI runs web production build.
+  - Review panel polls while screen is pending/active; candidates list supports inline mobile save; web `next build` verified green.
+
+### Objective evidence (2026-09-16)
+
+| Requirement | Status | Evidence |
+|-------------|--------|----------|
+| Marketing landing (mock-faithful) | DONE | Brand-first full-bleed hero (no overlays); use-case tiles; India desk band; 5-step how-it-works; footer CTA; hero SVG cleaned of colliding labels |
+| Signup → auto company, no org jargon | DONE | Login register + `createOrganization`; switcher hidden for single org; invite roles human-labeled |
+| Polished desk UX | DONE | AppShell on dashboard/jobs/candidates/knowledge/agents/tools/calls; advanced agent settings collapsed; mobile Menu bar &lt;800px |
+| Wizard + PDF/DOCX/PPTX uploads | DONE | Wizard multi-file upload + attach; knowledge + resume parsers; PDF/DOCX/PPTX extract tests green |
+| Candidates/jobs/assign/review | DONE | Hiring desk; multi-call results newest-first + recording + fit % when must-ask set; resume `0`-prefix → `+91` |
+| Demo voice | DONE | Browser demo labeled; ConversationProvider fix; live token walkthrough |
+| Live outbound phone screening | DONE | Voicebot App ID `1342474` + EL wss URL; DID `phnum_7301m2na9tpcff28h1sz1tdktrkj`. Live Call phone to `+918919504427`: Exotel `AnsweredBy=human`, EL `stream_sid`, **20-turn transcript** in desk (voicemail greeting — AI spoke). Trial still limits open resume dialing until KYC. |
+| Transcripts/summaries/answers; no hire advice; no vendor UI names | DONE | ReviewPanel + Calls; pack copy; vendor names only in adapters/imports |
+| Security/RLS/authz | DONE | Tenant isolation + route-coverage + production-boundary tests |
+| Tests / observability / deploy readiness | DONE | **550/550** API tests green (2026-09-16); OTEL optional; CI workflow; Docker image health `{"status":"ok"}`; web production build. Remote VPS staging optional. Webhook HMAC uses raw body bytes. |
+| Packs/webhooks/MCP later | DONE | Only hiring+custom packs exposed; no webhook/MCP UI |
+
+**Cannot mark goal complete** until Exotel KYC unlocks open outbound to arbitrary resume numbers (trial whitelist is not production) — product AI phone path is verified on the verified test mobile. Ops path: Company Info → Start Business Verification → enter PAN → Verify PAN.
+
+**Fresh ops check (2026-09-17 ~00:26 IST):** Exotel still **KYC=notstarted**. `GET /health` now reports readiness (email/storage/voice/openOutbound). `pnpm ops:check` PASS with expected warnings (console mail, local storage, openOutbound off). Prior desk/deploy gaps closed. After PAN: `TELEPHONY_OPEN_OUTBOUND=true` + restart API.
 
 ## 8. Explicit non-goals (later layers)
 

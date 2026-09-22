@@ -19,6 +19,7 @@ export {
   knowledgeDocuments,
   knowledgeChunks,
   agentKnowledgeSources,
+  jobKnowledgeSources,
   knowledgeProcessingRuns,
 } from './knowledge.js';
 
@@ -76,6 +77,7 @@ export const KNOWLEDGE_TABLES = [
   'knowledge_documents',
   'knowledge_chunks',
   'agent_knowledge_sources',
+  'job_knowledge_sources',
   'knowledge_processing_runs',
 ] as const;
 
@@ -90,3 +92,5 @@ export const HIRING_TABLES = ['jobs', 'candidates', 'job_candidates'] as const;
 
 export { voiceProviderDeployments, voiceSessions } from './voice.js';
 export { jobs, candidates, jobCandidates } from './hiring.js';
+export type { JobScreeningQuestion } from './hiring.js';
+

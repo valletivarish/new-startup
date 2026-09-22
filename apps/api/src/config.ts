@@ -42,17 +42,50 @@ const EnvSchema = z.object({
     .default('false')
     .transform((v) => v === 'true'),
 
-  RATE_LIMIT_MAX: z.coerce.number().int().min(1).default(100),
+  RATE_LIMIT_MAX: z.coerce.number().int().min(1).default(600),
   RATE_LIMIT_WINDOW_MS: z.coerce.number().int().min(1000).default(60_000),
 
   /**
-   * Root for the local ObjectStorage adapter. Cloudflare R2 replaces this
-   * adapter entirely at deployment; nothing above the interface changes.
+   * Object storage: `local` (dev / single-VPS volume) or `s3` (R2/S3/MinIO).
+   * Documents store opaque keys only — swapping backends does not rewrite rows.
    */
+  STORAGE_BACKEND: z.enum(['local', 's3']).default('local'),
   STORAGE_ROOT: z.string().default('.storage'),
+  S3_BUCKET: z
+    .string()
+    .optional()
+    .transform((v) => (v && v.length > 0 ? v : undefined)),
+  S3_REGION: z.string().default('auto'),
+  S3_ENDPOINT: z
+    .string()
+    .optional()
+    .transform((v) => (v && v.length > 0 ? v : undefined))
+    .pipe(z.string().url().optional()),
+  S3_ACCESS_KEY_ID: z
+    .string()
+    .optional()
+    .transform((v) => (v && v.length > 0 ? v : undefined)),
+  S3_SECRET_ACCESS_KEY: z
+    .string()
+    .optional()
+    .transform((v) => (v && v.length > 0 ? v : undefined)),
+  S3_FORCE_PATH_STYLE: z
+    .string()
+    .default('false')
+    .transform((v) => v === 'true'),
 
-  NOTIFICATION_TRANSPORT: z.enum(['console']).default('console'),
+  NOTIFICATION_TRANSPORT: z.enum(['console', 'smtp']).default('console'),
   EMAIL_FROM: z.string().default('no-reply@localhost'),
+  /** Full SMTP URL, e.g. smtp://user:pass@smtp.example.com:587 — preferred over discrete fields. */
+  SMTP_URL: z.string().optional(),
+  SMTP_HOST: z.string().optional(),
+  SMTP_PORT: z.coerce.number().int().min(1).max(65535).optional(),
+  SMTP_USER: z.string().optional(),
+  SMTP_PASS: z.string().optional(),
+  SMTP_SECURE: z
+    .string()
+    .default('false')
+    .transform((v) => v === 'true'),
 
   LOG_LEVEL: z
     .enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent'])
@@ -119,17 +152,62 @@ const EnvSchema = z.object({
   /** Default voice ID to assign to provisioned agents when none is specified. */
   ELEVENLABS_DEFAULT_VOICE_ID: z.string().default(''),
 
-  /** Maximum single-session length in minutes (cost guard). */
+  /** Maximum single browser-demo session length in minutes (cost guard). */
   ELEVENLABS_MAX_TEST_MINUTES: z.coerce.number().int().min(1).max(30).default(5),
 
-  /** Maximum number of test voice sessions per org per calendar day. */
+  /** Maximum number of browser-demo voice sessions per org per calendar day. */
   ELEVENLABS_DAILY_TEST_SESSIONS: z.coerce.number().int().min(1).max(100).default(10),
 
-  /** Maximum total voice minutes per org per calendar day. */
+  /** Maximum total browser-demo voice minutes per org per calendar day. */
   ELEVENLABS_DAILY_TEST_MINUTES: z.coerce.number().int().min(1).max(300).default(30),
+
+  /**
+   * Maximum single live phone screen length in minutes.
+   * Provisioned agents use max(test, phone) so phone screens are not cut at demo length.
+   */
+  ELEVENLABS_MAX_PHONE_MINUTES: z.coerce.number().int().min(5).max(60).default(20),
+
+  /** Concurrent live phone screens allowed per company (pending + active). */
+  ELEVENLABS_MAX_CONCURRENT_PHONE: z.coerce.number().int().min(1).max(20).default(3),
+
+  /** Live phone screens per org per calendar day (separate from browser demo caps). */
+  ELEVENLABS_DAILY_PHONE_SESSIONS: z.coerce.number().int().min(1).max(500).default(50),
+
+  /**
+   * Phone number id from the voice dashboard (linked carrier number).
+   * When empty, live outbound stays blocked with a clear message.
+   */
+  ELEVENLABS_PHONE_NUMBER_ID: z.string().default(''),
+
+  /**
+   * Which linked carrier path to use for outbound.
+   * Mapped to a concrete carrier only inside the voice adapter.
+   * - primary: default international-linked path
+   * - india: India-linked path when configured in the voice dashboard
+   */
+  ELEVENLABS_OUTBOUND_PROVIDER: z.enum(['primary', 'india']).default('primary'),
+
+  /**
+   * Set true only after the phone carrier finishes business verification
+   * and any resume number can be dialed (not trial verified-only).
+   * Controls desk messaging — does not change dial mechanics.
+   */
+  TELEPHONY_OPEN_OUTBOUND: z
+    .string()
+    .default('false')
+    .transform((v) => v === 'true'),
 
   /** Maximum agents per organization until billing tables exist. */
   ORG_AGENT_LIMIT: z.coerce.number().int().min(1).max(1000).default(5),
+
+  /**
+   * Gemini Developer API key for Job JD assist (generate / format).
+   * Optional — empty disables assist; HR can still type and save a JD.
+   */
+  GEMINI_API_KEY: z.string().default(''),
+
+  /** Model id for JD assist generateContent calls. */
+  GEMINI_MODEL: z.string().default('gemini-3.5-flash-lite'),
 }).superRefine((env, ctx) => {
   // Fail-closed toward production (audit finding): a production process with
   // development-grade security settings must refuse to boot, not limp along.
@@ -170,6 +248,47 @@ const EnvSchema = z.object({
         message:
           'Production requires a strong secret (>=32 chars, not the committed placeholder). Generate one: openssl rand -base64 32',
       });
+    }
+    if (env.NOTIFICATION_TRANSPORT === 'console') {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['NOTIFICATION_TRANSPORT'],
+        message:
+          'NOTIFICATION_TRANSPORT=console is not allowed in production — set smtp and SMTP_URL (or SMTP_HOST)',
+      });
+    }
+  }
+
+  if (env.NOTIFICATION_TRANSPORT === 'smtp') {
+    if (!env.SMTP_URL && !env.SMTP_HOST) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['SMTP_URL'],
+        message: 'SMTP_URL or SMTP_HOST is required when NOTIFICATION_TRANSPORT=smtp',
+      });
+    }
+    if (!env.EMAIL_FROM || env.EMAIL_FROM === 'no-reply@localhost') {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['EMAIL_FROM'],
+        message: 'EMAIL_FROM must be a real From address when using SMTP',
+      });
+    }
+  }
+
+  if (env.STORAGE_BACKEND === 's3') {
+    for (const [path, ok] of [
+      ['S3_BUCKET', Boolean(env.S3_BUCKET)] as const,
+      ['S3_ACCESS_KEY_ID', Boolean(env.S3_ACCESS_KEY_ID)] as const,
+      ['S3_SECRET_ACCESS_KEY', Boolean(env.S3_SECRET_ACCESS_KEY)] as const,
+    ]) {
+      if (!ok) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [path],
+          message: `${path} is required when STORAGE_BACKEND=s3`,
+        });
+      }
     }
   }
 });

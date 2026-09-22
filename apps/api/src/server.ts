@@ -22,11 +22,12 @@ import { createJobQueue, type JobQueue } from './jobs/queue.js';
 import { createQueuedNotificationProvider } from './jobs/queued-notification-provider.js';
 import { startTelemetry, type Telemetry } from './observability/telemetry.js';
 import { createAuth, type BetterAuthInstance } from './auth/better-auth.js';
-import { createConsoleNotificationProvider } from './notifications/console-notification-provider.js';
+import { createNotificationTransport } from './notifications/create-notification-transport.js';
 import { createAuditService } from './audit/audit.service.js';
 import { AppModule } from './app.module.js';
 import { ApiExceptionFilter } from './http-exception.filter.js';
 import type { VoiceSessionAdapter } from './providers/elevenlabs/adapter.js';
+import { registerVoiceWebhookRawBody } from './providers/elevenlabs/webhook-raw-body.js';
 
 export interface BuiltApp {
   readonly app: NestFastifyApplication;
@@ -91,7 +92,7 @@ export async function buildApp(
     overrides.notifications ??
     (jobs
       ? createQueuedNotificationProvider(jobs)
-      : createConsoleNotificationProvider(logger));
+      : createNotificationTransport(env, logger));
 
   // The audit service is constructed once here so Better Auth's hooks and the
   // Nest container share it.
@@ -115,6 +116,8 @@ export async function buildApp(
     // Only trust forwarding headers behind a real proxy — otherwise clients
     // spoof X-Forwarded-For and defeat per-IP rate limiting (audit finding).
     trustProxy: env.TRUST_PROXY,
+    // Knowledge / resume uploads arrive as JSON base64 (PDF/DOCX/PPTX).
+    bodyLimit: 15 * 1024 * 1024,
   });
 
   const app = await NestFactory.create<NestFastifyApplication>(
@@ -133,6 +136,8 @@ export async function buildApp(
 
   const fastify = app.getHttpAdapter().getInstance();
 
+  registerVoiceWebhookRawBody(fastify);
+
   await fastify.register(fastifyCookie);
   await fastify.register(fastifyHelmet, {
     contentSecurityPolicy: false,
@@ -140,6 +145,12 @@ export async function buildApp(
   await fastify.register(fastifyRateLimit, {
     max: env.RATE_LIMIT_MAX,
     timeWindow: env.RATE_LIMIT_WINDOW_MS,
+    // Desk pages poll every few seconds; a shared office NAT needs headroom.
+    // Never throttle liveness — compose/Caddy/ops-check hit /health often.
+    allowList: (request) => {
+      const path = (request.url ?? '').split('?')[0] ?? '';
+      return path === '/health' || path === '/api/health';
+    },
     // Keyed per client ip; organization-level limits arrive with usage
     // metering in Phase 7.
     errorResponseBuilder: (request, context) => ({

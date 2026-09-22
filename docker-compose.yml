@@ -7,11 +7,14 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres_local_dev
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres_local_dev}
       POSTGRES_DB: platform
+      # Used by docker/postgres/init/00b-roles.sh on first volume boot only.
+      POSTGRES_MIGRATOR_PASSWORD: ${POSTGRES_MIGRATOR_PASSWORD:-migrator_local_dev}
+      POSTGRES_APP_PASSWORD: ${POSTGRES_APP_PASSWORD:-app_local_dev}
     ports:
       # 5434 on the host to avoid colliding with a local PostgreSQL install.
-      # (5432 and 5433 were both already bound on the development machine.)
+      # Production: use docker-compose.prod.yml (no host DB port).
       - "5434:5432"
     volumes:
       - platform-pgdata:/var/lib/postgresql/data
@@ -52,8 +55,9 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      DATABASE_MIGRATION_URL: postgresql://platform_migrator:migrator_local_dev@postgres:5432/platform
-    command: ["node_modules/.bin/tsx", "packages/db/src/scripts/migrate.ts"]
+      DATABASE_MIGRATION_URL: postgresql://platform_migrator:${POSTGRES_MIGRATOR_PASSWORD:-migrator_local_dev}@postgres:5432/platform
+    # Compiled by the Dockerfile build stage — plain node, no tsx in production.
+    command: ["node", "packages/db/dist/scripts/migrate.js"]
 
   api:
     profiles: ["app"]
@@ -69,15 +73,62 @@ services:
         condition: service_completed_successfully
     environment:
       NODE_ENV: production
-      DATABASE_URL: postgresql://platform_app:app_local_dev@postgres:5432/platform
-      API_URL: http://localhost:3001
-      WEB_URL: http://localhost:3000
+      DATABASE_URL: postgresql://platform_app:${POSTGRES_APP_PASSWORD:-app_local_dev}@postgres:5432/platform
+      # Public URLs the browser / voice provider see (override via .env for staging).
+      API_URL: ${API_URL:-http://localhost:3001}
+      WEB_URL: ${WEB_URL:-http://localhost:3000}
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET}
       COOKIE_SECURE: ${COOKIE_SECURE:-true}
       TRUST_PROXY: "true"
+      RATE_LIMIT_MAX: ${RATE_LIMIT_MAX:-1200}
+      RATE_LIMIT_WINDOW_MS: ${RATE_LIMIT_WINDOW_MS:-60000}
       OTEL_ENABLED: ${OTEL_ENABLED:-false}
+      # Shared with worker — document uploads must land on the same filesystem.
+      STORAGE_ROOT: /app/.storage
+      STORAGE_BACKEND: ${STORAGE_BACKEND:-local}
+      S3_BUCKET: ${S3_BUCKET:-}
+      S3_REGION: ${S3_REGION:-auto}
+      S3_ENDPOINT: ${S3_ENDPOINT:-}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-}
+      S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-false}
+      # Voice / outbound (optional — leave blank to keep Call phone blocked)
+      ELEVENLABS_ENABLED: ${ELEVENLABS_ENABLED:-false}
+      ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
+      ELEVENLABS_WEBHOOK_SECRET: ${ELEVENLABS_WEBHOOK_SECRET:-}
+      ELEVENLABS_DEFAULT_VOICE_ID: ${ELEVENLABS_DEFAULT_VOICE_ID:-}
+      ELEVENLABS_PHONE_NUMBER_ID: ${ELEVENLABS_PHONE_NUMBER_ID:-}
+      ELEVENLABS_OUTBOUND_PROVIDER: ${ELEVENLABS_OUTBOUND_PROVIDER:-india}
+      TELEPHONY_OPEN_OUTBOUND: ${TELEPHONY_OPEN_OUTBOUND:-false}
+      ELEVENLABS_MAX_TEST_MINUTES: ${ELEVENLABS_MAX_TEST_MINUTES:-5}
+      ELEVENLABS_DAILY_TEST_SESSIONS: ${ELEVENLABS_DAILY_TEST_SESSIONS:-10}
+      ELEVENLABS_DAILY_TEST_MINUTES: ${ELEVENLABS_DAILY_TEST_MINUTES:-30}
+      ELEVENLABS_MAX_PHONE_MINUTES: ${ELEVENLABS_MAX_PHONE_MINUTES:-20}
+      ELEVENLABS_MAX_CONCURRENT_PHONE: ${ELEVENLABS_MAX_CONCURRENT_PHONE:-3}
+      ELEVENLABS_DAILY_PHONE_SESSIONS: ${ELEVENLABS_DAILY_PHONE_SESSIONS:-50}
+      # Email — production refuses console; set SMTP_URL (or SMTP_HOST) in .env
+      NOTIFICATION_TRANSPORT: ${NOTIFICATION_TRANSPORT:-smtp}
+      EMAIL_FROM: ${EMAIL_FROM:?set EMAIL_FROM}
+      SMTP_URL: ${SMTP_URL:-}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_SECURE: ${SMTP_SECURE:-false}
+    volumes:
+      - platform-storage:/app/.storage
     ports:
       - "3001:3001"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "node -e \"fetch('http://127.0.0.1:3001/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\"",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 15s
     command: ["node", "apps/api/dist/main.js"]
 
   worker:
@@ -94,15 +145,107 @@ services:
         condition: service_completed_successfully
     environment:
       NODE_ENV: production
-      DATABASE_URL: postgresql://platform_app:app_local_dev@postgres:5432/platform
-      API_URL: http://localhost:3001
-      WEB_URL: http://localhost:3000
+      DATABASE_URL: postgresql://platform_app:${POSTGRES_APP_PASSWORD:-app_local_dev}@postgres:5432/platform
+      API_URL: ${API_URL:-http://localhost:3001}
+      WEB_URL: ${WEB_URL:-http://localhost:3000}
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET}
       COOKIE_SECURE: ${COOKIE_SECURE:-true}
       OTEL_ENABLED: ${OTEL_ENABLED:-false}
       OTEL_SERVICE_NAME: platform-worker
+      STORAGE_ROOT: /app/.storage
+      STORAGE_BACKEND: ${STORAGE_BACKEND:-local}
+      S3_BUCKET: ${S3_BUCKET:-}
+      S3_REGION: ${S3_REGION:-auto}
+      S3_ENDPOINT: ${S3_ENDPOINT:-}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-}
+      S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-false}
+      NOTIFICATION_TRANSPORT: ${NOTIFICATION_TRANSPORT:-smtp}
+      EMAIL_FROM: ${EMAIL_FROM:?set EMAIL_FROM}
+      SMTP_URL: ${SMTP_URL:-}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_SECURE: ${SMTP_SECURE:-false}
+    volumes:
+      - platform-storage:/app/.storage
+    healthcheck:
+      # Worker writes /tmp/platform-worker-heartbeat every 10s — prove Node is
+      # consuming, not merely that Postgres is reachable from this container.
+      test:
+        [
+          "CMD-SHELL",
+          "node -e \"const fs=require('fs'); try { const t=Number(fs.readFileSync('/tmp/platform-worker-heartbeat','utf8')); if (!Number.isFinite(t) || Date.now()-t>45000) process.exit(1); process.exit(0); } catch { process.exit(1); }\"",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 25s
     command: ["node", "apps/api/dist/jobs/worker.js"]
+
+  web:
+    profiles: ["app"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: web
+    container_name: platform-web
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      API_URL: http://api:3001
+    ports:
+      - "3000:3000"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "node -e \"fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\"",
+        ]
+      interval: 10s
+      timeout: 3s
+      retries: 20
+      start_period: 20s
+
+  # ADR-006 TLS edge — automatic HTTPS. Opt in with `--profile tls` alongside `app`.
+  # Point DNS A/AAAA for DOMAIN at this host first. Set:
+  #   DOMAIN=hiring.example.com
+  #   ACME_EMAIL=ops@example.com
+  #   API_URL=https://hiring.example.com
+  #   WEB_URL=https://hiring.example.com
+  #   COOKIE_SECURE=true
+  # Register voice webhook: https://{DOMAIN}/webhooks/elevenlabs
+  caddy:
+    profiles: ["tls"]
+    image: caddy:2.9-alpine
+    container_name: platform-caddy
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+      web:
+        condition: service_healthy
+    environment:
+      DOMAIN: ${DOMAIN:-localhost}
+      ACME_EMAIL: ${ACME_EMAIL:-ops@localhost}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./docker/Caddyfile:/etc/caddy/Caddyfile:ro
+      - platform-caddy-data:/data
+      - platform-caddy-config:/config
 
 volumes:
   platform-pgdata:
     name: platform-pgdata
+  platform-storage:
+    name: platform-storage
+  platform-caddy-data:
+    name: platform-caddy-data
+  platform-caddy-config:
+    name: platform-caddy-config

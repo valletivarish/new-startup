@@ -127,6 +127,34 @@
       "when": 1789600002000,
       "tag": "0017_voice_session_hiring_link",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1789600003000,
+      "tag": "0018_job_scoped_candidates",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1789600004000,
+      "tag": "0019_job_owned_screening",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1789600005000,
+      "tag": "0020_voice_session_provision_snapshot",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1789600006000,
+      "tag": "0021_backfill_job_screening_from_agents",
+      "breakpoints": true
     }
   ]
 }

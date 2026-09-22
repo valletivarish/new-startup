@@ -44,6 +44,13 @@ export interface VoiceSessionResult {
   readonly costCredits: number | null;
   readonly startedAt: string;
   readonly endedAt: string | null;
+  readonly jobId?: string | null;
+  readonly candidateId?: string | null;
+  readonly agentId?: string | null;
+  readonly agentName?: string | null;
+  readonly jobTitle?: string | null;
+  readonly candidateName?: string | null;
+  readonly channel?: 'browser_demo' | 'phone';
 }
 
 /** One turn in the conversation transcript. */
@@ -64,6 +71,8 @@ export interface KnowledgeSnapshot {
   readonly name: string;
   readonly content: string;
 }
+
+export type { VoiceProvisionSnapshot } from './provision-snapshot.js';
 
 /** Input for provisioning a deployment. */
 export interface ProvisionInput {

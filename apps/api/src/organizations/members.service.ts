@@ -223,7 +223,7 @@ export function createMembersService(
             (await otherActiveOwners(tx, actor.organizationId, membershipId)) === 0
           ) {
             throw ApiError.conflict(
-              'An organization must keep at least one active Owner',
+              'A company must keep at least one active Owner',
             );
           }
 
@@ -272,7 +272,7 @@ export function createMembersService(
             (await otherActiveOwners(tx, actor.organizationId, membershipId)) === 0
           ) {
             throw ApiError.conflict(
-              'An organization must keep at least one active Owner',
+              'A company must keep at least one active Owner',
             );
           }
 
@@ -319,7 +319,7 @@ export function createMembersService(
             (await otherActiveOwners(tx, actor.organizationId, membershipId)) === 0
           ) {
             throw ApiError.conflict(
-              'An organization must keep at least one active Owner',
+              'A company must keep at least one active Owner',
             );
           }
 

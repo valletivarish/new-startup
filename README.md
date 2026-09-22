@@ -1,15 +1,16 @@
 # AI Agent Platform
 
 Multi-tenant, provider-independent AI agent platform for business workflows.
-First commercial wedge: recruitment screening and interview scheduling, India.
+First commercial wedge: **India hiring voice screening** (landing → desk →
+wizard with PDF/DOCX/PPTX → demo → jobs/candidates → Call phone → review).
 
 **Architecture:** `BRD's/12_ARCHITECTURE_DECISIONS_FINAL.md` is authoritative.
 Decisions are recorded as ADRs in `BRD's/10_ADRs/` and are never edited once
 accepted — changing one requires a superseding ADR.
 
-**Current phase:** Phase 1 — Platform Foundation. **Complete and audited** —
-see `PHASE_1_COMPLETION_REPORT.md` and `PHASE_1_AUDIT_REPORT.md`.
-136 tests passing against real PostgreSQL.
+**Current focus:** `feat/p0-pack-hiring-wizard` hiring production loop.
+Gate checks: `pnpm test:api` (565+), `pnpm hiring:smoke`, `pnpm telephony:check`, `pnpm ops:check`.
+Open any-resume dialing waits on carrier KYC, then `TELEPHONY_OPEN_OUTBOUND=true`.
 
 ---
 
@@ -65,7 +66,7 @@ Run the stack locally:
 
 ```bash
 pnpm dev:api      # http://localhost:3001 — API (health at /health)
-pnpm dev:worker   # background job worker (email delivery)
+pnpm dev:worker   # background job worker (email + document indexing)
 pnpm dev:web      # http://localhost:3000 — dashboard (proxies to the API)
 ```
 
@@ -76,8 +77,43 @@ never delivered — set `JOBS_ENABLED=false` to send inline instead.
 To run the whole stack in containers (one image, two entrypoints):
 
 ```bash
-BETTER_AUTH_SECRET=$(openssl rand -base64 32) docker compose --profile app up --build
+BETTER_AUTH_SECRET=$(openssl rand -base64 32) \
+EMAIL_FROM=no-reply@yourdomain.com \
+NOTIFICATION_TRANSPORT=smtp SMTP_URL='smtp://…' \
+docker compose --profile app up --build
 ```
+
+Public HTTPS (Indian VPS, ADR-006): point DNS at the host, then:
+
+```bash
+DOMAIN=hiring.example.com ACME_EMAIL=ops@example.com \
+API_URL=https://hiring.example.com WEB_URL=https://hiring.example.com \
+COOKIE_SECURE=true \
+BETTER_AUTH_SECRET=… EMAIL_FROM=… NOTIFICATION_TRANSPORT=smtp SMTP_URL=… \
+docker compose --profile app --profile tls up --build -d
+```
+
+Register the voice webhook at `https://{DOMAIN}/webhooks/elevenlabs`.
+
+For live **Call phone** in containers, also export the voice vars from `.env.example`
+(`ELEVENLABS_ENABLED=true`, API key, webhook secret, phone number id, outbound
+provider). Set public `API_URL` / `WEB_URL` to the HTTPS origins the browser and
+voice provider can reach (not `http://localhost:3001` behind NAT). Compose mounts
+a shared `platform-storage` volume so API + worker both use `STORAGE_ROOT=/app/.storage`
+for document uploads.
+
+After carrier KYC unlocks any-resume dialing, set `TELEPHONY_OPEN_OUTBOUND=true`
+and recreate the API (and worker) so the desk drops the verified-only banner:
+
+```bash
+# in .env: TELEPHONY_OPEN_OUTBOUND=true
+docker compose --profile app up -d --force-recreate api worker
+curl -sS "$API_URL/health"   # readiness.openOutbound should be true
+```
+
+Web liveness: `GET /api/health` → `{"status":"ok"}`. API: `GET /health`.
+Post-deploy smoke (no dials): `pnpm hiring:smoke`.
+Operator readiness: `pnpm ops:check` · telephony: `pnpm telephony:check`.
 
 ```
 apps/
@@ -150,6 +186,32 @@ audit event.
 
 ## Providers
 
-No AI or telephony provider is selected or installed. Interfaces are defined in
-`@platform/providers`; implementations arrive at their phase, chosen on
-benchmark evidence. `phase-boundary.test.ts` fails if a provider SDK is added.
+Voice browser demo and outbound phone sit behind an adapter (`apps/api/src/providers/`).
+Product UI never names vendors. Live **Call phone** dials the candidate phone from the
+job/resume (no whitelist step in the product). It needs a linked India production DID id
+in env (`ELEVENLABS_PHONE_NUMBER_ID`) plus `ELEVENLABS_OUTBOUND_PROVIDER=india`. Check with
+`pnpm telephony:check`. Prefer a KYC’d India carrier number over a Twilio deposit.
+Other AI capabilities remain behind `@platform/providers` interfaces and phase-boundary tests.
+
+### India live phone (operator)
+
+1. Carrier account: complete **business verification (KYC / PAN)** so outbound can reach any resume mobile — trial accounts only reach verified numbers.
+2. Create an ExoML **Voicebot** flow (not Landing Flow / Sales). Point the Voicebot URL at the voice provider’s Exotel WebSocket endpoint, note the numeric App ID as `EXOTEL_APP_ID`.
+3. Import the DID: `pnpm telephony:import` (or `node scripts/import-india-phone.mjs --import`) with `EXOTEL_*` set, paste `ELEVENLABS_PHONE_NUMBER_ID`, set `ELEVENLABS_OUTBOUND_PROVIDER=india`, restart the API.
+4. Register the voice webhook in the voice console: URL = `{API_URL}/webhooks/elevenlabs` (public HTTPS). Paste the signing secret into `ELEVENLABS_WEBHOOK_SECRET`, restart the API. Without this, calls may connect but transcripts/summaries stay empty until reconcile.
+5. Smoke: open job → candidate with `+91…` → **Call phone** → answer → confirm transcript on the job and Calls pages. Gate check: `pnpm hiring:smoke` then `pnpm telephony:check`.
+6. After KYC unlocks any-resume dialing, set `TELEPHONY_OPEN_OUTBOUND=true` and restart the API so the desk drops the verified-only banner.
+
+### Backups (ADR-006)
+
+While Postgres is still on the same host:
+
+```bash
+./scripts/backup.sh                 # writes .backups/<utc>/platform.dump (+ storage.tgz)
+./scripts/restore.sh .backups/<utc> # replaces DB; restore is only real if you test it
+```
+
+When `STORAGE_BACKEND=s3`, document objects live in the bucket — back up with your
+provider's snapshot tooling; `storage.tgz` only covers local `.storage`.
+
+Production on a VPS: use `docker-compose.yml` + `docker-compose.prod.yml` (no host DB/app ports; Caddy only). Set `POSTGRES_*_PASSWORD`, `SMTP_URL`, `DOMAIN`, and public `API_URL`/`WEB_URL` before first boot — role passwords are fixed at volume init. Prefer `STORAGE_BACKEND=s3` (R2/S3) before real candidate documents land.

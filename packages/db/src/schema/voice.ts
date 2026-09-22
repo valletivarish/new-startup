@@ -100,6 +100,12 @@ export const voiceSessions = pgTable(
     summary: text('summary'),
     /** Structured key-value answers extracted by the agent, if any. */
     structuredAnswers: jsonb('structured_answers'),
+    /**
+     * Immutable provision config frozen at call start (PO Q2=B).
+     * Captures job/agent criteria, language, knowledge ids, and prompt fields
+     * actually used for this call so later Job/Agent edits cannot rewrite history.
+     */
+    provisionSnapshot: jsonb('provision_snapshot'),
     /** Call duration in whole seconds. NULL until the call ends. */
     durationSeconds: integer('duration_seconds'),
     /**

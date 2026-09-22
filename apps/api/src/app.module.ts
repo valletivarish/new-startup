@@ -10,7 +10,7 @@ import { Module, type DynamicModule } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import type { Database } from '@platform/db';
 import type { JobQueue } from './jobs/queue.js';
-import type { NotificationProvider } from '@platform/providers';
+import type { NotificationProvider, ObjectStorage } from '@platform/providers';
 import type { Logger } from 'pino';
 
 import { runtimeLimitsFrom, type Env } from './config.js';
@@ -28,7 +28,7 @@ import { createAgentRuntime } from './agents/runtime.js';
 import { createKnowledgeService } from './knowledge/knowledge.service.js';
 import { createKnowledgeRetriever } from './knowledge/retriever.js';
 import { createDeterministicEmbeddingProvider } from './knowledge/deterministic-embedding-provider.js';
-import { createLocalObjectStorage } from './knowledge/local-object-storage.js';
+import { createObjectStorage } from './knowledge/create-object-storage.js';
 import { createDocumentProcessor } from './knowledge/processor.js';
 import { createChunker } from './knowledge/chunker.js';
 import { createToolRegistry } from './tools/registry.js';
@@ -88,6 +88,8 @@ import {
 import {
   VoiceDeploymentsController,
   VoiceSessionsController,
+  VoiceCallsController,
+  TelephonyStatusController,
   VoiceWebhookController,
 } from './providers/elevenlabs/voice.controller.js';
 import { JobsController } from './hiring/jobs.controller.js';
@@ -134,6 +136,8 @@ export class AppModule {
         ToolExecutionsController,
         VoiceDeploymentsController,
         VoiceSessionsController,
+        VoiceCallsController,
+        TelephonyStatusController,
         VoiceWebhookController,
         JobsController,
         CandidatesController,
@@ -260,14 +264,14 @@ export class AppModule {
         },
         {
           provide: OBJECT_STORAGE,
-          useFactory: () => createLocalObjectStorage(deps.env.STORAGE_ROOT),
+          useFactory: () => createObjectStorage(deps.env),
         },
         {
           provide: KNOWLEDGE_SERVICE,
           inject: [AUDIT_SERVICE, OBJECT_STORAGE],
           useFactory: (
             audit: ReturnType<typeof createAuditService>,
-            storage: ReturnType<typeof createLocalObjectStorage>,
+            storage: ObjectStorage,
           ) => {
             // The same processor the worker runs. When a worker IS present
             // this is never invoked; when one is not, documents still index.

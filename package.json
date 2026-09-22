@@ -12,6 +12,7 @@
     "db:reset": "docker compose down -v && docker compose up -d postgres",
     "db:generate": "pnpm --filter @platform/db generate",
     "db:migrate": "pnpm --filter @platform/db migrate",
+    "db:backfill-job-screening": "pnpm --filter @platform/db backfill:job-screening",
     "db:seed": "pnpm --filter @platform/db seed",
     "dev:api": "pnpm --filter @platform/api dev",
     "dev:web": "pnpm --filter @platform/web dev",
@@ -22,8 +23,14 @@
     "format": "prettier --write .",
     "test": "pnpm --filter @platform/api test && pnpm --filter @platform/benchmark test",
     "test:watch": "pnpm --filter @platform/api test:watch",
-    "dev:worker": "pnpm --filter @platform/api dev:worker",
     "test:api": "pnpm --filter @platform/api test",
+    "test:ci": "pnpm test:api",
+    "telephony:check": "node scripts/check-telephony.mjs",
+    "telephony:import": "node scripts/import-india-phone.mjs",
+    "demo:telugu-call": "node scripts/demo-telugu-call.mjs",
+    "hiring:smoke": "node scripts/hiring-smoke.mjs",
+    "ops:check": "node scripts/ops-check.mjs",
+    "dev:worker": "pnpm --filter @platform/api dev:worker",
     "bench": "pnpm --filter @platform/benchmark bench"
   },
   "devDependencies": {

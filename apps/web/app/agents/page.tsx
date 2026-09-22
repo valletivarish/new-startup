@@ -1,13 +1,29 @@
 'use client';
 
 /**
- * Agents list and creation. Permission-gated for usability only — the API
- * enforces every decision server-side.
+ * Hiring voice list — voices for open roles.
  */
 
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { Plus, Sparkles } from 'lucide-react';
+import { AppShell } from '../../components/AppShell';
+import { Badge, statusTone } from '../../components/ui/badge';
+import { Button } from '../../components/ui/button';
+import { EmptyState, Notice, PageHeader, PageMain } from '../../components/ui/page';
+import {
+  DataList,
+  DataListBody,
+  DataListHeader,
+  DataListMeta,
+  DataListRow,
+  DataListTitle,
+} from '../../components/ui/list';
+import { SkeletonPage, SkeletonRows } from '../../components/ui/skeleton';
+import { AGENT_STATUS_LABEL } from '../../lib/status-labels';
+import { loginPathForReturn } from '../../lib/auth-redirect';
+import { toPublicId } from '../../lib/public-id';
 import {
   ApiClientError,
   listAgents,
@@ -16,37 +32,27 @@ import {
   type Me,
 } from '../../lib/api';
 
-const shell: React.CSSProperties = { maxWidth: 860, margin: '0 auto', padding: 24 };
-const panel: React.CSSProperties = {
-  background: '#fff',
-  border: '1px solid #d6dad2',
-  borderRadius: 8,
-  padding: 20,
-  marginBottom: 18,
-};
-
-const STATUS_COLOR: Record<string, string> = {
-  draft: '#8a6108',
-  published: '#0d6e63',
-  paused: '#545c56',
-  archived: '#a63a24',
-};
-
 export default function AgentsPage() {
   const router = useRouter();
   const [profile, setProfile] = useState<Me | null>(null);
   const [agents, setAgents] = useState<Agent[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
   const reload = useCallback(async () => {
+    setLoading(true);
     try {
       const [p, a] = await Promise.all([me(), listAgents()]);
       setProfile(p);
       setAgents(a.agents);
     } catch (e) {
-      if (e instanceof ApiClientError && e.status === 401) router.push('/');
-      else if (e instanceof ApiClientError && e.status === 403) setNotice(e.message);
-      else setNotice('Could not load agents.');
+      if (e instanceof ApiClientError && e.status === 401) {
+        router.push(loginPathForReturn());
+      } else if (e instanceof ApiClientError && e.status === 403) {
+        setNotice(e.message);
+      } else setNotice('Could not load hiring voices.');
+    } finally {
+      setLoading(false);
     }
   }, [router]);
 
@@ -54,77 +60,87 @@ export default function AgentsPage() {
     void reload();
   }, [reload]);
 
-  const can = (p: string) => profile?.activeOrganization?.permissions.includes(p) ?? false;
+  const can = (p: string) =>
+    profile?.activeOrganization?.permissions.includes(p) ?? false;
+
+  if (!profile) {
+    return (
+      <AppShell profile={null}>
+        <PageMain>
+          {loading ? <SkeletonPage rows={4} /> : null}
+          {notice ? <Notice kind="err">{notice}</Notice> : null}
+        </PageMain>
+      </AppShell>
+    );
+  }
 
   return (
-    <main style={shell}>
-      <header style={{ display: 'flex', justifyContent: 'space-between', padding: '14px 0' }}>
-        <strong>Agents</strong>
-        <Link href="/dashboard" style={{ fontSize: 14, color: '#0d6e63' }}>
-          Back to dashboard
-        </Link>
-      </header>
-
-      {notice && <p role="status" style={{ fontSize: 13, color: '#0d6e63' }}>{notice}</p>}
-
-      {can('agents.create') && (
-        <section style={panel}>
-          <h2 style={{ marginTop: 0, fontSize: 17 }}>Create an agent</h2>
-          <p style={{ fontSize: 14, color: '#545c56', marginTop: 0 }}>
-            Use the guided wizard to set up a hiring or custom agent.
-          </p>
-          <Link
-            href="/agents/new"
-            style={{
-              display: 'inline-block',
-              background: '#1e40af',
-              color: '#fff',
-              padding: '10px 18px',
-              borderRadius: 8,
-              fontSize: 15,
-              fontWeight: 600,
-              textDecoration: 'none',
-            }}
-          >
-            Create agent
-          </Link>
-        </section>
-      )}
-
-      <section style={panel}>
-        <h2 style={{ marginTop: 0, fontSize: 17 }}>Your agents</h2>
-        {agents.length === 0 && (
-          <p style={{ fontSize: 14, color: '#545c56' }}>No agents yet.</p>
-        )}
-        <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-          {agents.map((a) => (
-            <li
-              key={a.id}
-              style={{
-                borderTop: '1px solid #e4e7e0',
-                padding: '12px 0',
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                gap: 12,
-              }}
-            >
-              <span>
-                <Link href={`/agents/${a.id}`} style={{ fontWeight: 600, color: '#1a1f1c' }}>
-                  {a.name}
+    <AppShell profile={profile}>
+      <PageMain className="pb-10">
+        <PageHeader
+          title="Hiring voice"
+          description="The voice that calls candidates for your open roles."
+          actions={
+            can('agents.create') ? (
+              <Button asChild>
+                <Link href="/agents/new">
+                  <Plus className="h-4 w-4" aria-hidden />
+                  Set up hiring voice
                 </Link>
-                <span style={{ display: 'block', fontSize: 13, color: '#545c56' }}>
-                  {a.purpose}
-                </span>
-              </span>
-              <span style={{ fontSize: 13, color: STATUS_COLOR[a.status] ?? '#545c56' }}>
-                {a.status}
-                {a.currentVersion !== null && ` · v${a.currentVersion}`}
-              </span>
-            </li>
-          ))}
-        </ul>
-      </section>
-    </main>
+              </Button>
+            ) : null
+          }
+        />
+
+        {notice ? <Notice kind="err">{notice}</Notice> : null}
+
+        {loading ? (
+          <SkeletonRows rows={4} />
+        ) : agents.length === 0 ? (
+          <EmptyState
+            icon={<Sparkles className="h-5 w-5" aria-hidden />}
+            title="No hiring voice yet"
+            description={
+              can('agents.create')
+                ? 'Set up a hiring voice, publish it, then use it on your open roles.'
+                : 'No hiring voice in this company yet.'
+            }
+            action={
+              can('agents.create') ? (
+                <Button asChild>
+                  <Link href="/agents/new">Set up hiring voice</Link>
+                </Button>
+              ) : null
+            }
+          />
+        ) : (
+          <DataList>
+            <DataListHeader className="grid-cols-[minmax(0,1fr)_auto]">
+              <span>Hiring voice</span>
+              <span className="pr-1">Status</span>
+            </DataListHeader>
+            <DataListBody>
+              {agents.map((a) => (
+                <DataListRow
+                  key={a.id}
+                  href={`/agents/${toPublicId(a.id)}`}
+                  className="grid-cols-[minmax(0,1fr)_auto]"
+                >
+                  <div className="min-w-0">
+                    <DataListTitle>{a.name}</DataListTitle>
+                    <DataListMeta className="line-clamp-1">
+                      {a.purpose || 'Phone screens for open roles'}
+                    </DataListMeta>
+                  </div>
+                  <Badge tone={statusTone(a.status)}>
+                    {AGENT_STATUS_LABEL[a.status] ?? a.status}
+                  </Badge>
+                </DataListRow>
+              ))}
+            </DataListBody>
+          </DataList>
+        )}
+      </PageMain>
+    </AppShell>
   );
 }

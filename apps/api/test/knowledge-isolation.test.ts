@@ -270,6 +270,7 @@ describe('knowledge isolation at the DATABASE layer', () => {
       'knowledge_documents',
       'knowledge_chunks',
       'agent_knowledge_sources',
+      'job_knowledge_sources',
       'knowledge_processing_runs',
     ]) {
       const rows = await withoutTenantContext(db.db, async (tx) =>

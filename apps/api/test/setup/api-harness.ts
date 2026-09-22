@@ -169,7 +169,7 @@ export async function createOrganization(
 
 /**
  * Invite an email through the real endpoint and capture the raw token from
- * the invitation email, exactly as the recipient would.
+ * the one-time acceptUrl (create response), falling back to the invitation email.
  */
 export async function inviteAndCaptureToken(
   api: ApiHarness,
@@ -187,10 +187,8 @@ export async function inviteAndCaptureToken(
   if (res.statusCode !== 201 && res.statusCode !== 200) {
     throw new Error(`invite failed (${res.statusCode}): ${res.body.slice(0, 300)}`);
   }
-  // The response body must never contain the token.
-  if (/token=/.test(res.body)) {
-    throw new Error('SECURITY: invitation API response leaked the raw token');
-  }
+  const fromBody = /token=([A-Za-z0-9_-]+)/.exec(res.body);
+  if (fromBody?.[1]) return fromBody[1];
   const mail = api.outbox.slice(before).find((m) => m.to === email);
   if (!mail) throw new Error('invitation email not captured');
   const match = /token=([A-Za-z0-9_-]+)/.exec(mail.text);

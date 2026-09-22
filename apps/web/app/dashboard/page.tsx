@@ -1,129 +1,173 @@
 'use client';
 
 /**
- * Dashboard shell: organization switcher, members and invitations.
- *
- * Permission gating here is a usability feature ONLY — every decision is
- * enforced server-side, and this page simply hides controls the API would
- * refuse (`05_UX_DASHBOARD_SPEC` §18.11).
+ * Home — attention inbox for hiring.
  */
 
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { AppShell, panel, primaryBtn, shell, STATUS_COLOR } from '../../components/AppShell';
+import { ArrowRight, Briefcase, Users } from 'lucide-react';
+import { AppShell } from '../../components/AppShell';
+import { Badge, statusTone } from '../../components/ui/badge';
+import { Button } from '../../components/ui/button';
+import { Field, Input, Select } from '../../components/ui/input';
+import { EmptyState, Notice, PageHeader, PageMain, Surface } from '../../components/ui/page';
+import { SkeletonCard, SkeletonList } from '../../components/ui/skeleton';
+import { toPublicId } from '../../lib/public-id';
+import { loginPathForReturn } from '../../lib/auth-redirect';
 import {
   ApiClientError,
-  createOrganization,
-  invitations as fetchInvitations,
-  invite,
-  listCandidates,
+  ensureOrganization,
   listJobCandidates,
   listJobs,
   me,
-  members as fetchMembers,
   myOrganizations,
   signOut,
   switchOrganization,
-  type Invitation,
+  type Job,
   type Me,
-  type Member,
   type OrganizationSummary,
 } from '../../lib/api';
 
-interface AssignmentRow {
+interface PersonRow {
   jobTitle: string;
   jobId: string;
+  candidateId: string;
   candidateName: string;
   status: string;
+  callStatus?: 'not_called' | 'calling' | 'completed' | 'failed';
 }
 
-interface HiringMetrics {
-  jobCount: number;
-  candidateCount: number;
-  assignmentCount: number;
-  recentAssignments: AssignmentRow[];
+interface JobHealth {
+  job: Job;
+  total: number;
+  awaitingScreen: number;
+  inProgress: number;
+  needsReview: number;
 }
+
+interface HiringSnapshot {
+  jobs: JobHealth[];
+  attention: PersonRow[];
+  needsReview: PersonRow[];
+  inProgress: PersonRow[];
+}
+
+import { JOB_STATUS_LABEL, PERSON_STATUS_LABEL, PIPELINE_STATUS_LABEL } from '../../lib/status-labels';
 
 export default function DashboardPage() {
   const router = useRouter();
   const [profile, setProfile] = useState<Me | null>(null);
   const [orgs, setOrgs] = useState<OrganizationSummary[]>([]);
-  const [memberRows, setMemberRows] = useState<Member[]>([]);
-  const [inviteRows, setInviteRows] = useState<Invitation[]>([]);
   const [newOrgName, setNewOrgName] = useState('');
-  const [inviteEmail, setInviteEmail] = useState('');
-  const [inviteRole, setInviteRole] = useState('viewer');
   const [notice, setNotice] = useState<string | null>(null);
-  const [hiringMetrics, setHiringMetrics] = useState<HiringMetrics | null>(null);
+  const [snapshot, setSnapshot] = useState<HiringSnapshot | null>(null);
+  const [loading, setLoading] = useState(true);
 
   const reload = useCallback(async () => {
+    setLoading(true);
     try {
-      const [profileData, orgData] = await Promise.all([me(), myOrganizations()]);
+      let profileData = await me();
+      let orgData = await myOrganizations();
+
+      if (
+        !profileData.activeOrganization &&
+        orgData.organizations.length === 0
+      ) {
+        const base = (profileData.user.name || 'My').trim() || 'My';
+        const fallback = `${base}'s company`.slice(0, 100);
+        await ensureOrganization(fallback.length >= 2 ? fallback : 'My company');
+        [profileData, orgData] = await Promise.all([me(), myOrganizations()]);
+      } else if (
+        !profileData.activeOrganization &&
+        orgData.organizations[0]
+      ) {
+        await switchOrganization(orgData.organizations[0].id);
+        profileData = await me();
+      }
+
       setProfile(profileData);
       setOrgs(orgData.organizations);
 
       if (profileData.activeOrganization) {
         const permissions = new Set(profileData.activeOrganization.permissions);
-        if (permissions.has('users.read')) {
-          setMemberRows((await fetchMembers()).members);
-          setInviteRows((await fetchInvitations()).invitations);
-        } else {
-          setMemberRows([]);
-          setInviteRows([]);
-        }
 
-        const canJobs = permissions.has('jobs.read');
-        const canCandidates = permissions.has('candidates.read');
-        if (canJobs || canCandidates) {
-          const metrics: HiringMetrics = {
-            jobCount: 0,
-            candidateCount: 0,
-            assignmentCount: 0,
-            recentAssignments: [],
-          };
+        if (permissions.has('jobs.read')) {
+          const { jobs } = await listJobs();
+          const canCandidates = permissions.has('candidates.read');
+          const jobHealth: JobHealth[] = [];
+          const attention: PersonRow[] = [];
+          const needsReview: PersonRow[] = [];
+          const inProgress: PersonRow[] = [];
 
-          if (canJobs) {
-            const { jobs } = await listJobs();
-            metrics.jobCount = jobs.length;
-
+          for (const job of jobs) {
+            let rows: PersonRow[] = [];
             if (canCandidates) {
-              const assignmentRows: AssignmentRow[] = [];
-              for (const job of jobs) {
-                try {
-                  const { candidates } = await listJobCandidates(job.id);
-                  for (const row of candidates) {
-                    assignmentRows.push({
-                      jobId: job.id,
-                      jobTitle: job.title,
-                      candidateName: row.candidate.fullName,
-                      status: row.status,
-                    });
-                  }
-                } catch {
-                  // Skip jobs where candidate list is forbidden or unavailable.
-                }
+              try {
+                const { candidates } = await listJobCandidates(job.id);
+                rows = candidates.map((row) => ({
+                  jobId: job.id,
+                  jobTitle: job.title,
+                  candidateId: row.candidateId,
+                  candidateName: row.candidate.fullName,
+                  status: row.status,
+                  callStatus: row.callStatus,
+                }));
+              } catch {
+                rows = [];
               }
-              metrics.assignmentCount = assignmentRows.length;
-              metrics.recentAssignments = assignmentRows.slice(0, 8);
             }
+            const awaitingScreen = rows.filter((r) => r.status === 'new').length;
+            const screening = rows.filter((r) => r.status === 'screening').length;
+            const reviewReady = rows.filter(
+              (r) =>
+                r.callStatus === 'completed' && r.status !== 'reviewed',
+            );
+            jobHealth.push({
+              job,
+              total: rows.length,
+              awaitingScreen,
+              inProgress: screening,
+              needsReview: reviewReady.length,
+            });
+            needsReview.push(...reviewReady);
+            attention.push(
+              ...rows.filter(
+                (r) =>
+                  r.status === 'new' &&
+                  r.callStatus !== 'completed',
+              ),
+            );
+            inProgress.push(
+              ...rows.filter(
+                (r) =>
+                  r.status === 'screening' &&
+                  r.callStatus !== 'completed',
+              ),
+            );
           }
 
-          if (canCandidates) {
-            const { candidates } = await listCandidates();
-            metrics.candidateCount = candidates.length;
-          }
-
-          setHiringMetrics(metrics);
+          setSnapshot({
+            jobs: jobHealth,
+            attention: attention.slice(0, 8),
+            needsReview: needsReview.slice(0, 8),
+            inProgress: inProgress.slice(0, 8),
+          });
         } else {
-          setHiringMetrics(null);
+          setSnapshot(null);
         }
       } else {
-        setHiringMetrics(null);
+        setSnapshot(null);
       }
     } catch (e) {
-      if (e instanceof ApiClientError && e.status === 401) router.push('/');
-      else setNotice('Could not load your workspace. Refresh to retry.');
+      if (e instanceof ApiClientError && e.status === 401) {
+        router.push(loginPathForReturn());
+      } else {
+        setNotice('Could not load your workspace. Refresh to retry.');
+      }
+    } finally {
+      setLoading(false);
     }
   }, [router]);
 
@@ -131,10 +175,27 @@ export default function DashboardPage() {
     void reload();
   }, [reload]);
 
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  const greeting = useMemo(() => {
+    const name = profile?.user.name?.split(' ')[0] || 'there';
+    if (!mounted) return `Hello, ${name}`;
+    const hour = new Date().getHours();
+    if (hour < 12) return `Good morning, ${name}`;
+    if (hour < 17) return `Good afternoon, ${name}`;
+    return `Good evening, ${name}`;
+  }, [profile?.user.name, mounted]);
+
   if (!profile) {
     return (
       <AppShell profile={null}>
-        <main style={shell}>Loading…</main>
+        <PageMain className="space-y-4">
+          <SkeletonCard />
+          <SkeletonList />
+        </PageMain>
       </AppShell>
     );
   }
@@ -144,7 +205,7 @@ export default function DashboardPage() {
 
   async function onCreateOrg(event: FormEvent) {
     event.preventDefault();
-    await createOrganization(newOrgName);
+    await ensureOrganization(newOrgName);
     setNewOrgName('');
     await reload();
   }
@@ -154,271 +215,279 @@ export default function DashboardPage() {
     await reload();
   }
 
-  async function onInvite(event: FormEvent) {
-    event.preventDefault();
-    try {
-      await invite(inviteEmail, inviteRole);
-      setInviteEmail('');
-      setNotice('Invitation sent.');
-      await reload();
-    } catch (e) {
-      setNotice(
-        e instanceof ApiClientError ? e.message : 'Invitation failed.',
-      );
-    }
-  }
+  const jobsNeedingCandidates =
+    snapshot?.jobs.filter((j) => j.total === 0 && j.job.status !== 'closed') ??
+    [];
 
   return (
     <AppShell profile={profile}>
-      <main style={shell}>
-        <header
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            padding: '14px 0',
-          }}
-        >
-          <strong>Dashboard</strong>
-          <span style={{ display: 'flex', gap: 12, alignItems: 'center', fontSize: 14 }}>
-            {orgs.length > 1 ? (
-              <select
-                value={active?.id ?? ''}
-                onChange={(e) => void onSwitch(e.target.value)}
-                aria-label="Company"
-              >
-                {orgs.map((o) => (
-                  <option key={o.id} value={o.id}>
-                    {o.name}
-                  </option>
-                ))}
-              </select>
-            ) : (
-              <span style={{ color: '#475569' }}>
-                {orgs[0]?.name ?? 'Your company'}
-              </span>
-            )}
-            {profile.user.email}
-            <button
-              onClick={() => void signOut().then(() => router.push('/'))}
-              type="button"
-            >
-              Sign out
-            </button>
-          </span>
-        </header>
-
-        {notice && (
-          <p role="status" style={{ color: '#0d6e63', fontSize: 13 }}>
-            {notice}
-          </p>
-        )}
-
-        {!active && (
-          <section style={panel}>
-            <h2 style={{ marginTop: 0, fontSize: 17 }}>Create your company</h2>
-            <p style={{ fontSize: 14, color: '#545c56' }}>
-              You do not have a company workspace yet. Name it here, or accept an
-              invite from your email.
-            </p>
-            <form onSubmit={onCreateOrg} style={{ display: 'flex', gap: 8 }}>
-              <input
-                value={newOrgName}
-                onChange={(e) => setNewOrgName(e.target.value)}
-                placeholder="Company name"
-                required
-                minLength={2}
-                style={{ flex: 1, padding: '8px 10px' }}
-              />
-              <button type="submit">Create</button>
-            </form>
-          </section>
-        )}
-
-        {active && (
-          <>
-            {hiringMetrics && (
-              <section style={{ marginBottom: 18 }}>
-                <div
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
-                    gap: 12,
-                    marginBottom: 16,
-                  }}
+      <PageMain className="pb-10">
+        <PageHeader
+          title={greeting}
+          description="What needs your attention in hiring today."
+          actions={
+            <>
+              {orgs.length > 1 ? (
+                <Select
+                  value={active?.id ?? ''}
+                  onChange={(e) => void onSwitch(e.target.value)}
+                  aria-label="Company"
+                  className="w-auto min-w-[10rem]"
                 >
-                  {permissions.has('jobs.read') && (
-                    <div style={{ ...panel, marginBottom: 0, textAlign: 'center' }}>
-                      <div style={{ fontSize: 28, fontWeight: 700, color: '#1e40af' }}>
-                        {hiringMetrics.jobCount}
-                      </div>
-                      <div style={{ fontSize: 13, color: '#545c56' }}>Jobs</div>
-                    </div>
-                  )}
-                  {permissions.has('candidates.read') && (
-                    <div style={{ ...panel, marginBottom: 0, textAlign: 'center' }}>
-                      <div style={{ fontSize: 28, fontWeight: 700, color: '#1e40af' }}>
-                        {hiringMetrics.candidateCount}
-                      </div>
-                      <div style={{ fontSize: 13, color: '#545c56' }}>Candidates</div>
-                    </div>
-                  )}
-                  {permissions.has('jobs.read') &&
-                    permissions.has('candidates.read') &&
-                    hiringMetrics.assignmentCount > 0 && (
-                      <div style={{ ...panel, marginBottom: 0, textAlign: 'center' }}>
-                        <div style={{ fontSize: 28, fontWeight: 700, color: '#1e40af' }}>
-                          {hiringMetrics.assignmentCount}
-                        </div>
-                        <div style={{ fontSize: 13, color: '#545c56' }}>Assignments</div>
-                      </div>
-                    )}
-                </div>
-                <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-                  {permissions.has('jobs.read') && (
-                    <Link href="/jobs" style={primaryBtn}>
-                      View jobs
-                    </Link>
-                  )}
-                  {permissions.has('candidates.read') && (
-                    <Link href="/candidates" style={primaryBtn}>
-                      View candidates
-                    </Link>
-                  )}
-                </div>
-              </section>
-            )}
-
-            {hiringMetrics &&
-              permissions.has('jobs.read') &&
-              permissions.has('candidates.read') &&
-              hiringMetrics.recentAssignments.length > 0 && (
-                <section style={panel}>
-                  <h2 style={{ marginTop: 0, fontSize: 17 }}>Assignments</h2>
-                  <table style={{ width: '100%', fontSize: 14, borderCollapse: 'collapse' }}>
-                    <thead>
-                      <tr style={{ textAlign: 'left', color: '#545c56' }}>
-                        <th style={{ padding: '6px 8px' }}>Job</th>
-                        <th style={{ padding: '6px 8px' }}>Candidate</th>
-                        <th style={{ padding: '6px 8px' }}>Status</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {hiringMetrics.recentAssignments.map((row, i) => (
-                        <tr key={`${row.jobId}-${row.candidateName}-${i}`} style={{ borderTop: '1px solid #e4e7e0' }}>
-                          <td style={{ padding: '6px 8px' }}>
-                            <Link href={`/jobs/${row.jobId}`} style={{ color: '#1e40af' }}>
-                              {row.jobTitle}
-                            </Link>
-                          </td>
-                          <td style={{ padding: '6px 8px' }}>{row.candidateName}</td>
-                          <td
-                            style={{
-                              padding: '6px 8px',
-                              color: STATUS_COLOR[row.status] ?? '#545c56',
-                            }}
-                          >
-                            {row.status}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </section>
-              )}
-
-            <section style={panel}>
-              <h2 style={{ marginTop: 0, fontSize: 17 }}>
-                Your role: {active.role}
-              </h2>
-              <p style={{ fontSize: 14 }}>
-                <Link href="/agents" style={{ color: '#0d6e63' }}>
-                  Manage agents →
-                </Link>
-                {' · '}
-                <Link href="/knowledge" style={{ color: '#0d6e63' }}>
-                  Knowledge →
-                </Link>
-                {' · '}
-                <Link href="/tools" style={{ color: '#0d6e63' }}>
-                  Tools →
-                </Link>
-              </p>
-              <p style={{ fontSize: 13, color: '#545c56' }}>
-                {active.permissions.length} permissions in this organization.
-              </p>
-            </section>
-
-          {permissions.has('users.read') && (
-            <section style={panel}>
-              <h2 style={{ marginTop: 0, fontSize: 17 }}>Members</h2>
-              <table style={{ width: '100%', fontSize: 14, borderCollapse: 'collapse' }}>
-                <thead>
-                  <tr style={{ textAlign: 'left', color: '#545c56' }}>
-                    <th style={{ padding: '6px 8px' }}>Name</th>
-                    <th style={{ padding: '6px 8px' }}>Email</th>
-                    <th style={{ padding: '6px 8px' }}>Role</th>
-                    <th style={{ padding: '6px 8px' }}>Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {memberRows.map((m) => (
-                    <tr key={m.membershipId} style={{ borderTop: '1px solid #e4e7e0' }}>
-                      <td style={{ padding: '6px 8px' }}>{m.name}</td>
-                      <td style={{ padding: '6px 8px' }}>{m.email}</td>
-                      <td style={{ padding: '6px 8px' }}>{m.roleKey}</td>
-                      <td style={{ padding: '6px 8px' }}>{m.status}</td>
-                    </tr>
+                  {orgs.map((o) => (
+                    <option key={o.id} value={o.id}>
+                      {o.name}
+                    </option>
                   ))}
-                </tbody>
-              </table>
-            </section>
-          )}
+                </Select>
+              ) : (
+                <span className="text-sm text-[var(--foreground-tertiary)]">
+                  {orgs[0]?.name ?? 'Your company'}
+                </span>
+              )}
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => void signOut().then(() => router.push('/'))}
+              >
+                Sign out
+              </Button>
+            </>
+          }
+        />
 
-          {permissions.has('users.invite') && (
-            <section style={panel}>
-              <h2 style={{ marginTop: 0, fontSize: 17 }}>Invite someone</h2>
-              <form onSubmit={onInvite} style={{ display: 'flex', gap: 8 }}>
-                <input
-                  type="email"
-                  value={inviteEmail}
-                  onChange={(e) => setInviteEmail(e.target.value)}
-                  placeholder="email@company.com"
+        {notice ? <Notice kind="ok">{notice}</Notice> : null}
+
+        {!active ? (
+          <Surface>
+            <h2 className="m-0 font-display text-base font-semibold tracking-tight">Name your company</h2>
+            <p className="mt-1 text-sm text-[var(--foreground-tertiary)]">
+              Add a company name to open your hiring desk. If you were invited,
+              use the invite link from your email.
+            </p>
+            <form
+              onSubmit={onCreateOrg}
+              className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-end"
+            >
+              <Field label="Company name" className="sm:flex-1">
+                <Input
+                  value={newOrgName}
+                  onChange={(e) => setNewOrgName(e.target.value)}
+                  placeholder="Your company"
                   required
-                  style={{ flex: 1, padding: '8px 10px' }}
+                  minLength={2}
                 />
-                <select
-                  value={inviteRole}
-                  onChange={(e) => setInviteRole(e.target.value)}
-                  aria-label="Role for the invited member"
-                >
-                  {['administrator', 'agent_manager', 'knowledge_manager', 'recruiter', 'analyst', 'viewer'].map(
-                    (r) => (
-                      <option key={r} value={r}>
-                        {r}
-                      </option>
-                    ),
-                  )}
-                </select>
-                <button type="submit">Invite</button>
-              </form>
-              {inviteRows.filter((i) => i.status === 'pending').length > 0 && (
-                <ul style={{ fontSize: 13, color: '#545c56' }}>
-                  {inviteRows
-                    .filter((i) => i.status === 'pending')
-                    .map((i) => (
-                      <li key={i.id}>
-                        {i.email} — {i.roleKey}, expires{' '}
-                        {new Date(i.expiresAt).toLocaleDateString()}
+              </Field>
+              <Button type="submit">Continue</Button>
+            </form>
+          </Surface>
+        ) : null}
+
+        {active && loading ? (
+          <>
+            <SkeletonCard />
+            <SkeletonList />
+          </>
+        ) : null}
+
+        {active && !loading && permissions.has('jobs.read') ? (
+          <>
+            <section className="space-y-3">
+              <h2 className="m-0 text-sm font-semibold uppercase tracking-wide text-[var(--foreground-muted)]">
+                Needs attention
+              </h2>
+              {snapshot &&
+              (snapshot.needsReview.length > 0 ||
+                snapshot.attention.length > 0 ||
+                snapshot.inProgress.length > 0 ||
+                jobsNeedingCandidates.length > 0) ? (
+                <Surface className="overflow-hidden p-0">
+                  <ul className="m-0 list-none divide-y divide-[var(--separator-subtle)] p-0">
+                    {jobsNeedingCandidates.slice(0, 3).map(({ job }) => (
+                      <li key={`empty-${job.id}`}>
+                        <Link
+                          href={`/jobs/${toPublicId(job.id)}/candidates`}
+                          className="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5 text-[var(--foreground)] no-underline transition-colors duration-fast hover:bg-[var(--surface-secondary)]"
+                        >
+                          <div className="min-w-0">
+                            <p className="m-0 text-sm font-medium">{job.title}</p>
+                            <p className="m-0 text-sm text-[var(--foreground-tertiary)]">
+                              No people yet — add people to start screening.
+                            </p>
+                          </div>
+                          <span className="inline-flex items-center gap-1 text-sm font-medium text-[var(--accent)]">
+                            Add people
+                            <ArrowRight className="h-3.5 w-3.5" aria-hidden />
+                          </span>
+                        </Link>
                       </li>
                     ))}
-                </ul>
+                    {snapshot.needsReview.map((row, i) => (
+                      <li key={`rev-${row.jobId}-${row.candidateId}-${i}`}>
+                        <Link
+                          href={`/jobs/${toPublicId(row.jobId)}/candidates?c=${encodeURIComponent(toPublicId(row.candidateId))}`}
+                          className="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5 text-[var(--foreground)] no-underline transition-colors duration-fast hover:bg-[var(--surface-secondary)]"
+                        >
+                          <div className="min-w-0">
+                            <p className="m-0 text-sm font-medium">
+                              {row.candidateName}
+                            </p>
+                            <p className="m-0 text-sm text-[var(--foreground-tertiary)]">
+                              Screen done · {row.jobTitle}
+                            </p>
+                          </div>
+                          <Badge tone="accent">Review answers</Badge>
+                        </Link>
+                      </li>
+                    ))}
+                    {snapshot.attention.map((row, i) => (
+                      <li key={`att-${row.jobId}-${row.candidateId}-${i}`}>
+                        <Link
+                          href={`/jobs/${toPublicId(row.jobId)}/candidates?c=${encodeURIComponent(toPublicId(row.candidateId))}`}
+                          className="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5 text-[var(--foreground)] no-underline transition-colors duration-fast hover:bg-[var(--surface-secondary)]"
+                        >
+                          <div className="min-w-0">
+                            <p className="m-0 text-sm font-medium">
+                              {row.candidateName}
+                            </p>
+                            <p className="m-0 text-sm text-[var(--foreground-tertiary)]">
+                              In queue · {row.jobTitle}
+                            </p>
+                          </div>
+                          <Badge tone={statusTone(row.status)}>
+                            {PERSON_STATUS_LABEL[row.status] ?? row.status}
+                          </Badge>
+                        </Link>
+                      </li>
+                    ))}
+                    {snapshot.inProgress.map((row, i) => (
+                      <li key={`prog-${row.jobId}-${row.candidateId}-${i}`}>
+                        <Link
+                          href={`/jobs/${toPublicId(row.jobId)}/candidates?c=${encodeURIComponent(toPublicId(row.candidateId))}`}
+                          className="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5 text-[var(--foreground)] no-underline transition-colors duration-fast hover:bg-[var(--surface-secondary)]"
+                        >
+                          <div className="min-w-0">
+                            <p className="m-0 text-sm font-medium">
+                              {row.candidateName}
+                            </p>
+                            <p className="m-0 text-sm text-[var(--foreground-tertiary)]">
+                              {PERSON_STATUS_LABEL.screening} · {row.jobTitle}
+                            </p>
+                          </div>
+                          <Badge tone="accent">
+                            {PERSON_STATUS_LABEL.screening}
+                          </Badge>
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                </Surface>
+              ) : (
+                <EmptyState
+                  icon={<Briefcase className="h-5 w-5" aria-hidden />}
+                  title="You are caught up"
+                  description="Create a job or add candidates when you are ready to screen."
+                  action={
+                    <Button asChild>
+                      <Link href="/jobs">
+                        Go to Jobs
+                        <ArrowRight className="h-4 w-4" aria-hidden />
+                      </Link>
+                    </Button>
+                  }
+                />
               )}
             </section>
-          )}
+
+            {snapshot && snapshot.jobs.length > 0 ? (
+              <section className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <h2 className="m-0 text-sm font-semibold uppercase tracking-wide text-[var(--foreground-muted)]">
+                    Hiring pipeline
+                  </h2>
+                  <Button asChild variant="ghost" size="sm">
+                    <Link href="/jobs">View all</Link>
+                  </Button>
+                </div>
+                <Surface className="overflow-hidden p-0">
+                  <ul className="m-0 list-none divide-y divide-[var(--separator-subtle)] p-0">
+                    {snapshot.jobs.map(
+                      ({
+                        job,
+                        total,
+                        awaitingScreen,
+                        inProgress,
+                        needsReview,
+                      }) => (
+                        <li key={job.id}>
+                          <Link
+                            href={`/jobs/${toPublicId(job.id)}/candidates`}
+                            className="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5 text-[var(--foreground)] no-underline transition-colors duration-fast hover:bg-[var(--surface-secondary)]"
+                          >
+                            <div className="min-w-0">
+                              <span className="block text-sm font-semibold">
+                                {job.title}
+                              </span>
+                              <p className="mt-1 mb-0 text-[13px] text-[var(--foreground-tertiary)]">
+                                {[
+                                  total === 1 ? '1 person' : `${total} people`,
+                                  awaitingScreen > 0
+                                    ? `${awaitingScreen} ${PIPELINE_STATUS_LABEL.new.toLowerCase()}`
+                                    : null,
+                                  inProgress > 0
+                                    ? `${inProgress} ${PIPELINE_STATUS_LABEL.screening.toLowerCase()}`
+                                    : null,
+                                  needsReview > 0
+                                    ? `${needsReview} ${PIPELINE_STATUS_LABEL.reviewed.toLowerCase()}`
+                                    : null,
+                                ]
+                                  .filter(Boolean)
+                                  .join(' · ')}
+                              </p>
+                            </div>
+                            <Badge tone={statusTone(job.status)}>
+                              {JOB_STATUS_LABEL[job.status] ?? job.status}
+                            </Badge>
+                          </Link>
+                        </li>
+                      ),
+                    )}
+                  </ul>
+                </Surface>
+              </section>
+            ) : null}
           </>
-        )}
-      </main>
+        ) : null}
+
+        {active &&
+        (permissions.has('users.read') || permissions.has('users.invite')) ? (
+          <Link
+            href="/settings#team"
+            className="block text-[var(--foreground)] no-underline"
+          >
+            <Surface className="flex items-center justify-between gap-3 transition-colors duration-fast hover:bg-[var(--surface-secondary)]">
+              <div className="flex min-w-0 items-start gap-3">
+                <Users
+                  className="mt-0.5 h-4 w-4 shrink-0 text-[var(--foreground-tertiary)]"
+                  aria-hidden
+                />
+                <div className="min-w-0">
+                  <h2 className="m-0 font-display text-sm font-semibold tracking-tight">
+                    Team
+                  </h2>
+                  <p className="m-0 mt-1 text-sm text-[var(--foreground-tertiary)]">
+                    Invite people and manage roles in Settings.
+                  </p>
+                </div>
+              </div>
+              <ArrowRight
+                className="h-4 w-4 shrink-0 text-[var(--foreground-muted)]"
+                aria-hidden
+              />
+            </Surface>
+          </Link>
+        ) : null}
+      </PageMain>
     </AppShell>
   );
 }

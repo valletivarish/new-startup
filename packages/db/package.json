@@ -12,7 +12,9 @@
   "scripts": {
     "generate": "drizzle-kit generate",
     "migrate": "tsx src/scripts/migrate.ts",
+    "backfill:job-screening": "tsx src/scripts/backfill-job-screening.ts",
     "seed": "tsx src/scripts/seed.ts",
+    "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

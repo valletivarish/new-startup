@@ -217,6 +217,32 @@ export const agentKnowledgeSources = pgTable(
   ],
 );
 
+/**
+ * Which knowledge a job may draw on for screening (JD / role docs).
+ * Mirrors agent_knowledge_sources — same source can attach to many jobs.
+ * Call/provision resolves Job → these sources automatically (no picker).
+ */
+export const jobKnowledgeSources = pgTable(
+  'job_knowledge_sources',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    jobId: uuid('job_id').notNull(),
+    sourceId: uuid('source_id')
+      .notNull()
+      .references(() => knowledgeSources.id, { onDelete: 'cascade' }),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('job_knowledge_sources_unique').on(t.jobId, t.sourceId),
+    index('job_knowledge_sources_org_idx').on(t.organizationId),
+  ],
+);
+
 /** Retained for observability without storing document content. */
 export const knowledgeProcessingRuns = pgTable(
   'knowledge_processing_runs',

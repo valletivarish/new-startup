@@ -15,17 +15,15 @@
 --                      Has DML only — it cannot alter schema or drop policies.
 --
 -- Neither role may be granted BYPASSRLS. A test asserts this at runtime.
+--
+-- Passwords below are local/test defaults. For production first boot, replace
+-- them before creating the volume (or use managed Postgres with your own roles)
+-- and set POSTGRES_APP_PASSWORD / POSTGRES_MIGRATOR_PASSWORD in compose to match.
 -- ---------------------------------------------------------------------------
 
 CREATE EXTENSION IF NOT EXISTS "vector";
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 CREATE EXTENSION IF NOT EXISTS "citext";
-
--- --------------------------------------------------------------------------
--- Roles
--- --------------------------------------------------------------------------
--- NOSUPERUSER / NOBYPASSRLS are stated explicitly rather than relied upon as
--- defaults, so that the intent is visible and greppable.
 
 CREATE ROLE platform_migrator
   LOGIN
@@ -43,31 +41,19 @@ CREATE ROLE platform_app
   NOCREATEROLE
   NOBYPASSRLS;
 
--- --------------------------------------------------------------------------
--- Schema ownership and privileges
--- --------------------------------------------------------------------------
-
 ALTER SCHEMA public OWNER TO platform_migrator;
 
--- Nobody gets implicit table-creation rights.
 REVOKE CREATE ON SCHEMA public FROM PUBLIC;
 
 GRANT USAGE ON SCHEMA public TO platform_app;
 GRANT CREATE, USAGE ON SCHEMA public TO platform_migrator;
 
--- The migrator needs CREATE on the database itself so that drizzle-kit can
--- create its own bookkeeping schema ("drizzle") for the migrations journal.
--- The application role is deliberately NOT granted this.
 GRANT CREATE ON DATABASE platform TO platform_migrator;
 
--- The application role gets DML only — never DDL. It therefore cannot
--- disable row-level security or drop a policy on a table it can read.
 ALTER DEFAULT PRIVILEGES FOR ROLE platform_migrator IN SCHEMA public
   GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO platform_app;
 
 ALTER DEFAULT PRIVILEGES FOR ROLE platform_migrator IN SCHEMA public
   GRANT USAGE, SELECT ON SEQUENCES TO platform_app;
 
--- The extensions were created by the superuser above; make sure the
--- migrator can reference their types when creating columns.
 GRANT USAGE ON SCHEMA public TO platform_migrator;

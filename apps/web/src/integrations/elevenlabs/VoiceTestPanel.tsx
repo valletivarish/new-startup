@@ -12,22 +12,32 @@
  *   3. ElevenLabs React SDK connects via WebRTC using conversationToken
  *   4. User speaks; agent responds via the ElevenLabs conversational-AI agent
  *   5. User clicks "End Call" (or session auto-ends after max minutes)
- *   6. Results are fetched via reconcile when the session ends
+ *   6. End marks the session ended server-side, then results are reconciled
  *
  * COST WARNING: displayed before starting. The user must acknowledge they
- * understand the call uses real ElevenLabs credits. No auto-start.
+ * understand the call uses real voice minutes. No auto-start.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useConversation } from '@elevenlabs/react';
+import { ConversationProvider, useConversation } from '@elevenlabs/react';
 import {
   ApiClientError,
   startVoiceSession,
   getVoiceSession,
   reconcileVoiceSession,
+  endVoiceSession,
   type VoiceSession,
   type TranscriptTurn,
 } from '../../../lib/api';
+import { Button } from '@/components/ui/button';
+import { Notice, Surface } from '@/components/ui/page';
+import { Badge, statusTone } from '@/components/ui/badge';
+import { StatusIndicator } from '@/components/ui/status-indicator';
+import { VoiceWaveform } from '@/components/calls/VoiceWaveform';
+import { cn } from '@/lib/utils';
+import {
+  scorecardRows,
+} from '@/components/candidates/screening-answers';
 
 export interface VoiceTestPanelProps {
   agentId: string;
@@ -35,24 +45,39 @@ export interface VoiceTestPanelProps {
   canTest: boolean;
   /** Whether the agent is published (pre-condition to voice testing). */
   agentPublished: boolean;
+  /** Optional hiring link — labels this as a candidate screen demo. */
+  jobId?: string;
+  candidateId?: string;
+  candidateName?: string;
+  /** Override heading (defaults based on hiring link). */
+  title?: string;
 }
 
 type PanelState = 'idle' | 'confirming' | 'connecting' | 'active' | 'ending' | 'ended' | 'error';
 
-const panel: React.CSSProperties = {
-  background: '#fff',
-  border: '1px solid #d6dad2',
-  borderRadius: 8,
-  padding: 20,
-  marginBottom: 18,
-};
+export function VoiceTestPanel(props: VoiceTestPanelProps) {
+  return (
+    <ConversationProvider>
+      <VoiceTestPanelInner {...props} />
+    </ConversationProvider>
+  );
+}
 
-const mono: React.CSSProperties = {
-  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-  fontSize: 12.5,
-};
-
-export function VoiceTestPanel({ agentId, canTest, agentPublished }: VoiceTestPanelProps) {
+function VoiceTestPanelInner({
+  agentId,
+  canTest,
+  agentPublished,
+  jobId,
+  candidateId,
+  candidateName,
+  title,
+}: VoiceTestPanelProps) {
+  const isHiringScreen = Boolean(jobId && candidateId);
+  const heading =
+    title ??
+    (isHiringScreen
+      ? `Browser screen${candidateName ? ` · ${candidateName}` : ''}`
+      : 'Demo conversation (browser)');
   const [state, setState] = useState<PanelState>('idle');
   const [notice, setNotice] = useState<string | null>(null);
   const [voiceSession, setVoiceSession] = useState<VoiceSession | null>(null);
@@ -64,7 +89,7 @@ export function VoiceTestPanel({ agentId, canTest, agentPublished }: VoiceTestPa
   const conversation = useConversation({
     onConnect: () => {
       setState('active');
-      setNotice('Voice session active. Speak to the agent.');
+      setNotice('Practice call active. Speak to the hiring voice.');
     },
     onDisconnect: () => {
       setState('ending');
@@ -73,7 +98,11 @@ export function VoiceTestPanel({ agentId, canTest, agentPublished }: VoiceTestPa
     },
     onError: (msg: string) => {
       setState('error');
-      setNotice(`Voice error: ${msg}`);
+      setNotice(`Voice error: ${micPermissionMessage(msg)}`);
+      const vsId = voiceSessionIdRef.current;
+      if (vsId) {
+        void endVoiceSession(agentId, vsId).catch(() => undefined);
+      }
     },
     onMessage: (_msg: { source: string; message: string }) => {
       // Re-fetch session state to update the transcript display
@@ -95,16 +124,34 @@ export function VoiceTestPanel({ agentId, canTest, agentPublished }: VoiceTestPa
   const handleSessionEnded = useCallback(async () => {
     const vsId = voiceSessionIdRef.current;
     if (!vsId) return;
-    // Poll for results up to 5 times with 2s intervals
+
+    // Mark the session ended on the server so another screen can start.
+    try {
+      const ended = await endVoiceSession(agentId, vsId);
+      setVoiceSession(ended.voiceSession);
+    } catch {
+      // Fall through to reconcile polling.
+    }
+
+    // Poll for transcript + answers (data collection can lag the hangup).
     let lastResult: VoiceSession | null = null;
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 8; i++) {
       await new Promise((r) => setTimeout(r, 2000));
       try {
         const result = await reconcileVoiceSession(agentId, vsId);
         lastResult = result.voiceSession;
         setVoiceSession(result.voiceSession);
-        if (result.voiceSession.status === 'ended' && result.voiceSession.transcript !== null) {
-          break; // Got full results
+        const hasAnswers =
+          result.voiceSession.structuredAnswers != null &&
+          Object.keys(result.voiceSession.structuredAnswers).length > 0;
+        if (
+          result.voiceSession.status === 'ended' &&
+          result.voiceSession.transcript !== null &&
+          (hasAnswers || result.voiceSession.summary !== null)
+        ) {
+          // Prefer stopping once answers land; otherwise accept summary alone
+          // after a few attempts so the UI does not spin forever.
+          if (hasAnswers || i >= 3) break;
         }
       } catch {
         break;
@@ -112,7 +159,7 @@ export function VoiceTestPanel({ agentId, canTest, agentPublished }: VoiceTestPa
     }
     setState('ended');
     if (!lastResult?.transcript) {
-      setNotice('Call ended. Results may take a moment to appear — click Refresh Results.');
+      setNotice('Call ended. Results may take a moment to appear - click Refresh results.');
     } else {
       setNotice('Call ended. Results are below.');
     }
@@ -122,20 +169,31 @@ export function VoiceTestPanel({ agentId, canTest, agentPublished }: VoiceTestPa
     setState('connecting');
     setNotice(null);
     try {
-      const result = await startVoiceSession(agentId);
+      const result = await startVoiceSession(
+        agentId,
+        jobId && candidateId ? { jobId, candidateId } : undefined,
+      );
       voiceSessionIdRef.current = result.voiceSessionId;
       setVoiceSession(result.voiceSession);
       // Connect via WebRTC using the server-issued token.
       await conversation.startSession({ conversationToken: result.conversationToken });
     } catch (e) {
+      const vsId = voiceSessionIdRef.current;
+      if (vsId) {
+        void endVoiceSession(agentId, vsId).catch(() => undefined);
+        voiceSessionIdRef.current = null;
+      }
       setState('error');
-      setNotice(
-        e instanceof ApiClientError
-          ? e.message
-          : 'Failed to start voice session. Check ELEVENLABS_ENABLED.',
-      );
+      if (e instanceof ApiClientError) {
+        setNotice(e.message);
+      } else {
+        const raw =
+          e instanceof Error ? e.message : typeof e === 'string' ? e : '';
+        setNotice(micPermissionMessage(raw) ||
+          'Could not start the browser voice session. Check that voice is enabled and the microphone is allowed.');
+      }
     }
-  }, [agentId, conversation]);
+  }, [agentId, candidateId, conversation, jobId]);
 
   const handleEnd = useCallback(async () => {
     setState('ending');
@@ -144,8 +202,10 @@ export function VoiceTestPanel({ agentId, canTest, agentPublished }: VoiceTestPa
       await conversation.endSession();
     } catch {
       // Disconnect is fire-and-forget; the onDisconnect callback handles cleanup
+      const vsId = voiceSessionIdRef.current;
+      if (vsId) void handleSessionEnded();
     }
-  }, [conversation]);
+  }, [conversation, handleSessionEnded]);
 
   const handleRefreshResults = useCallback(async () => {
     const vsId = voiceSessionIdRef.current;
@@ -160,117 +220,186 @@ export function VoiceTestPanel({ agentId, canTest, agentPublished }: VoiceTestPa
   }, [agentId]);
 
   const handleReset = useCallback(() => {
+    const vsId = voiceSessionIdRef.current;
+    if (vsId) {
+      void endVoiceSession(agentId, vsId).catch(() => undefined);
+    }
+    try {
+      void conversation.endSession();
+    } catch {
+      /* already disconnected */
+    }
     setState('idle');
     setVoiceSession(null);
     voiceSessionIdRef.current = null;
     setNotice(null);
-  }, []);
+  }, [agentId, conversation]);
 
-  // Cleanup on unmount
+  // Cleanup on unmount — free the concurrent browser slot.
   useEffect(() => {
     return () => {
-      if (state === 'active') {
+      const vsId = voiceSessionIdRef.current;
+      try {
         void conversation.endSession();
+      } catch {
+        /* SDK may already be disconnected */
+      }
+      if (vsId) {
+        void endVoiceSession(agentId, vsId).catch(() => undefined);
       }
     };
-  }, [state, conversation]);
+    // Intentionally only on unmount
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   if (!canTest) {
     return (
-      <section style={panel}>
-        <h2 style={{ marginTop: 0, fontSize: 17 }}>Voice Test</h2>
-        <p style={{ fontSize: 13, color: '#545c56' }}>
-          You need the <code>agents.test</code> permission to run voice tests.
+      <Surface className="space-y-2">
+        <h2 className="m-0 font-display text-base font-semibold tracking-tight">
+          {heading}
+        </h2>
+        <p className="m-0 text-sm text-[var(--foreground-tertiary)]">
+          You do not have permission to run voice demos for this company.
         </p>
-      </section>
+      </Surface>
     );
   }
 
   if (!agentPublished) {
     return (
-      <section style={panel}>
-        <h2 style={{ marginTop: 0, fontSize: 17 }}>Voice Test</h2>
-        <p style={{ fontSize: 13, color: '#545c56' }}>
-          Publish the agent before running a voice test.
+      <Surface className="space-y-2">
+        <h2 className="m-0 font-display text-base font-semibold tracking-tight">
+          {heading}
+        </h2>
+        <p className="m-0 text-sm text-[var(--foreground-tertiary)]">
+          Publish the hiring voice before starting a browser demo.
         </p>
-      </section>
+      </Surface>
     );
   }
 
   return (
-    <section style={panel}>
-      <h2 style={{ marginTop: 0, fontSize: 17 }}>Voice Test</h2>
+    <Surface elevated className="space-y-3">
+      <div>
+        <h2 className="m-0 font-display text-base font-semibold tracking-tight">
+          {heading}
+        </h2>
+        <p className="mt-1 mb-0 text-[11px] font-semibold uppercase tracking-[0.06em] text-[var(--accent)]">
+          Demo only · not a live phone call
+        </p>
+      </div>
 
-      {state === 'idle' && (
+      {state === 'idle' ? (
         <>
-          <p style={{ fontSize: 13, color: '#545c56', marginTop: 0 }}>
-            Run a live browser-voice test using ElevenLabs WebRTC. Each session
-            uses real ElevenLabs credits. A single session is limited to{' '}
-            <strong>5 minutes</strong>; only one test session can run per
-            organization at a time.
+          <p className="m-0 text-sm leading-relaxed text-[var(--foreground-tertiary)]">
+            {isHiringScreen
+              ? 'Talk to the hiring voice in your browser as if you were the candidate. Allow microphone access when asked. This uses real voice minutes and is not an outbound phone call.'
+              : 'Try the hiring voice in your browser before you screen real candidates. Allow microphone access when asked. This uses real voice minutes and is not an outbound phone call.'}
           </p>
-          <button onClick={() => setState('confirming')}>Start Voice Test</button>
+          <Button type="button" onClick={() => setState('confirming')}>
+            {isHiringScreen ? 'Start browser screen' : 'Start demo'}
+          </Button>
         </>
-      )}
+      ) : null}
 
-      {state === 'confirming' && (
+      {state === 'confirming' ? (
         <>
-          <p style={{ fontSize: 13.5, fontWeight: 600, color: '#8a2020' }}>
-            ⚠ This will consume ElevenLabs credits.
+          <Notice kind="warn">
+            This uses paid voice minutes on your account.
+          </Notice>
+          <p className="m-0 text-sm leading-relaxed text-[var(--foreground-tertiary)]">
+            A conversation will start in this browser. Allow microphone access
+            when the browser asks. Continue only if you mean to spend those
+            minutes.
           </p>
-          <p style={{ fontSize: 13, color: '#545c56', marginTop: 0 }}>
-            A voice conversation will start in your browser. The agent will
-            use the ElevenLabs API under your account. Are you sure?
-          </p>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button onClick={() => void handleStart()}>Yes, start the call</button>
-            <button onClick={() => setState('idle')}>Cancel</button>
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" onClick={() => void handleStart()}>
+              Yes, start
+            </Button>
+            <Button type="button" variant="outline" onClick={() => setState('idle')}>
+              Cancel
+            </Button>
           </div>
         </>
-      )}
+      ) : null}
 
-      {state === 'connecting' && (
-        <p style={{ fontSize: 13.5, color: '#545c56' }}>Connecting…</p>
-      )}
-
-      {state === 'active' && (
-        <>
-          <p style={{ fontSize: 13.5, fontWeight: 600, color: '#0d6e63' }}>
-            🎙 Call active — speak now
+      {state === 'connecting' ? (
+        <div className="flex items-center gap-3 rounded-lg border border-[var(--separator-subtle)] bg-[var(--surface-secondary)] px-4 py-3">
+          <StatusIndicator status="connecting" />
+          <p className="m-0 text-sm text-[var(--foreground-tertiary)]">
+            Connecting the browser mic…
           </p>
-          <p style={{ fontSize: 12.5, color: '#545c56', marginTop: 0 }}>
-            Status: {conversation.status ?? 'connected'}
-          </p>
-          <button onClick={() => void handleEnd()} style={{ marginTop: 8 }}>
-            End Call
-          </button>
-        </>
-      )}
-
-      {state === 'ending' && (
-        <p style={{ fontSize: 13.5, color: '#545c56' }}>Ending call and fetching results…</p>
-      )}
-
-      {notice && (
-        <p role="status" style={{ fontSize: 13, color: '#0d6e63', marginTop: 8 }}>
-          {notice}
-        </p>
-      )}
-
-      {(state === 'ended' || state === 'error') && voiceSession && (
-        <VoiceSessionResultView session={voiceSession} />
-      )}
-
-      {(state === 'ended' || state === 'error') && (
-        <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-          {voiceSession?.externalConversationId && (
-            <button onClick={() => void handleRefreshResults()}>Refresh Results</button>
-          )}
-          <button onClick={handleReset}>New Test</button>
         </div>
-      )}
-    </section>
+      ) : null}
+
+      {state === 'active' ? (
+        <div
+          className={cn(
+            'space-y-4 rounded-lg border border-[color-mix(in_srgb,var(--accent)_28%,var(--separator-subtle))] bg-[var(--surface-secondary)] p-4 shadow-sm',
+          )}
+        >
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <StatusIndicator status="speaking" />
+            <span className="text-[11px] font-medium uppercase tracking-[0.04em] text-[var(--foreground-muted)]">
+              Live in browser
+            </span>
+          </div>
+          <VoiceWaveform active className="py-1" />
+          <Button type="button" variant="danger" onClick={() => void handleEnd()}>
+            End demo
+          </Button>
+        </div>
+      ) : null}
+
+      {state === 'ending' ? (
+        <div className="flex items-center gap-3 rounded-lg border border-[var(--separator-subtle)] bg-[var(--surface-secondary)] px-4 py-3">
+          <StatusIndicator status="processing" />
+          <p className="m-0 text-sm text-[var(--foreground-tertiary)]">
+            Ending demo and fetching results…
+          </p>
+        </div>
+      ) : null}
+
+      {notice ? (
+        <Notice kind={state === 'error' ? 'err' : 'ok'}>{notice}</Notice>
+      ) : null}
+
+      {(state === 'ended' || state === 'error') && voiceSession ? (
+        <VoiceSessionResultView session={voiceSession} />
+      ) : null}
+
+      {state === 'ended' || state === 'error' ? (
+        <div className="flex flex-wrap gap-2">
+          {voiceSession?.externalConversationId ? (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => void handleRefreshResults()}
+            >
+              Refresh results
+            </Button>
+          ) : null}
+          <Button type="button" onClick={handleReset}>
+            New demo
+          </Button>
+        </div>
+      ) : null}
+    </Surface>
   );
+}
+
+function micPermissionMessage(raw: string): string {
+  const lower = raw.toLowerCase();
+  if (
+    lower.includes('notallowed') ||
+    lower.includes('permission') ||
+    lower.includes('denied') ||
+    lower.includes('microphone') ||
+    lower.includes('getusermedia')
+  ) {
+    return 'Microphone access is blocked. Allow the mic for this site in the browser address bar, then try again.';
+  }
+  return raw;
 }
 
 // ---------------------------------------------------------------------------
@@ -278,68 +407,127 @@ export function VoiceTestPanel({ agentId, canTest, agentPublished }: VoiceTestPa
 // ---------------------------------------------------------------------------
 
 function VoiceSessionResultView({ session }: { session: VoiceSession }) {
+  const statusLabel =
+    session.status === 'ended'
+      ? 'Completed'
+      : session.status === 'failed'
+        ? 'Failed'
+        : session.status === 'active' || session.status === 'pending'
+          ? 'In progress'
+          : session.status;
+  const rows = scorecardRows(session.structuredAnswers, []);
+
   return (
-    <div style={{ marginTop: 16 }}>
-      <h3 style={{ fontSize: 15, marginBottom: 6 }}>Session Result</h3>
-      <p style={{ ...mono, fontSize: 12, marginBottom: 8, color: '#545c56' }}>
-        Status: {session.status}
-        {session.durationSeconds !== null && ` · ${session.durationSeconds}s`}
-        {session.costCredits !== null && ` · ${session.costCredits} credits`}
-      </p>
+    <div className="space-y-3 border-t border-[var(--separator-subtle)] pt-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <h3 className="m-0 font-display text-sm font-semibold tracking-tight">
+          Screening results
+        </h3>
+        <Badge tone={statusTone(session.status)} className="normal-case">
+          {statusLabel}
+        </Badge>
+      </div>
+      {session.durationSeconds != null ? (
+        <p className="m-0 text-xs text-[var(--foreground-tertiary)]">
+          {Math.floor(session.durationSeconds / 60)}:
+          {String(session.durationSeconds % 60).padStart(2, '0')} on the call
+          {session.costCredits != null
+            ? ` · provider usage ${session.costCredits}`
+            : ''}
+        </p>
+      ) : session.costCredits != null ? (
+        <p className="m-0 text-xs text-[var(--foreground-tertiary)]">
+          Provider usage {session.costCredits}
+        </p>
+      ) : null}
 
-      {session.summary && (
-        <div style={{ marginBottom: 12 }}>
-          <strong style={{ fontSize: 13 }}>Summary</strong>
-          <p style={{ fontSize: 13, marginTop: 4, color: '#2d332e' }}>{session.summary}</p>
+      {session.summary ? (
+        <div>
+          <p className="m-0 text-[11px] font-medium uppercase tracking-wide text-[var(--foreground-muted)]">
+            Summary
+          </p>
+          <p className="mt-1 mb-0 text-sm leading-relaxed text-[var(--foreground-secondary)]">
+            {session.summary}
+          </p>
         </div>
-      )}
+      ) : null}
 
-      {session.transcript && session.transcript.length > 0 && (
-        <div style={{ marginBottom: 12 }}>
-          <strong style={{ fontSize: 13 }}>Transcript</strong>
-          <ol style={{ ...mono, paddingLeft: 18, marginTop: 6 }}>
+      {session.transcript && session.transcript.length > 0 ? (
+        <div>
+          <p className="m-0 text-[11px] font-medium uppercase tracking-wide text-[var(--foreground-muted)]">
+            Conversation
+          </p>
+          <ol className="mt-2 mb-0 list-none space-y-2.5 p-0">
             {session.transcript.map((turn: TranscriptTurn, i: number) => (
               <li
                 key={i}
-                style={{
-                  marginBottom: 4,
-                  color: turn.role === 'agent' ? '#0d6e63' : '#8a6108',
-                }}
+                className="rounded-md border border-[var(--separator-subtle)] bg-[var(--surface-secondary)] px-3 py-2.5"
               >
-                <strong>{turn.role}:</strong> {turn.message}
-                {turn.timeInCallSecs !== undefined && (
-                  <span style={{ color: '#545c56', fontSize: 11 }}> [{turn.timeInCallSecs}s]</span>
-                )}
+                <p
+                  className={cn(
+                    'm-0 text-[11px] font-semibold uppercase tracking-[0.04em]',
+                    turn.role === 'agent'
+                      ? 'text-[var(--accent)]'
+                      : 'text-[var(--foreground-muted)]',
+                  )}
+                >
+                  {turn.role === 'agent'
+                    ? 'Hiring voice'
+                    : turn.role === 'user'
+                      ? 'Candidate'
+                      : turn.role}
+                  {turn.timeInCallSecs !== undefined
+                    ? ` · ${turn.timeInCallSecs}s`
+                    : ''}
+                </p>
+                <p className="m-0 mt-1 text-sm leading-relaxed text-[var(--foreground-secondary)]">
+                  {turn.message}
+                </p>
               </li>
             ))}
           </ol>
         </div>
-      )}
+      ) : null}
 
-      {session.structuredAnswers && Object.keys(session.structuredAnswers).length > 0 && (
+      {rows.length > 0 ? (
         <div>
-          <strong style={{ fontSize: 13 }}>Structured Answers</strong>
-          <pre
-            style={{
-              ...mono,
-              background: '#f5f7f4',
-              padding: 10,
-              borderRadius: 4,
-              marginTop: 6,
-              overflow: 'auto',
-              fontSize: 12,
-            }}
-          >
-            {JSON.stringify(session.structuredAnswers, null, 2)}
-          </pre>
+          <p className="m-0 text-[11px] font-medium uppercase tracking-wide text-[var(--foreground-muted)]">
+            Scorecard
+          </p>
+          <div className="mt-2 overflow-hidden rounded-md border border-[var(--separator-subtle)]">
+            <table className="w-full border-collapse text-left text-sm">
+              <thead>
+                <tr className="border-b border-[var(--separator-subtle)] bg-[var(--surface)]">
+                  <th className="px-3 py-2 text-[11px] font-medium uppercase tracking-wide text-[var(--foreground-muted)]">
+                    Question
+                  </th>
+                  <th className="px-3 py-2 text-[11px] font-medium uppercase tracking-wide text-[var(--foreground-muted)]">
+                    Answer
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[var(--separator-subtle)]">
+                {rows.map((row) => (
+                  <tr key={row.label}>
+                    <td className="align-top px-3 py-2.5 text-[13px] font-medium">
+                      {row.label}
+                    </td>
+                    <td className="align-top px-3 py-2.5 text-[13px] text-[var(--foreground-secondary)]">
+                      {row.value}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
-      )}
+      ) : null}
 
-      {!session.transcript && session.status !== 'ended' && (
-        <p style={{ fontSize: 13, color: '#545c56' }}>
-          Results not yet available. Click &quot;Refresh Results&quot; in a moment.
+      {!session.transcript && session.status !== 'ended' ? (
+        <p className="m-0 text-sm text-[var(--foreground-tertiary)]">
+          Results not yet available. Click “Refresh results” in a moment.
         </p>
-      )}
+      ) : null}
     </div>
   );
 }

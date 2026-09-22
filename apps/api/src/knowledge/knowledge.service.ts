@@ -21,7 +21,8 @@ import type { ObjectStorage } from '@platform/providers';
 import { ApiError } from '../errors.js';
 import type { AuditService } from '../audit/audit.service.js';
 import type { JobQueue } from '../jobs/queue.js';
-import { extractText, validateUpload } from './formats.js';
+import { validateUpload } from './formats.js';
+import { extractDocumentText } from './document-text.js';
 
 export interface Actor {
   readonly organizationId: string;
@@ -110,6 +111,8 @@ export interface KnowledgeService {
       name: string;
       contentType: string;
       content: string;
+      /** utf8 for pasted text; base64 for PDF / Word / PowerPoint bytes. */
+      contentEncoding?: 'utf8' | 'base64';
     },
   ): Promise<{ id: string; status: string; deduplicated: boolean }>;
   deleteDocument(actor: Actor, documentId: string): Promise<void>;
@@ -429,17 +432,38 @@ export function createKnowledgeService(
     },
 
     async createDocument(actor, input) {
-      const bytes = new TextEncoder().encode(input.content);
+      const encoding = input.contentEncoding ?? 'utf8';
+      let bytes: Uint8Array;
+      if (encoding === 'base64') {
+        try {
+          bytes = Buffer.from(input.content, 'base64');
+        } catch {
+          throw ApiError.validation([
+            {
+              field: 'content',
+              message: 'The file could not be decoded. Try uploading it again.',
+            },
+          ]);
+        }
+        if (bytes.byteLength === 0) {
+          throw ApiError.validation([
+            { field: 'content', message: 'The document is empty.' },
+          ]);
+        }
+      } else {
+        bytes = new TextEncoder().encode(input.content);
+      }
+
       // Validation happens BEFORE anything is stored: an unusable document
       // never becomes a row that has to be cleaned up later.
-      validateUpload({
+      const contentType = validateUpload({
         name: input.name,
         contentType: input.contentType,
         bytes,
       });
-      // Prove the text is decodable now rather than discovering it on the
-      // worker, where the user is no longer watching.
-      extractText(bytes);
+      // Prove the document yields readable text now rather than discovering
+      // it on the worker, where the user is no longer watching.
+      await extractDocumentText(contentType, bytes);
 
       const checksum = createHash('sha256').update(bytes).digest('hex');
 
@@ -464,7 +488,8 @@ export function createKnowledgeService(
               id: duplicate.id,
               status: duplicate.status,
               deduplicated: true,
-              storageKey: null,
+              storageKey: null as string | null,
+              contentType,
             };
           }
 
@@ -478,13 +503,19 @@ export function createKnowledgeService(
               (organization_id, source_id, name, content_type, byte_size,
                checksum, storage_key, status, version, created_by_user_id)
             values (${actor.organizationId}, ${input.sourceId}, ${input.name},
-                    ${input.contentType}, ${bytes.byteLength}, ${checksum},
+                    ${contentType}, ${bytes.byteLength}, ${checksum},
                     ${storageKey}, 'pending', 1, ${actor.userId})
             returning id
           `);
           const id = rows[0]?.id;
           if (!id) throw new Error('document insert returned no id');
-          return { id, status: 'pending', deduplicated: false, storageKey };
+          return {
+            id,
+            status: 'pending',
+            deduplicated: false,
+            storageKey,
+            contentType,
+          };
         },
       );
 
@@ -496,7 +527,7 @@ export function createKnowledgeService(
           await storage.put({
             organizationId: actor.organizationId,
             key: result.storageKey,
-            contentType: input.contentType,
+            contentType: result.contentType,
             body: bytes,
           });
         }
@@ -509,7 +540,7 @@ export function createKnowledgeService(
           resourceId: result.id,
           metadata: {
             sourceId: input.sourceId,
-            contentType: input.contentType,
+            contentType: result.contentType,
             byteSize: bytes.byteLength,
           },
         });

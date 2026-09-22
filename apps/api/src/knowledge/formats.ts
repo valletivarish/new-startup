@@ -1,26 +1,36 @@
 /**
- * Supported document formats.
- *
- * Deliberately small. The phase brief is explicit: a format that cannot be
- * processed reliably must be REJECTED clearly, not accepted and quietly
- * indexed as garbage. Adding PDF or DOCX means adding a parser dependency and
- * a whole class of malformed-file failure modes, so that is a decision to make
- * with a reason rather than by default.
+ * Supported document formats for knowledge indexing.
+ * Recruiters upload PDF / Word / PowerPoint; text/markdown remain for power users.
  */
 
 import { ApiError } from '../errors.js';
 
-export const SUPPORTED_CONTENT_TYPES = ['text/plain', 'text/markdown'] as const;
+export const SUPPORTED_CONTENT_TYPES = [
+  'text/plain',
+  'text/markdown',
+  'application/pdf',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+] as const;
 
 export type SupportedContentType = (typeof SUPPORTED_CONTENT_TYPES)[number];
 
 const EXTENSION_BY_TYPE: Record<SupportedContentType, readonly string[]> = {
   'text/plain': ['.txt', '.text'],
   'text/markdown': ['.md', '.markdown'],
+  'application/pdf': ['.pdf'],
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': [
+    '.docx',
+  ],
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation': [
+    '.pptx',
+  ],
 };
 
-/** 2 MiB. Generous for text, small enough that a bad upload cannot hurt. */
-export const MAX_DOCUMENT_BYTES = 2 * 1024 * 1024;
+const TEXT_TYPES = new Set<string>(['text/plain', 'text/markdown']);
+
+/** 10 MiB — enough for typical JD / policy PDFs without inviting abuse. */
+export const MAX_DOCUMENT_BYTES = 10 * 1024 * 1024;
 
 export function isSupportedContentType(
   value: string,
@@ -28,12 +38,29 @@ export function isSupportedContentType(
   return (SUPPORTED_CONTENT_TYPES as readonly string[]).includes(value);
 }
 
+export function isTextContentType(contentType: string): boolean {
+  return TEXT_TYPES.has(contentType);
+}
+
 /**
- * Validates a proposed upload.
- *
- * Checks the declared MIME type, the filename extension AND the bytes
- * themselves — a caller can claim any content type, so the claim alone is not
- * evidence.
+ * Guess MIME from filename when the browser sends a vague type.
+ */
+export function contentTypeFromFileName(name: string): string | null {
+  const lower = name.toLowerCase();
+  if (lower.endsWith('.pdf')) return 'application/pdf';
+  if (lower.endsWith('.docx')) {
+    return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+  }
+  if (lower.endsWith('.pptx')) {
+    return 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
+  }
+  if (lower.endsWith('.md') || lower.endsWith('.markdown')) return 'text/markdown';
+  if (lower.endsWith('.txt') || lower.endsWith('.text')) return 'text/plain';
+  return null;
+}
+
+/**
+ * Validates a proposed upload (MIME, extension, size, basic shape).
  */
 export function validateUpload(params: {
   readonly name: string;
@@ -46,7 +73,7 @@ export function validateUpload(params: {
     throw ApiError.validation([
       {
         field: 'contentType',
-        message: `Only plain text and Markdown can be indexed today (received "${contentType}"). Convert the file to .txt or .md and upload it again.`,
+        message: `Upload a PDF, Word (.docx), PowerPoint (.pptx), or text file (received "${contentType}").`,
       },
     ]);
   }
@@ -57,7 +84,7 @@ export function validateUpload(params: {
     throw ApiError.validation([
       {
         field: 'name',
-        message: `A ${contentType} document should have one of these extensions: ${allowed.join(', ')}`,
+        message: `A ${contentType} document should end with ${allowed.join(' or ')}.`,
       },
     ]);
   }
@@ -78,30 +105,64 @@ export function validateUpload(params: {
     ]);
   }
 
-  // Reject binary masquerading as text: a NUL byte in the first block is the
-  // cheapest reliable signal, and it is what stops a renamed PDF being
-  // "successfully" indexed as mojibake.
-  const probe = bytes.subarray(0, Math.min(bytes.byteLength, 8192));
-  if (probe.includes(0)) {
-    throw ApiError.validation([
-      {
-        field: 'content',
-        message:
-          'This looks like a binary file rather than text. Only plain text and Markdown can be indexed today.',
-      },
-    ]);
+  if (isTextContentType(contentType)) {
+    const probe = bytes.subarray(0, Math.min(bytes.byteLength, 8192));
+    if (probe.includes(0)) {
+      throw ApiError.validation([
+        {
+          field: 'content',
+          message:
+            'This looks like a binary file. Upload it as PDF, Word, or PowerPoint instead.',
+        },
+      ]);
+    }
+  } else {
+    // Cheap magic-byte checks so a renamed .txt cannot pretend to be a PDF.
+    if (contentType === 'application/pdf' && !looksLikePdf(bytes)) {
+      throw ApiError.validation([
+        {
+          field: 'content',
+          message: 'This file does not look like a real PDF.',
+        },
+      ]);
+    }
+    if (
+      (contentType.includes('wordprocessingml') ||
+        contentType.includes('presentationml')) &&
+      !looksLikeZip(bytes)
+    ) {
+      throw ApiError.validation([
+        {
+          field: 'content',
+          message: 'This file does not look like a Word or PowerPoint document.',
+        },
+      ]);
+    }
   }
 
   return contentType;
 }
 
-/**
- * Decodes bytes to text and normalises whitespace.
- *
- * `fatal: true` — invalid UTF-8 raises rather than producing replacement
- * characters, so a mis-encoded file fails loudly instead of being indexed as
- * nonsense.
- */
+function looksLikePdf(bytes: Uint8Array): boolean {
+  return (
+    bytes.byteLength >= 5 &&
+    bytes[0] === 0x25 &&
+    bytes[1] === 0x50 &&
+    bytes[2] === 0x44 &&
+    bytes[3] === 0x46
+  );
+}
+
+function looksLikeZip(bytes: Uint8Array): boolean {
+  return (
+    bytes.byteLength >= 4 &&
+    bytes[0] === 0x50 &&
+    bytes[1] === 0x4b &&
+    (bytes[2] === 0x03 || bytes[2] === 0x05 || bytes[2] === 0x07)
+  );
+}
+
+/** @deprecated Prefer extractDocumentText — kept for call-site migration. */
 export function extractText(bytes: Uint8Array): string {
   let decoded: string;
   try {
@@ -114,16 +175,9 @@ export function extractText(bytes: Uint8Array): string {
       },
     ]);
   }
-
-  return (
-    decoded
-      // Normalise line endings and strip a byte-order mark so chunk
-      // boundaries are stable across platforms.
-      .replace(/\r\n/g, '\n')
-      .replace(/\uFEFF/g, '')
-      // Collapse runs of blank lines: chunking splits on them, so this keeps
-      // the same document producing the same chunks on every re-index.
-      .replace(/\n{3,}/g, '\n\n')
-      .trim()
-  );
+  return decoded
+    .replace(/\r\n/g, '\n')
+    .replace(/\uFEFF/g, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 }

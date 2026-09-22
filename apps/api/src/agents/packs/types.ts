@@ -17,4 +17,9 @@ export type PackDefinition = {
   wizardFields: WizardField[];
   /** Slice merged into new agent configuration defaults */
   defaultConfigSlice: Record<string, unknown>;
+  /**
+   * Optional legacy hint list. Hiring create no longer surfaces must-ask —
+   * questions belong on each Job.
+   */
+  suggestedMustAskQuestions?: readonly string[];
 };

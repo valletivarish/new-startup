@@ -109,7 +109,8 @@ const Evaluation = z.object({
     .array(
       z.object({
         id: z.string().trim().min(1).max(64),
-        label: z.string().trim().min(1).max(120),
+        // Matches mustAskQuestions max (300) so wizard questions survive parse.
+        label: z.string().trim().min(1).max(300),
         required: z.boolean().default(false),
       }),
     )

@@ -57,16 +57,19 @@ const UpdateSource = z.object({
   description: z.string().trim().max(2000).optional(),
 });
 
+/** Base64 expands ~4/3; keep headroom under Nest body limits. */
+const MAX_CONTENT_CHARS = Math.ceil((MAX_DOCUMENT_BYTES * 4) / 3) + 1024;
+
 const CreateDocument = z.object({
   sourceId: z.string().uuid(),
   name: z.string().trim().min(1).max(255),
   // Accept any declared type here so `validateUpload` can explain the
-  // rejection in business language ("convert it to .txt or .md") rather than
-  // surfacing a schema enum, which tells a user nothing actionable.
+  // rejection in business language rather than a schema enum.
   contentType: z.string().trim().min(1).max(160),
   // Bounded here as well as in validateUpload: reject an oversized body
   // before it is decoded rather than after.
-  content: z.string().min(1).max(MAX_DOCUMENT_BYTES),
+  content: z.string().min(1).max(MAX_CONTENT_CHARS),
+  contentEncoding: z.enum(['utf8', 'base64']).optional(),
 });
 
 /**

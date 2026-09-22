@@ -34,10 +34,25 @@ describe('extractPhonesFromText', () => {
     expect(extractPhonesFromText('Wrong +911234567890')).toEqual([]);
   });
 
+  it('extracts 0-prefixed Indian mobiles as +91', () => {
+    expect(extractPhonesFromText('Mobile: 09876543210')).toEqual(['+919876543210']);
+    expect(extractPhonesFromText('Alt 0 98765 43210')).toEqual(['+919876543210']);
+  });
+
   it('does not treat a prefix of a longer digit run as a phone', () => {
     expect(extractPhonesFromText('Ref +9198765432101234567890')).toEqual([]);
     expect(extractPhonesFromText('Alt +9112345678901234567890, ok 9876543210')).toEqual([
       '9876543210',
     ]);
+  });
+
+  it('extracts parenthesized and spaced India resume formats', () => {
+    expect(extractPhonesFromText('Phone: (+91) 98765-43210')).toEqual([
+      '+919876543210',
+    ]);
+    expect(extractPhonesFromText('Alt 91 98765 43210')).toEqual([
+      '+919876543210',
+    ]);
+    expect(extractPhonesFromText('Mobile 98765 43210')).toEqual(['9876543210']);
   });
 });

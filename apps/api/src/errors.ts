@@ -61,6 +61,7 @@ export class ApiError extends Error {
     return new ApiError('gone', message);
   }
   static validation(fields: readonly FieldError[]): ApiError {
-    return new ApiError('validation_failed', 'Validation failed', fields);
+    const message = fields[0]?.message?.trim() || 'Validation failed';
+    return new ApiError('validation_failed', message, fields);
   }
 }

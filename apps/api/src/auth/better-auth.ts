@@ -22,6 +22,7 @@ import { schema } from '@platform/db';
 import type { NotificationProvider } from '@platform/providers';
 
 import type { Env } from '../config.js';
+import { rememberConsoleResetLink } from './console-reset-links.js';
 
 export interface AuthDeps {
   readonly db: PlatformDatabase<Record<string, never>>;
@@ -37,10 +38,22 @@ export interface AuthDeps {
 export function createAuth(deps: AuthDeps) {
   const { db, env, notifications, onAuthEvent } = deps;
 
+  const trustedOrigins = new Set<string>([env.WEB_URL]);
+  try {
+    const web = new URL(env.WEB_URL);
+    if (web.hostname === 'localhost') {
+      trustedOrigins.add(`${web.protocol}//127.0.0.1${web.port ? `:${web.port}` : ''}`);
+    } else if (web.hostname === '127.0.0.1') {
+      trustedOrigins.add(`${web.protocol}//localhost${web.port ? `:${web.port}` : ''}`);
+    }
+  } catch {
+    // WEB_URL already validated by env schema; keep primary only.
+  }
+
   return betterAuth({
     baseURL: env.API_URL,
     secret: env.BETTER_AUTH_SECRET,
-    trustedOrigins: [env.WEB_URL],
+    trustedOrigins: [...trustedOrigins],
 
     database: drizzleAdapter(db, {
       provider: 'pg',
@@ -98,6 +111,9 @@ export function createAuth(deps: AuthDeps) {
           subject: 'Reset your password',
           text: `Reset your password: ${url}`,
         });
+        if (env.NOTIFICATION_TRANSPORT === 'console') {
+          rememberConsoleResetLink(user.email, url);
+        }
       },
     },
 

@@ -22,12 +22,16 @@
 import 'reflect-metadata';
 import { createHmac } from 'node:crypto';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { sql } from '@platform/db';
 import {
   startApi,
   registerUser,
   createOrganization,
+  inviteAndCaptureToken,
+  acceptInvitation,
   type ApiHarness,
 } from './setup/api-harness.js';
+import { superDatabase } from './setup/fixtures.js';
 import { createStubVoiceSessionAdapter } from '../src/providers/elevenlabs/adapter.js';
 
 // ---------------------------------------------------------------------------
@@ -45,19 +49,48 @@ const WEBHOOK_STUB = {
   verifyWebhookSignature(payload: string, sig: string): boolean {
     if (!sig) return false;
     const secret = VOICE_ENV['ELEVENLABS_WEBHOOK_SECRET']!;
-    const expected = createHmac('sha256', secret).update(payload, 'utf8').digest('hex');
-    const received = sig.replace(/^xi-signature-256=/, '');
     try {
-      // timingSafeEqual requires buffers of equal length
+      if (/\bt=\d+/.test(sig) && /\bv0=/.test(sig)) {
+        const timestamp = sig
+          .split(',')
+          .map((p) => p.trim())
+          .find((p) => p.startsWith('t='))
+          ?.slice(2);
+        const candidates = sig
+          .split(',')
+          .map((p) => p.trim())
+          .filter((p) => p.startsWith('v0='))
+          .map((p) => p.slice(3));
+        if (!timestamp || candidates.length === 0) return false;
+        const ageSecs = Math.abs(Math.floor(Date.now() / 1000) - Number(timestamp));
+        if (!Number.isFinite(Number(timestamp)) || ageSecs > 30 * 60) return false;
+        const expected = createHmac('sha256', secret)
+          .update(`${timestamp}.${payload}`, 'utf8')
+          .digest('hex');
+        return candidates.some((received) => {
+          const a = Buffer.from(expected, 'hex');
+          const b = Buffer.from(received, 'hex');
+          return a.length === b.length && a.equals(b);
+        });
+      }
+      const expected = createHmac('sha256', secret).update(payload, 'utf8').digest('hex');
+      const received = sig.replace(/^xi-signature-256=/i, '');
       const a = Buffer.from(expected, 'hex');
       const b = Buffer.from(received, 'hex');
       if (a.length !== b.length) return false;
-      return a.equals(b); // not timing-safe but fine for tests
+      return a.equals(b);
     } catch {
       return false;
     }
   },
 };
+
+function signProduction(payload: string): string {
+  const secret = VOICE_ENV['ELEVENLABS_WEBHOOK_SECRET']!;
+  const t = Math.floor(Date.now() / 1000).toString();
+  const v0 = createHmac('sha256', secret).update(`${t}.${payload}`, 'utf8').digest('hex');
+  return `t=${t},v0=${v0}`;
+}
 
 /** Extra env that enables the voice feature and uses the stub adapter. */
 const VOICE_ENV: Record<string, string> = {
@@ -325,6 +358,37 @@ describe('start voice session', () => {
     });
     expect(r2.statusCode).toBe(409);
   });
+
+  it('ending an active session allows a new one to start', async () => {
+    const { cookie, agentId } = await setup();
+    const r1 = await api.request({
+      method: 'POST',
+      url: `/agents/${agentId}/voice-sessions`,
+      cookie,
+      payload: {},
+    });
+    expect(r1.statusCode).toBe(201);
+    const vsId = (JSON.parse(r1.body) as { voiceSessionId: string }).voiceSessionId;
+
+    const end = await api.request({
+      method: 'POST',
+      url: `/agents/${agentId}/voice-sessions/${vsId}/end`,
+      cookie,
+      payload: {},
+    });
+    expect(end.statusCode).toBe(200);
+    const ended = JSON.parse(end.body) as { voiceSession: { status: string; channel?: string } };
+    expect(ended.voiceSession.status).toBe('ended');
+    expect(ended.voiceSession.channel).toBe('browser_demo');
+
+    const r2 = await api.request({
+      method: 'POST',
+      url: `/agents/${agentId}/voice-sessions`,
+      cookie,
+      payload: {},
+    });
+    expect(r2.statusCode).toBe(201);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -422,20 +486,43 @@ describe('reconcile voice session', () => {
     expect(startRes.statusCode).toBe(201);
     const vsId = (JSON.parse(startRes.body) as { voiceSessionId: string }).voiceSessionId;
 
-    // Manually set an external_conversation_id so reconcile has something to fetch.
-    // (In production this arrives via webhook; for the test we use the DB directly.)
-    // Since the stub adapter returns a fixed response, we just need a non-null ID.
-    // We'll exercise reconcile via the service's handling of "no external ID" path.
+    const db = superDatabase();
+    try {
+      await db.db.execute(sql`
+        update voice_sessions
+        set external_conversation_id = 'stub-conv-reconcile-1'
+        where id = ${vsId}
+      `);
+    } finally {
+      await db.close();
+    }
+
     const res = await api.request({
       method: 'POST',
       url: `/agents/${agentId}/voice-sessions/${vsId}/reconcile`,
       cookie,
       payload: {},
     });
-    expect([200, 201]).toContain(res.statusCode);
-    const body = JSON.parse(res.body) as { voiceSession: { status: string } };
-    // Without an externalConversationId, status stays 'active' (nothing to reconcile).
-    expect(body.voiceSession.status).toBe('active');
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body) as {
+      voiceSession: {
+        status: string;
+        channel?: string;
+        summary: string | null;
+        transcript: { role: string; message: string }[] | null;
+        structuredAnswers: Record<string, unknown> | null;
+        durationSeconds: number | null;
+      };
+    };
+    expect(body.voiceSession.status).toBe('ended');
+    expect(body.voiceSession.channel).toBe('browser_demo');
+    expect(body.voiceSession.summary).toBe('Stub conversation summary.');
+    expect(body.voiceSession.transcript?.length).toBeGreaterThan(0);
+    expect(body.voiceSession.structuredAnswers).toMatchObject({
+      experience_years: '2',
+      notice_period: '30 days',
+    });
+    expect(body.voiceSession.durationSeconds).toBe(42);
   });
 });
 
@@ -481,6 +568,69 @@ describe('ElevenLabs webhook', () => {
     expect(body.received).toBe(true);
   });
 
+  it('verifies HMAC against exact raw body bytes (not re-serialized JSON)', async () => {
+    // Spacing differs from JSON.stringify(JSON.parse(...)) — only raw capture matches.
+    const raw =
+      '{ "type": "conversation.ended", "conversation_id": "conv-raw-spacing" }';
+    const sig = sign(raw);
+    const res = await webhookApi.request({
+      method: 'POST',
+      url: '/webhooks/elevenlabs',
+      headers: { 'xi-signature-256': sig, 'content-type': 'application/json' },
+      payload: raw,
+    });
+    expect(res.statusCode).toBe(201);
+
+    const compactSig = sign(JSON.stringify(JSON.parse(raw)));
+    const reject = await webhookApi.request({
+      method: 'POST',
+      url: '/webhooks/elevenlabs',
+      headers: {
+        'xi-signature-256': compactSig,
+        'content-type': 'application/json',
+      },
+      payload: raw,
+    });
+    expect(reject.statusCode).toBe(422);
+  });
+
+  it('accepts ElevenLabs-Signature (t=,v0=) for post_call_transcription', async () => {
+    const payload = {
+      type: 'post_call_transcription',
+      event_timestamp: Math.floor(Date.now() / 1000),
+      data: {
+        agent_id: 'agent_x',
+        conversation_id: 'conv-post-call-1',
+        status: 'done',
+        transcript: [
+          { role: 'agent', message: 'Hello' },
+          { role: 'user', message: 'Hi' },
+        ],
+        analysis: {
+          transcript_summary: 'Candidate said hello.',
+          data_collection_results: {
+            notice_period: { value: '30 days' },
+          },
+        },
+        metadata: { call_duration_secs: 42, cost: 3 },
+      },
+    };
+    const payloadStr = JSON.stringify(payload);
+    const sig = signProduction(payloadStr);
+
+    const res = await webhookApi.request({
+      method: 'POST',
+      url: '/webhooks/elevenlabs',
+      headers: {
+        'elevenlabs-signature': sig,
+        'content-type': 'application/json',
+      },
+      payload,
+    });
+    expect(res.statusCode).toBe(201);
+    expect(JSON.parse(res.body).received).toBe(true);
+  });
+
   it('unknown conversation ID is silently ignored (no 404)', async () => {
     const payload = { type: 'conversation.ended', conversation_id: 'unknown-conv-id' };
     const payloadStr = JSON.stringify(payload);
@@ -519,5 +669,153 @@ describe('null cost handling', () => {
     const body = JSON.parse(res.body) as { voiceSession: { costCredits: unknown } };
     // The stub returns null for costCredits
     expect(body.voiceSession.costCredits).toBeNull();
+  });
+});
+
+describe('call recording playback', () => {
+  it('streams audio for a session with a conversation id', async () => {
+    const { cookie, agentId } = await setup();
+    const startRes = await api.request({
+      method: 'POST',
+      url: `/agents/${agentId}/voice-sessions`,
+      cookie,
+      payload: {},
+    });
+    const vsId = (JSON.parse(startRes.body) as { voiceSessionId: string }).voiceSessionId;
+
+    const db = await superDatabase();
+    try {
+      await db.db.execute(sql`
+        update voice_sessions
+        set external_conversation_id = ${`stub-audio-${vsId}`},
+            status = 'ended',
+            ended_at = now()
+        where id = ${vsId}
+      `);
+    } finally {
+      await db.close();
+    }
+
+    const audio = await api.request({
+      method: 'GET',
+      url: `/agents/${agentId}/voice-sessions/${vsId}/recording`,
+      cookie,
+    });
+    expect(audio.statusCode).toBe(200);
+    const contentType = String(audio.headers['content-type'] ?? '');
+    expect(contentType).toMatch(/audio\//);
+    const bytes =
+      typeof audio.rawPayload !== 'undefined'
+        ? Buffer.from(audio.rawPayload as Buffer)
+        : Buffer.from(audio.payload as string);
+    expect(bytes.length).toBeGreaterThan(0);
+  });
+
+  it('forbids recording playback without calls.read_recording', async () => {
+    const { cookie, agentId, alice } = await setup();
+    const startRes = await api.request({
+      method: 'POST',
+      url: `/agents/${agentId}/voice-sessions`,
+      cookie,
+      payload: {},
+    });
+    const vsId = (JSON.parse(startRes.body) as { voiceSessionId: string }).voiceSessionId;
+
+    const analyst = await registerUser(api, 'rec-analyst');
+    const token = await inviteAndCaptureToken(api, alice, analyst.email, 'analyst');
+    const accepted = await acceptInvitation(api, analyst, token);
+    expect([200, 201]).toContain(accepted.statusCode);
+
+    const audio = await api.request({
+      method: 'GET',
+      url: `/agents/${agentId}/voice-sessions/${vsId}/recording`,
+      cookie: analyst.cookie,
+    });
+    expect(audio.statusCode).toBe(403);
+  });
+});
+
+describe('voice-sessions list filter', () => {
+  it('filters company desk sessions by candidateId', async () => {
+    const { cookie, agentId, alice } = await setup();
+
+    const jobRes = await api.request({
+      method: 'POST',
+      url: '/jobs',
+      cookie,
+      payload: { title: 'Filter Role' },
+    });
+    expect(jobRes.statusCode).toBe(201);
+    const jobId = (JSON.parse(jobRes.body) as { id: string }).id;
+
+    const candA = await api.request({
+      method: 'POST',
+      url: '/candidates',
+      cookie,
+      payload: {
+        jobId,
+        fullName: 'Filter Alice',
+        phone: '9000111222',
+        countryCode: '+91',
+      },
+    });
+    const candB = await api.request({
+      method: 'POST',
+      url: '/candidates',
+      cookie,
+      payload: {
+        jobId,
+        fullName: 'Filter Bob',
+        phone: '9000333444',
+        countryCode: '+91',
+      },
+    });
+    expect(candA.statusCode).toBe(201);
+    expect(candB.statusCode).toBe(201);
+    const candidateA = (JSON.parse(candA.body) as { id: string }).id;
+    const candidateB = (JSON.parse(candB.body) as { id: string }).id;
+
+    for (const candidateId of [candidateA, candidateB]) {
+      const start = await api.request({
+        method: 'POST',
+        url: `/agents/${agentId}/voice-sessions`,
+        cookie,
+        payload: { jobId, candidateId },
+      });
+      expect(start.statusCode).toBe(201);
+      const vsId = (JSON.parse(start.body) as { voiceSessionId: string }).voiceSessionId;
+      const end = await api.request({
+        method: 'POST',
+        url: `/agents/${agentId}/voice-sessions/${vsId}/end`,
+        cookie,
+        payload: {},
+      });
+      expect([200, 201]).toContain(end.statusCode);
+    }
+
+    const all = await api.request({
+      method: 'GET',
+      url: '/voice-sessions',
+      cookie,
+    });
+    expect(all.statusCode).toBe(200);
+    const allBody = JSON.parse(all.body) as {
+      sessions: { candidateId: string | null }[];
+    };
+    expect(allBody.sessions.some((s) => s.candidateId === candidateA)).toBe(true);
+    expect(allBody.sessions.some((s) => s.candidateId === candidateB)).toBe(true);
+
+    const filtered = await api.request({
+      method: 'GET',
+      url: `/voice-sessions?candidateId=${candidateA}`,
+      cookie,
+    });
+    expect(filtered.statusCode).toBe(200);
+    const filteredBody = JSON.parse(filtered.body) as {
+      sessions: { candidateId: string | null }[];
+    };
+    expect(filteredBody.sessions.length).toBeGreaterThan(0);
+    expect(filteredBody.sessions.every((s) => s.candidateId === candidateA)).toBe(true);
+    void alice;
   });
 });

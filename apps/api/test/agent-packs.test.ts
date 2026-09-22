@@ -20,11 +20,11 @@ describe('packs registry', () => {
     expect(blob).not.toMatch(/elevenlabs|exotel|gemini/);
   });
 
-  it('getPack(hiring) returns mustAskQuestions and transfer fields', () => {
+  it('getPack(hiring) returns purpose and transfer fields only', () => {
     const pack = getPack('hiring');
-    expect(pack.wizardFields.map((f) => f.key)).toEqual(
-      expect.arrayContaining(['purpose', 'documentsHint', 'mustAskQuestions', 'transferPhones']),
-    );
+    expect(pack.wizardFields.map((f) => f.key)).toEqual(['purpose', 'transferPhones']);
+    expect(pack.wizardFields.map((f) => f.key)).not.toContain('mustAskQuestions');
+    expect(pack.wizardFields.map((f) => f.key)).not.toContain('documentsHint');
   });
 
   it('AgentConfiguration requires agentType and accepts hiring', () => {
@@ -60,14 +60,18 @@ describe('GET /agents/packs', () => {
     });
     expect(res.statusCode).toBe(200);
     const body = JSON.parse(res.body) as {
-      packs: { id: string; label: string; wizardFields: { key: string }[] }[];
+      packs: {
+        id: string;
+        label: string;
+        wizardFields: { key: string }[];
+        suggestedMustAskQuestions?: string[];
+      }[];
     };
-    expect(body.packs.map((p) => p.id)).toEqual(['hiring', 'custom']);
+    expect(body.packs.map((p) => p.id)).toEqual(['hiring']);
     const hiring = body.packs.find((p) => p.id === 'hiring');
     expect(hiring).toBeDefined();
-    expect(hiring!.wizardFields.map((f) => f.key)).toEqual(
-      expect.arrayContaining(['purpose', 'mustAskQuestions', 'transferPhones']),
-    );
+    expect(hiring!.wizardFields.map((f) => f.key)).toEqual(['purpose', 'transferPhones']);
+    expect(hiring!.suggestedMustAskQuestions).toBeUndefined();
     expect(res.body.toLowerCase()).not.toMatch(/elevenlabs|exotel|gemini/);
   });
 
@@ -100,7 +104,7 @@ describe('hiring wizard create', () => {
     await api?.close();
   });
 
-  it('create hiring agent stores criteria and transfer phones from wizard fields', async () => {
+  it('create hiring agent ignores must-ask; stores transfer phones only', async () => {
     const owner = await registerUser(api, 'pack-create');
     await createOrganization(api, owner, 'Pack Create Org');
     const cookie = owner.cookie;
@@ -135,8 +139,28 @@ describe('hiring wizard create', () => {
     };
 
     expect(cfg.agentType).toBe('hiring');
-    expect(cfg.evaluation.criteria.some((c) => c.label.includes('experience'))).toBe(true);
+    expect(cfg.evaluation.criteria).toEqual([]);
     expect(cfg.escalation.transferPhones).toContain('+919876543210');
+  });
+
+  it('rejects support pack create on day one (hiring only)', async () => {
+    const owner = await registerUser(api, 'pack-gate-support');
+    await createOrganization(api, owner, 'Pack Gate Org');
+    const cookie = owner.cookie;
+
+    const res = await api.request({
+      method: 'POST',
+      url: '/agents',
+      cookie,
+      payload: {
+        name: 'Support Bot',
+        agentType: 'support',
+        purpose: 'Answer customer questions',
+      },
+    });
+    expect(res.statusCode).toBe(422);
+    const body = JSON.parse(res.body) as { code: string; message: string };
+    expect(body.code).toBe('validation_failed');
   });
 
   it('create hiring agent keeps pack escalation enabled without transfer phones', async () => {
@@ -174,7 +198,7 @@ describe('hiring wizard create', () => {
     expect(cfg.escalation.transferPhones).toEqual([]);
   });
 
-  it('create with knowledgeSourceIds attaches refs in configuration.knowledge', async () => {
+  it('create with knowledgeSourceIds does not attach agent knowledge (job-owned JD)', async () => {
     const owner = await registerUser(api, 'pack-knowledge');
     await createOrganization(api, owner, 'Pack Knowledge Org');
     const cookie = owner.cookie;
@@ -211,8 +235,7 @@ describe('hiring wizard create', () => {
     const { configuration: cfg } = JSON.parse(versionRes.body) as {
       configuration: { knowledge: { knowledgeSourceId: string }[] };
     };
-    expect(cfg.knowledge).toHaveLength(1);
-    expect(cfg.knowledge[0]?.knowledgeSourceId).toBe(sourceId);
+    expect(cfg.knowledge).toEqual([]);
 
     const linkedRes = await api.request({
       method: 'GET',
@@ -221,10 +244,10 @@ describe('hiring wizard create', () => {
     });
     expect(linkedRes.statusCode).toBe(200);
     const { sources } = JSON.parse(linkedRes.body) as { sources: { id: string }[] };
-    expect(sources.map((s) => s.id)).toContain(sourceId);
+    expect(sources).toEqual([]);
   });
 
-  it('create deduplicates knowledgeSourceIds in configuration and links', async () => {
+  it('create ignores duplicate knowledgeSourceIds without attaching', async () => {
     const owner = await registerUser(api, 'pack-knowledge-dedupe');
     await createOrganization(api, owner, 'Pack Knowledge Dedupe Org');
     const cookie = owner.cookie;
@@ -260,8 +283,7 @@ describe('hiring wizard create', () => {
     const { configuration: cfg } = JSON.parse(versionRes.body) as {
       configuration: { knowledge: { knowledgeSourceId: string }[] };
     };
-    expect(cfg.knowledge).toHaveLength(1);
-    expect(cfg.knowledge[0]?.knowledgeSourceId).toBe(sourceId);
+    expect(cfg.knowledge).toEqual([]);
 
     const linkedRes = await api.request({
       method: 'GET',
@@ -269,11 +291,10 @@ describe('hiring wizard create', () => {
       cookie,
     });
     const { sources } = JSON.parse(linkedRes.body) as { sources: { id: string }[] };
-    expect(sources).toHaveLength(1);
-    expect(sources[0]?.id).toBe(sourceId);
+    expect(sources).toEqual([]);
   });
 
-  it('create with invalid knowledgeSourceIds rolls back and leaves no agent', async () => {
+  it('create with invalid knowledgeSourceIds still succeeds (field ignored)', async () => {
     const owner = await registerUser(api, 'pack-knowledge-invalid');
     await createOrganization(api, owner, 'Pack Knowledge Invalid Org');
     const cookie = owner.cookie;
@@ -284,17 +305,17 @@ describe('hiring wizard create', () => {
       url: '/agents',
       cookie,
       payload: {
-        name: 'Should not persist',
+        name: 'Should persist without knowledge',
         agentType: 'hiring',
         purpose: 'Screen for the open role',
         knowledgeSourceIds: [bogusId],
       },
     });
-    expect(res.statusCode).toBe(404);
+    expect(res.statusCode).toBe(201);
 
     const listRes = await api.request({ method: 'GET', url: '/agents', cookie });
     const { agents } = JSON.parse(listRes.body) as { agents: { name: string }[] };
-    expect(agents.some((a) => a.name === 'Should not persist')).toBe(false);
+    expect(agents.some((a) => a.name === 'Should persist without knowledge')).toBe(true);
   });
 });
 

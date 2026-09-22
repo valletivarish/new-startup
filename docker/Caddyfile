@@ -1,0 +1,41 @@
+# ADR-006 reverse proxy — automatic HTTPS for the hiring desk.
+#
+# Single public hostname. Browser traffic hits Next.js; auth, API, and voice
+# webhooks are routed to the Nest API. Set DOMAIN (and email for ACME) in .env
+# before `docker compose --profile app --profile tls up`.
+#
+# Required env (compose substitutes these):
+#   DOMAIN=hiring.example.com
+#   ACME_EMAIL=ops@example.com
+{
+	email {$ACME_EMAIL}
+}
+
+{$DOMAIN} {
+	encode gzip
+
+	# Voice post-call webhooks must hit the API with the raw body preserved.
+	handle /webhooks/* {
+		reverse_proxy api:3001
+	}
+
+	handle /health {
+		reverse_proxy api:3001
+	}
+
+	# Same-origin API surface used by the desk client (`/backend/...`).
+	# Strip the prefix — Nest routes are `/jobs`, `/auth`, etc. (Next rewrites
+	# do the same strip in local/dev).
+	handle /backend/* {
+		uri strip_prefix /backend
+		reverse_proxy api:3001
+	}
+
+	handle /api/auth/* {
+		reverse_proxy api:3001
+	}
+
+	handle {
+		reverse_proxy web:3000
+	}
+}

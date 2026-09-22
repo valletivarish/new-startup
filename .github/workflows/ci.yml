@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master, 'feat/**']
+  pull_request:
+
+jobs:
+  api-and-web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - name: Install
+        run: pnpm install --frozen-lockfile
+      - name: API tests
+        # Vitest harness boots Postgres via testcontainers (needs Docker).
+        run: pnpm test:api
+      - name: API typecheck
+        run: pnpm --filter @platform/api typecheck
+      - name: Web typecheck
+        run: pnpm --filter @platform/web exec tsc --noEmit -p tsconfig.json
+      - name: Web production build
+        run: NODE_ENV=production pnpm --filter @platform/web build
+      - name: Telephony readiness
+        # Optional in PR CI (voice secrets usually absent). Exit 0 when disabled;
+        # fails when ELEVENLABS_ENABLED=true but misconfigured (no `|| true`).
+        run: node scripts/check-telephony.mjs
+        env:
+          CI_TELEPHONY_OPTIONAL: 'true'
+          ELEVENLABS_ENABLED: 'false'
+      - name: Ops checklist (artifacts)
+        run: node scripts/ops-check.mjs
+        env:
+          CI_OPS_OPTIONAL: 'true'
+          API_URL: 'http://127.0.0.1:9'

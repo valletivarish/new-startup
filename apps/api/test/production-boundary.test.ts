@@ -237,6 +237,8 @@ describe('the benchmark package cannot reach production', () => {
         }
 
         for (const vendor of VENDORS) {
+          // Adapter directories are the only place vendor names belong.
+          if (isAdapterDir) continue;
           if (code.includes(vendor)) {
             const lines = strippedSrc.split('\n').filter((l) => l.toLowerCase().includes(vendor));
             if (!lines.some((l) => isRealVendorViolation(l, vendor))) continue;

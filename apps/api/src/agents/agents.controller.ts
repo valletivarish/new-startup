@@ -55,11 +55,11 @@ const CreateAgent = z
     description: z.string().trim().max(2000).optional(),
     purpose: z.string().trim().min(1).max(2000).optional(),
     type: z.string().trim().max(64).optional(),
-    agentType: z
-      .enum(['hiring', 'support', 'sales', 'appointments', 'reminders', 'custom'])
-      .default('hiring'),
+    agentType: z.enum(['hiring']).default('hiring'),
+    // Accepted for backward compatibility but ignored — must-ask lives on Job.
     mustAskQuestions: z.array(z.string().trim().min(1).max(300)).max(30).default([]),
     transferPhones: z.array(z.string().trim().min(5).max(20)).max(10).default([]),
+    // Accepted for backward compatibility; role JD attaches on Job, not agent.
     knowledgeSourceIds: z
       .array(z.string().uuid())
       .max(100)

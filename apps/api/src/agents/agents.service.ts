@@ -16,7 +16,7 @@ import { sql, withTenantContext, type Database } from '@platform/db';
 import { ApiError } from '../errors.js';
 import type { AuditService } from '../audit/audit.service.js';
 import { AgentConfiguration, defaultConfiguration } from './configuration.js';
-import { getPack } from './packs/index.js';
+import { getPack, listEnabledPacks } from './packs/index.js';
 import type { AgentType } from './packs/types.js';
 import {
   assertAgentTransition,
@@ -75,8 +75,19 @@ export interface AgentsService {
   ): Promise<void>;
   transition(actor: Actor, agentId: string, to: AgentStatus): Promise<void>;
 
-  /** Knowledge sources this agent may draw on. */
-  listKnowledge(actor: Actor, agentId: string): Promise<readonly { id: string; name: string }[]>;
+  /** Knowledge sources this agent may draw on, with document readiness. */
+  listKnowledge(
+    actor: Actor,
+    agentId: string,
+  ): Promise<
+    readonly {
+      id: string;
+      name: string;
+      readyDocs: number;
+      pendingDocs: number;
+      failedDocs: number;
+    }[]
+  >;
   attachKnowledge(actor: Actor, agentId: string, sourceId: string): Promise<void>;
   detachKnowledge(actor: Actor, agentId: string, sourceId: string): Promise<void>;
 
@@ -137,10 +148,6 @@ function toVersion(r: VersionRecord): VersionRow {
     publishedAt: r.published_at,
     createdAt: r.created_at,
   };
-}
-
-function uniqueKnowledgeSourceIds(ids: readonly string[]): string[] {
-  return [...new Set(ids)];
 }
 
 /** Validates configuration against the contract; invalid input is a 422. */
@@ -263,18 +270,19 @@ export function createAgentsService(
     },
 
     async create(actor, input) {
+      const enabled = listEnabledPacks().some((p) => p.id === input.agentType);
+      if (!enabled) {
+        throw ApiError.conflict(
+          'That agent type is not available yet. Start with hiring.',
+        );
+      }
       const pack = getPack(input.agentType);
       const purpose = input.purpose ?? pack.description;
-      const knowledgeSourceIds = uniqueKnowledgeSourceIds(input.knowledgeSourceIds);
-      const criteria = input.mustAskQuestions.map((label, i) => ({
-        id: `q${i + 1}`,
-        label,
-        required: true,
-      }));
-      const knowledge = knowledgeSourceIds.map((knowledgeSourceId) => ({
-        knowledgeSourceId,
-        label: '',
-      }));
+      // Freeze: agent create is persona/voice/transfer only. Must-ask + JD
+      // attach on each Job. Ignore any legacy wizard payload for those fields.
+      const knowledgeSourceIds: string[] = [];
+      const criteria: { id: string; label: string; required: boolean }[] = [];
+      const knowledge: { knowledgeSourceId: string; label: string }[] = [];
       const packEscalation = pack.defaultConfigSlice.escalation as
         | {
             enabled?: boolean;
@@ -460,17 +468,41 @@ export function createAgentsService(
         { organizationId: actor.organizationId, userId: actor.userId },
         async (tx) => {
           await loadAgent(tx, actor, agentId);
-          const rows = await tx.execute<{ id: string; name: string }>(sql`
-            select s.id, s.name
+          const rows = await tx.execute<{
+            id: string;
+            name: string;
+            ready_docs: string;
+            pending_docs: string;
+            failed_docs: string;
+          }>(sql`
+            select
+              s.id,
+              s.name,
+              count(d.id) filter (where d.status = 'ready')::text as ready_docs,
+              count(d.id) filter (
+                where d.status in ('pending', 'processing')
+              )::text as pending_docs,
+              count(d.id) filter (where d.status = 'failed')::text as failed_docs
             from agent_knowledge_sources a
             join knowledge_sources s
               on s.id = a.source_id and s.organization_id = a.organization_id
+            left join knowledge_documents d
+              on d.source_id = s.id
+             and d.organization_id = s.organization_id
+             and d.status <> 'deleted'
             where a.agent_id = ${agentId}
               and a.organization_id = ${actor.organizationId}
               and s.status <> 'archived'
+            group by s.id, s.name
             order by s.name
           `);
-          return rows.map((r) => ({ id: r.id, name: r.name }));
+          return rows.map((r) => ({
+            id: r.id,
+            name: r.name,
+            readyDocs: Number(r.ready_docs),
+            pendingDocs: Number(r.pending_docs),
+            failedDocs: Number(r.failed_docs),
+          }));
         },
       );
     },

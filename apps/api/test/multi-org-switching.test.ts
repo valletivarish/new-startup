@@ -47,6 +47,19 @@ beforeAll(async () => {
     'analyst',
   );
   expect((await acceptInvitation(api, traveller, token)).statusCode).toBe(201);
+
+  // Accept must land the session on the invited company even when the user
+  // already owned another org (AWS-style: attach membership → that context).
+  const afterAccept = await api.request({
+    method: 'GET',
+    url: '/auth/me',
+    cookie: traveller.cookie,
+  });
+  expect(afterAccept.statusCode).toBe(200);
+  expect(
+    (JSON.parse(afterAccept.body) as { activeOrganization: { id: string } | null })
+      .activeOrganization?.id,
+  ).toBe(otherOrg);
 }, 120_000);
 
 afterAll(async () => {
@@ -191,5 +204,50 @@ describe('one user, two organizations, two roles (ADR-005)', () => {
       otherOwner.email,
     );
     expect(otherMembers.members.map((m) => m.email)).toContain(traveller.email);
+  });
+});
+
+describe('organization ensure bootstrap', () => {
+  it('creates a company on first call and is idempotent after', async () => {
+    const user = await registerUser(api, 'ensure-user');
+
+    const first = await api.request({
+      method: 'POST',
+      url: '/organizations/ensure',
+      cookie: user.cookie,
+      payload: { name: 'Ensure Co' },
+    });
+    expect(first.statusCode).toBe(201);
+    const firstBody = JSON.parse(first.body) as {
+      id: string;
+      created: boolean;
+    };
+    expect(firstBody.created).toBe(true);
+
+    const second = await api.request({
+      method: 'POST',
+      url: '/organizations/ensure',
+      cookie: user.cookie,
+      payload: { name: 'Different Name Should Be Ignored' },
+    });
+    expect(second.statusCode).toBe(201);
+    const secondBody = JSON.parse(second.body) as {
+      id: string;
+      created: boolean;
+    };
+    expect(secondBody.created).toBe(false);
+    expect(secondBody.id).toBe(firstBody.id);
+
+    const listed = JSON.parse(
+      (
+        await api.request({
+          method: 'GET',
+          url: '/auth/organizations',
+          cookie: user.cookie,
+        })
+      ).body,
+    ) as { organizations: { id: string }[] };
+    expect(listed.organizations).toHaveLength(1);
+    expect(listed.organizations[0]?.id).toBe(firstBody.id);
   });
 });

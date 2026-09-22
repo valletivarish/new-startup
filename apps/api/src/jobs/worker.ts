@@ -6,6 +6,7 @@
  */
 
 import 'reflect-metadata';
+import { writeFileSync } from 'node:fs';
 import { pino } from 'pino';
 import { createDatabase } from '@platform/db';
 
@@ -17,12 +18,12 @@ import {
   type DocumentJob,
   type EmailJob,
 } from './queue.js';
-import { createConsoleNotificationProvider } from '../notifications/console-notification-provider.js';
+import { createNotificationTransport } from '../notifications/create-notification-transport.js';
+import { createObjectStorage } from '../knowledge/create-object-storage.js';
 import { startTelemetry } from '../observability/telemetry.js';
 import { createDocumentProcessor } from '../knowledge/processor.js';
 import { createDeterministicEmbeddingProvider } from '../knowledge/deterministic-embedding-provider.js';
 import { createChunker } from '../knowledge/chunker.js';
-import { createLocalObjectStorage } from '../knowledge/local-object-storage.js';
 import { createAuditService } from '../audit/audit.service.js';
 
 const env = loadEnv();
@@ -44,10 +45,7 @@ const database = createDatabase({
 });
 const queue = createJobQueue(env.DATABASE_URL, logger);
 
-// The concrete transport. No external email provider is selected
-// (12_ARCHITECTURE_DECISIONS_FINAL D3); the console provider satisfies the
-// interface until one is chosen on benchmark evidence.
-const transport = createConsoleNotificationProvider(logger);
+const transport = createNotificationTransport(env, logger);
 
 await queue.start();
 
@@ -74,7 +72,7 @@ const processDocument = createDocumentProcessor({
   database,
   embeddings: createDeterministicEmbeddingProvider(),
   chunker: createChunker(),
-  storage: createLocalObjectStorage(env.STORAGE_ROOT),
+  storage: createObjectStorage(env),
   logger,
   onAudit: async (event) => {
     await audit.record({
@@ -95,6 +93,18 @@ await queue.boss.work<DocumentJob>(DOCUMENT_QUEUE, async (jobs) => {
 });
 
 logger.info('platform-worker started');
+
+// Compose healthcheck: prove this process is alive, not only that Postgres is.
+const HEARTBEAT_PATH = '/tmp/platform-worker-heartbeat';
+const beat = () => {
+  try {
+    writeFileSync(HEARTBEAT_PATH, String(Date.now()));
+  } catch {
+    /* ignore */
+  }
+};
+beat();
+setInterval(beat, 10_000);
 
 async function shutdown(signal: string): Promise<void> {
   logger.info({ signal }, 'platform-worker shutting down');

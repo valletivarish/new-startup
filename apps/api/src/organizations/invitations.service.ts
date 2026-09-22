@@ -1,10 +1,10 @@
 /**
  * Invitations (ADR-005).
  *
- * Token model: 32 random bytes, base64url-encoded, emailed and never stored.
- * The database holds only the SHA-256 hash, so reading the table cannot be
- * replayed as an acceptance. Acceptance requires BOTH the unguessable token
- * AND an authenticated session whose email matches the invitation.
+ * Token model: 32 random bytes, base64url-encoded. The database holds only
+ * the SHA-256 hash. The raw token is revealed once at create time (email +
+ * API acceptUrl for copy) and never stored. Acceptance requires BOTH the
+ * unguessable token AND an authenticated session whose email matches.
  *
  * Abuse cases covered:
  *   duplicate     → partial unique index on (org, email) where pending → 409
@@ -51,7 +51,7 @@ export interface InvitationsService {
   create(
     actor: Actor,
     params: { readonly email: string; readonly roleKey: string },
-  ): Promise<{ readonly id: string }>;
+  ): Promise<{ readonly id: string; readonly acceptUrl: string }>;
   revoke(actor: Actor, invitationId: string): Promise<void>;
   /**
    * Accept by token. The caller is an authenticated user with no required
@@ -162,12 +162,27 @@ export function createInvitationsService(
         },
       );
 
-      // The raw token leaves the system exactly once, in the email. It is
-      // never stored and never returned in the API response.
+      const acceptUrl = `${webUrl}/invitations/accept?token=${token}`;
+      const orgRows = await withTenantContext(
+        database.db,
+        { organizationId: actor.organizationId, userId: actor.userId },
+        async (tx) =>
+          tx.execute<{ name: string }>(sql`
+            select name from organizations
+            where id = ${actor.organizationId}
+            limit 1
+          `),
+      );
+      const company =
+        orgRows[0]?.name?.trim() || 'your hiring desk';
       await notifications.sendEmail({
         to: email,
-        subject: 'You have been invited',
-        text: `Accept your invitation: ${webUrl}/invitations/accept?token=${token}`,
+        subject: `Join ${company}`,
+        text:
+          `You've been invited to ${company}.\n\n` +
+          `Open this link to join (expires in ${INVITATION_TTL_HOURS} hours):\n` +
+          `${acceptUrl}\n\n` +
+          `If the link asks you to sign in, use this same email address.`,
       });
 
       await audit.record({
@@ -179,7 +194,7 @@ export function createInvitationsService(
         metadata: { role: roleKey },
       });
 
-      return { id: invitationId };
+      return { id: invitationId, acceptUrl };
     },
 
     async revoke(actor, invitationId) {
@@ -280,7 +295,7 @@ export function createInvitationsService(
             `);
           } catch (error) {
             if ((error as { cause?: { code?: string } }).cause?.code === '23505') {
-              throw ApiError.conflict('You are already a member of this organization');
+              throw ApiError.conflict('You are already a member of this company');
             }
             throw error;
           }

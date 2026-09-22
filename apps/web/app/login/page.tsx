@@ -1,60 +1,103 @@
 'use client';
 
 /**
- * Sign in / create account. Company name on register creates the org
- * immediately so newcomers never see organization-switcher jargon.
+ * Sign in / create account / forgot password. Company name on register creates
+ * the org immediately so newcomers never see organization-switcher jargon.
  */
 
-import { FormEvent, Suspense, useMemo, useState } from 'react';
-import Link from 'next/link';
+import { Suspense, useMemo, useState, type FormEvent } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
   ApiClientError,
-  createOrganization,
+  ensureOrganization,
   me,
+  requestPasswordReset,
   signIn,
   signUp,
 } from '../../lib/api';
-import { brand } from '../../lib/brand';
+import { Button } from '@/components/ui/button';
+import { Input, Field } from '@/components/ui/input';
+import { Surface } from '@/components/ui/page';
+import { AuthShell } from '@/components/layout/AuthShell';
 
-const { colors, radii } = brand;
+type Mode = 'login' | 'register' | 'forgot';
 
 function LoginForm() {
   const router = useRouter();
   const params = useSearchParams();
-  const initialMode = params.get('mode') === 'register' ? 'register' : 'login';
+  const initialMode = ((): Mode => {
+    const m = params.get('mode');
+    if (m === 'register') return 'register';
+    if (m === 'forgot') return 'forgot';
+    return 'login';
+  })();
+  const nextPath = (() => {
+    const raw = params.get('next');
+    if (!raw || !raw.startsWith('/') || raw.startsWith('//')) return '/jobs';
+    return raw;
+  })();
+  const joiningViaInvite = nextPath.startsWith('/invitations/accept');
 
-  const [mode, setMode] = useState<'login' | 'register'>(initialMode);
+  const [mode, setMode] = useState<Mode>(initialMode);
   const [name, setName] = useState('');
   const [company, setCompany] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
+  const [consoleResetUrl, setConsoleResetUrl] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const title = useMemo(
-    () => (mode === 'login' ? 'Sign in' : 'Create your account'),
-    [mode],
-  );
+  const title = useMemo(() => {
+    if (mode === 'register') {
+      return joiningViaInvite ? 'Join your company' : 'Create your account';
+    }
+    if (mode === 'forgot') return 'Reset your password';
+    return 'Sign in';
+  }, [mode, joiningViaInvite]);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
     setError(null);
+    setInfo(null);
     setBusy(true);
     try {
+      if (mode === 'forgot') {
+        const redirectTo = `${window.location.origin}/reset-password`;
+        const result = await requestPasswordReset(email.trim(), redirectTo);
+        if (result.consoleResetUrl) {
+          setConsoleResetUrl(result.consoleResetUrl);
+          setInfo(
+            'Email delivery is not connected yet — use the one-time reset link below (expires soon).',
+          );
+        } else {
+          setConsoleResetUrl(null);
+          setInfo(
+            'If an account exists for that email, a reset link was created. When email delivery is connected you will get it in your inbox; until then check with your admin or use an invite link from them.',
+          );
+        }
+        return;
+      }
       if (mode === 'register') {
         await signUp({ email, password, name });
-        const companyName = company.trim() || `${name.trim()}'s company`;
-        await createOrganization(companyName);
+        if (!joiningViaInvite) {
+          const companyName = company.trim() || `${name.trim()}'s company`;
+          await ensureOrganization(companyName);
+        }
       } else {
         await signIn({ email, password });
-        const profile = await me();
-        if (!profile.activeOrganization) {
-          router.push('/dashboard');
-          return;
+        if (!joiningViaInvite) {
+          const profile = await me();
+          if (!profile.activeOrganization) {
+            const fallback =
+              `${profile.user.name || 'My'}'s company`.slice(0, 100);
+            await ensureOrganization(
+              fallback.length >= 2 ? fallback : 'My company',
+            );
+          }
         }
       }
-      router.push('/dashboard');
+      router.push(nextPath);
     } catch (e) {
       setError(
         e instanceof ApiClientError && e.status < 500
@@ -67,204 +110,158 @@ function LoginForm() {
   }
 
   return (
-    <main
-      style={{
-        minHeight: '100dvh',
-        display: 'grid',
-        placeItems: 'center',
-        padding: 24,
-        background: `radial-gradient(900px 420px at 20% 0%, ${colors.primarySoft}, transparent), ${colors.paperWash}`,
-      }}
-    >
-      <div style={{ width: '100%', maxWidth: 420 }}>
-        <div style={{ marginBottom: 20, textAlign: 'center' }}>
-          <Link
-            href="/"
-            style={{
-              fontSize: 18,
-              fontWeight: 700,
-              letterSpacing: '-0.03em',
-              textDecoration: 'none',
-            }}
-          >
-            {brand.name}
-          </Link>
-        </div>
+    <AuthShell>
+      <Surface elevated className="space-y-5 p-7">
+          <div>
+            <h1 className="m-0 font-display text-[1.375rem] font-semibold tracking-tight">
+              {title}
+            </h1>
+            <p className="mt-1.5 mb-0 text-sm text-[var(--foreground-tertiary)]">
+              {mode === 'register'
+                ? joiningViaInvite
+                  ? 'Use the invited email. After you join, the role from the invite is attached to you for that company.'
+                  : 'Tell us your name and company. We set up your workspace.'
+                : mode === 'forgot'
+                  ? 'Enter your email and we will send a reset link.'
+                  : joiningViaInvite
+                    ? 'Sign in with the invited email to attach your access and open that company.'
+                    : 'Welcome back to your hiring desk.'}
+            </p>
+          </div>
 
-        <section
-          style={{
-            background: colors.paper,
-            border: `1px solid ${colors.line}`,
-            borderRadius: radii.panel,
-            padding: '28px 28px 24px',
-            boxShadow: '0 18px 40px rgba(15, 23, 42, 0.06)',
-          }}
-        >
-          <h1
-            style={{
-              margin: '0 0 6px',
-              fontSize: 22,
-              letterSpacing: '-0.02em',
-              fontWeight: 700,
-            }}
-          >
-            {title}
-          </h1>
-          <p style={{ margin: '0 0 22px', color: colors.inkMuted, fontSize: 14 }}>
-            {mode === 'register'
-              ? 'Tell us your name and company. We set up your workspace.'
-              : 'Welcome back to your hiring desk.'}
-          </p>
-
-          <form onSubmit={(e) => void submit(e)} style={{ display: 'grid', gap: 14 }}>
+          <form onSubmit={(e) => void submit(e)} className="grid gap-3.5">
             {mode === 'register' && (
               <>
                 <Field label="Your name">
-                  <input
+                  <Input
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                     required
                     autoComplete="name"
-                    style={inputStyle}
                   />
                 </Field>
-                <Field label="Company name" hint="Shown on your workspace">
-                  <input
-                    value={company}
-                    onChange={(e) => setCompany(e.target.value)}
-                    required
-                    minLength={2}
-                    autoComplete="organization"
-                    placeholder="Your company name"
-                    style={inputStyle}
-                  />
-                </Field>
+                {!joiningViaInvite && (
+                  <Field label="Company name" hint="Shown on your workspace">
+                    <Input
+                      value={company}
+                      onChange={(e) => setCompany(e.target.value)}
+                      required
+                      minLength={2}
+                      autoComplete="organization"
+                      placeholder="Your company name"
+                    />
+                  </Field>
+                )}
               </>
             )}
             <Field label="Email">
-              <input
+              <Input
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
                 autoComplete="email"
-                style={inputStyle}
               />
             </Field>
-            <Field label="Password">
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                minLength={8}
-                autoComplete={mode === 'register' ? 'new-password' : 'current-password'}
-                style={inputStyle}
-              />
-            </Field>
+            {mode !== 'forgot' && (
+              <Field label="Password">
+                <Input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  minLength={8}
+                  autoComplete={
+                    mode === 'register' ? 'new-password' : 'current-password'
+                  }
+                />
+              </Field>
+            )}
+
+            {mode === 'login' && (
+              <button
+                type="button"
+                onClick={() => {
+                  setMode('forgot');
+                  setError(null);
+                  setInfo(null);
+                }}
+                className="-mt-1 justify-self-start rounded-sm border-0 bg-transparent p-0 text-[13px] font-semibold text-[var(--accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
+              >
+                Forgot password?
+              </button>
+            )}
 
             {error && (
               <p
                 role="alert"
-                style={{
-                  margin: 0,
-                  fontSize: 13,
-                  color: colors.danger,
-                  background: '#fef2f2',
-                  borderRadius: 8,
-                  padding: '10px 12px',
-                }}
+                className="m-0 rounded-md bg-[color-mix(in_srgb,var(--danger)_10%,transparent)] px-3 py-2.5 text-[13px] text-[var(--danger)]"
               >
                 {error}
               </p>
             )}
 
-            <button
-              type="submit"
-              disabled={busy}
-              style={{
-                minHeight: 48,
-                border: 'none',
-                borderRadius: radii.control,
-                background: colors.primary,
-                color: '#fff',
-                fontWeight: 700,
-                cursor: busy ? 'wait' : 'pointer',
-                opacity: busy ? 0.75 : 1,
-              }}
-            >
+            {info && (
+              <p
+                role="status"
+                className="m-0 rounded-md bg-[color-mix(in_srgb,var(--success)_12%,transparent)] px-3 py-2.5 text-[13px] text-[var(--success)]"
+              >
+                {info}
+              </p>
+            )}
+
+            {consoleResetUrl && (
+              <div className="rounded-md border border-[var(--separator)] bg-[var(--surface-secondary)] px-3 py-2.5 text-[13px]">
+                <p className="mb-2 mt-0 text-[var(--foreground-tertiary)]">
+                  One-time reset link (copy and open):
+                </p>
+                <code className="block break-all text-xs text-[var(--foreground)]">
+                  {consoleResetUrl}
+                </code>
+                <Button
+                  type="button"
+                  variant="link"
+                  className="mt-2 h-auto p-0"
+                  onClick={() =>
+                    void navigator.clipboard.writeText(consoleResetUrl)
+                  }
+                >
+                  Copy link
+                </Button>
+              </div>
+            )}
+
+            <Button type="submit" disabled={busy} className="mt-1 w-full">
               {busy
                 ? 'Working…'
                 : mode === 'register'
                   ? 'Create account'
-                  : 'Sign in'}
-            </button>
+                  : mode === 'forgot'
+                    ? 'Send reset link'
+                    : 'Sign in'}
+            </Button>
           </form>
 
-          <button
+          <Button
             type="button"
+            variant="ghost"
+            className="w-full"
             onClick={() => {
               setMode(mode === 'login' ? 'register' : 'login');
               setError(null);
-            }}
-            style={{
-              marginTop: 14,
-              width: '100%',
-              minHeight: 44,
-              border: 'none',
-              background: 'transparent',
-              color: colors.primary,
-              fontWeight: 600,
-              cursor: 'pointer',
+              setInfo(null);
             }}
           >
             {mode === 'login'
               ? 'New here? Create an account'
-              : 'Already have an account? Sign in'}
-          </button>
-        </section>
-
-        <p style={{ marginTop: 16, textAlign: 'center', fontSize: 13 }}>
-          <Link href="/" style={{ color: colors.inkMuted, textDecoration: 'none' }}>
-            Back to home
-          </Link>
-        </p>
-      </div>
-    </main>
+              : mode === 'forgot'
+                ? 'Back to sign in'
+                : 'Already have an account? Sign in'}
+          </Button>
+        </Surface>
+    </AuthShell>
   );
 }
-
-function Field({
-  label,
-  hint,
-  children,
-}: {
-  label: string;
-  hint?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <label style={{ display: 'grid', gap: 6, fontSize: 13, fontWeight: 600 }}>
-      <span>{label}</span>
-      {children}
-      {hint && (
-        <span style={{ fontWeight: 400, color: colors.inkMuted, fontSize: 12 }}>
-          {hint}
-        </span>
-      )}
-    </label>
-  );
-}
-
-const inputStyle: React.CSSProperties = {
-  width: '100%',
-  minHeight: 44,
-  padding: '10px 12px',
-  border: `1px solid ${colors.line}`,
-  borderRadius: radii.control,
-  background: colors.paper,
-  fontWeight: 400,
-};
 
 function humanAuthError(message: string): string {
   const lower = message.toLowerCase();
@@ -274,7 +271,11 @@ function humanAuthError(message: string): string {
   if (lower.includes('already') || lower.includes('exists')) {
     return 'An account with that email already exists. Try signing in.';
   }
-  if (lower.includes('password') || lower.includes('credential') || lower.includes('invalid')) {
+  if (
+    lower.includes('password') ||
+    lower.includes('credential') ||
+    lower.includes('invalid')
+  ) {
     return 'Check your email and password and try again.';
   }
   return message.length > 120 ? 'Check your details and try again.' : message;
@@ -284,7 +285,7 @@ export default function LoginPage() {
   return (
     <Suspense
       fallback={
-        <main style={{ minHeight: '100dvh', display: 'grid', placeItems: 'center' }}>
+        <main className="surface-grain grid min-h-dvh place-items-center bg-[var(--background)] text-sm text-[var(--foreground-tertiary)]">
           Loading…
         </main>
       }

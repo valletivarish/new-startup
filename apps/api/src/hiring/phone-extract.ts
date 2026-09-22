@@ -1,16 +1,32 @@
 const MAX_PHONES = 5;
 
-const PLUS91_PATTERN = /\+91[\s\-]?([6-9](?:[\s\-]?\d){9})(?!\d)/g;
-const MOBILE_PATTERN = /(?<!\d)([6-9]\d{9})(?!\d)/g;
+const PLUS91_PATTERN = /\+91[\s\-.]?([6-9](?:[\s\-.]?\d){9})(?!\d)/g;
+const ZERO_MOBILE_PATTERN = /(?<!\d)0[\s\-.]?([6-9](?:[\s\-.]?\d){9})(?!\d)/g;
+/** Bare or spaced 10-digit mobiles (e.g. 98765 43210). */
+const MOBILE_PATTERN = /(?<!\d)([6-9](?:[\s\-.]?\d){9})(?!\d)/g;
 
 function digitsOnly(value: string): string {
   return value.replace(/\D/g, '');
+}
+
+/**
+ * Resume PDF text often wraps country codes: (+91), 91-, etc. Normalize those
+ * before matching so Call phone can prefill from common India formats.
+ */
+function preprocessResumeText(text: string): string {
+  return text
+    .replace(/\(\s*\+?\s*91\s*\)/gi, '+91')
+    .replace(/(?<![\d+])91(?=[\s\-.]?[6-9])/g, '+91');
 }
 
 function normalizeIndianMobile(raw: string): string | null {
   const digits = digitsOnly(raw);
   if (digits.length === 12 && digits.startsWith('91')) {
     const mobile = digits.slice(2);
+    return mobile.length === 10 && /^[6-9]/.test(mobile) ? `+91${mobile}` : null;
+  }
+  if (digits.length === 11 && digits.startsWith('0')) {
+    const mobile = digits.slice(1);
     return mobile.length === 10 && /^[6-9]/.test(mobile) ? `+91${mobile}` : null;
   }
   if (digits.length === 10 && /^[6-9]/.test(digits)) {
@@ -31,6 +47,7 @@ function preferPlus91(existing: string, candidate: string): string {
 export function extractPhonesFromText(text: string): string[] {
   if (!text.trim()) return [];
 
+  const prepared = preprocessResumeText(text);
   const seen = new Map<string, string>();
 
   const consider = (match: string) => {
@@ -41,10 +58,13 @@ export function extractPhonesFromText(text: string): string[] {
     seen.set(key, existing ? preferPlus91(existing, normalized) : normalized);
   };
 
-  for (const match of text.matchAll(PLUS91_PATTERN)) {
+  for (const match of prepared.matchAll(PLUS91_PATTERN)) {
     consider(match[0]);
   }
-  for (const match of text.matchAll(MOBILE_PATTERN)) {
+  for (const match of prepared.matchAll(ZERO_MOBILE_PATTERN)) {
+    consider(match[0]);
+  }
+  for (const match of prepared.matchAll(MOBILE_PATTERN)) {
     consider(match[1] ?? match[0]);
   }
 

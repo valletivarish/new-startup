@@ -27,7 +27,7 @@ import type {
 } from '@platform/providers';
 import type { Logger } from 'pino';
 
-import { extractText } from './formats.js';
+import { extractDocumentText } from './document-text.js';
 
 export interface ProcessDocumentJob {
   readonly organizationId: string;
@@ -153,7 +153,19 @@ export function createDocumentProcessor(deps: DocumentProcessorDeps) {
         });
       }
 
-      const text = extractText(bytes);
+      let text: string;
+      try {
+        text = await extractDocumentText(claimed.content_type, bytes);
+      } catch (e) {
+        throw Object.assign(
+          new Error(
+            e instanceof Error
+              ? e.message
+              : 'The document contained no readable text',
+          ),
+          { category: 'empty_document' },
+        );
+      }
       if (text.length === 0) {
         throw Object.assign(new Error('The document contained no readable text'), {
           category: 'empty_document',

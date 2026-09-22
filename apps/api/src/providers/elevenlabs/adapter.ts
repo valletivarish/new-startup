@@ -19,12 +19,20 @@
  */
 
 import { createHmac, timingSafeEqual } from 'node:crypto';
+import pino from 'pino';
 import type { Env } from '../../config.js';
 import { getElevenLabsClient } from './client.js';
+import { publicOutboundDialMessage } from './outbound-dial-message.js';
+import {
+  buildVoiceProvisionConfig,
+  type EvaluationCriterion,
+} from './provision-config.js';
 import type {
   KnowledgeSnapshot,
   TranscriptTurn,
 } from './types.js';
+
+const logger = pino({ base: { service: 'voice-adapter' } });
 
 /** The LLM model slug we require ElevenLabs to expose. Stop if unavailable. */
 const REQUIRED_LLM = 'gemini-3.5-flash-lite';
@@ -47,6 +55,7 @@ export interface ConversationDetails {
   readonly summary: string | null;
   readonly durationSeconds: number | null;
   readonly costCredits: number | null;
+  readonly structuredAnswers: Readonly<Record<string, unknown>> | null;
 }
 
 /**
@@ -67,10 +76,22 @@ export interface VoiceSessionAdapter {
   provisionAgent(input: {
     agentName: string;
     agentPurpose: string;
-    voiceId: string;
+    voiceId?: string;
     knowledgeSnapshot?: KnowledgeSnapshot;
     /** Update an existing agent rather than creating a new one. */
     existingExternalAgentId?: string;
+    /** Must-ask / evaluation criteria → provider data_collection + prompt. */
+    evaluationCriteria?: readonly EvaluationCriterion[];
+    agentType?: string;
+    /** Hard cap on conversation length (seconds) enforced by the provider. */
+    maxDurationSeconds?: number;
+    /** Human transfer numbers from agent escalation config. */
+    transferPhones?: readonly string[];
+    displayName?: string;
+    /** Company name from registration — spoken hiring identity. */
+    organizationName?: string;
+    greeting?: string;
+    primaryLanguage?: string;
   }): Promise<{ externalAgentId: string; externalKbDocId: string | null; llmModel: string }>;
 
   /**
@@ -86,10 +107,30 @@ export interface VoiceSessionAdapter {
   fetchConversation(externalConversationId: string): Promise<ConversationDetails>;
 
   /**
+   * Fetch the call recording audio for a completed conversation.
+   * Returns raw bytes + content type for authenticated playback.
+   */
+  fetchConversationAudio(
+    externalConversationId: string,
+  ): Promise<{ body: Buffer; contentType: string }>;
+
+  /**
    * Verify the HMAC-SHA256 signature on a webhook event.
    * Returns true if valid. Never throws on invalid signatures — returns false.
    */
   verifyWebhookSignature(payload: string, signatureHeader: string): boolean;
+
+  /**
+   * Place a live outbound phone call to `toNumber` (E.164) for a provisioned agent.
+   * Returns the provider conversation id when the dial was accepted.
+   */
+  startOutboundPhoneCall(input: {
+    externalAgentId: string;
+    toNumber: string;
+  }): Promise<{ externalConversationId: string | null; accepted: boolean; message: string }>;
+
+  /** Whether live outbound is configured (phone number id present). */
+  isOutboundConfigured(): boolean;
 }
 
 /**
@@ -107,32 +148,69 @@ export function createVoiceSessionAdapter(env: Env): VoiceSessionAdapter {
       // The SDK returns a paginated list. We fetch the first page and look for
       // the required model.
       const result = await cl.conversationalAi.llm.list();
-      // The SDK returns `{ llms: [...] }` shaped response
-      const models: Array<{ modelId?: string; name?: string }> =
+      // Live API shape: `{ llms: [{ llm: "gemini-3.5-flash-lite", ... }] }`.
+      // Older SDK typings may expose modelId/name — accept all known keys.
+      const models: Array<{ llm?: string; modelId?: string; name?: string; id?: string }> =
         Array.isArray((result as unknown as { llms?: unknown[] }).llms)
-          ? ((result as unknown as { llms: Array<{ modelId?: string; name?: string }> }).llms)
-          : [];
+          ? ((result as unknown as {
+              llms: Array<{ llm?: string; modelId?: string; name?: string; id?: string }>;
+            }).llms)
+          : Array.isArray(result)
+            ? (result as Array<{ llm?: string; modelId?: string; name?: string; id?: string }>)
+            : [];
+      const modelLabel = (m: {
+        llm?: string;
+        modelId?: string;
+        name?: string;
+        id?: string;
+      }) => m.llm ?? m.modelId ?? m.name ?? m.id ?? '';
       const found = models.some((m) => {
-        const id = (m.modelId ?? '').toLowerCase();
-        const name = (m.name ?? '').toLowerCase();
+        const id = modelLabel(m).toLowerCase();
         const required = REQUIRED_LLM.toLowerCase();
         // Exact match only — no silent substitute to another flash-lite model.
-        return id === required || name === required || id.includes(required) || name.includes(required);
+        return id === required;
       });
       if (!found) {
+        const available = models.map(modelLabel).filter(Boolean);
         throw new Error(
           `Required LLM "${REQUIRED_LLM}" is not available in your ElevenLabs account. ` +
-            `Available: ${models.map((m) => m.modelId ?? m.name ?? '?').join(', ')}. ` +
+            `Available: ${available.slice(0, 40).join(', ') || '(none returned)'}` +
+            `${available.length > 40 ? `, …(+${available.length - 40} more)` : ''}. ` +
             `STOP: no silent substitute is permitted.`,
         );
       }
       return { model: REQUIRED_LLM, verified: true };
     },
 
-    async provisionAgent({ agentName, agentPurpose, voiceId, knowledgeSnapshot, existingExternalAgentId }) {
+    async provisionAgent({
+      agentName,
+      agentPurpose,
+      voiceId,
+      knowledgeSnapshot,
+      existingExternalAgentId,
+      evaluationCriteria,
+      agentType,
+      maxDurationSeconds,
+      transferPhones,
+      displayName,
+      organizationName,
+      greeting,
+      primaryLanguage,
+    }) {
       const cl = client();
       const { verified, model } = await this.verifyLlmAvailable();
       if (!verified) throw new Error('LLM not available');
+
+      const provision = buildVoiceProvisionConfig({
+        agentPurpose,
+        criteria: evaluationCriteria,
+        agentType,
+        transferPhones,
+        displayName: displayName ?? agentName,
+        organizationName,
+        greeting,
+        primaryLanguage,
+      });
 
       // Upload knowledge snapshot if provided (Strategy A).
       let kbDocId: string | null = null;
@@ -147,6 +225,12 @@ export function createVoiceSessionAdapter(env: Env): VoiceSessionAdapter {
           ?? null;
       }
 
+      const durationSecs =
+        typeof maxDurationSeconds === 'number' && maxDurationSeconds > 0
+          ? Math.min(Math.max(Math.round(maxDurationSeconds), 60), 1800)
+          : Math.max(env.ELEVENLABS_MAX_TEST_MINUTES, env.ELEVENLABS_MAX_PHONE_MINUTES) *
+            60;
+
       // Build the agent config. We use `unknown` casting to bridge between our
       // normalized types and the SDK's generated types (Llm enum, KnowledgeBaseLocator,
       // etc.) — the values are structurally correct at runtime.
@@ -155,9 +239,12 @@ export function createVoiceSessionAdapter(env: Env): VoiceSessionAdapter {
         name: agentName,
         conversationConfig: {
           agent: {
+            firstMessage: provision.firstMessage,
+            language: provision.language,
             prompt: {
-              prompt: agentPurpose,
+              prompt: provision.agentPrompt,
               llm: model,
+              builtInTools: provision.builtInTools,
               ...(kbDocId
                 ? {
                     knowledgeBase: [
@@ -174,7 +261,17 @@ export function createVoiceSessionAdapter(env: Env): VoiceSessionAdapter {
           tts: {
             voiceId: voiceId || env.ELEVENLABS_DEFAULT_VOICE_ID || 'Rachel',
           },
+          conversation: {
+            maxDurationSeconds: durationSecs,
+          },
         },
+        ...(provision.dataCollection
+          ? {
+              platformSettings: {
+                dataCollection: provision.dataCollection,
+              },
+            }
+          : {}),
       } as unknown as AgentConfigShape;
 
       let externalAgentId: string;
@@ -208,9 +305,18 @@ export function createVoiceSessionAdapter(env: Env): VoiceSessionAdapter {
     },
 
     async fetchConversation(externalConversationId: string) {
-      const cl = client();
-      const raw = await cl.conversationalAi.conversations.get(externalConversationId);
-      const r = raw as unknown as Record<string, unknown>;
+      // Prefer REST over the SDK so analysis.summary / metadata.duration map
+      // the same way as the provider dashboard (SDK field names drift).
+      const res = await fetch(
+        `https://api.elevenlabs.io/v1/convai/conversations/${externalConversationId}`,
+        { headers: { 'xi-api-key': env.ELEVENLABS_API_KEY } },
+      );
+      if (!res.ok) {
+        throw new Error(`Conversation fetch failed HTTP ${res.status}`);
+      }
+      const r = (await res.json()) as Record<string, unknown>;
+      const meta = (r['metadata'] as Record<string, unknown> | undefined) ?? {};
+      const analysis = (r['analysis'] as Record<string, unknown> | undefined) ?? {};
 
       const turns: TranscriptTurn[] = [];
       const transcript = (r['transcript'] ?? r['turns']) as unknown[] | undefined;
@@ -221,27 +327,51 @@ export function createVoiceSessionAdapter(env: Env): VoiceSessionAdapter {
             role: String(turn['role'] ?? turn['speaker'] ?? 'agent') as 'agent' | 'user',
             message: String(turn['message'] ?? turn['text'] ?? ''),
             timeInCallSecs:
-              typeof turn['timeInCallSecs'] === 'number' ? turn['timeInCallSecs'] : undefined,
+              typeof turn['time_in_call_secs'] === 'number'
+                ? turn['time_in_call_secs']
+                : typeof turn['timeInCallSecs'] === 'number'
+                  ? turn['timeInCallSecs']
+                  : undefined,
           });
         }
       }
 
       const durationSecs =
-        typeof r['duration'] === 'number'
-          ? Math.round(r['duration'])
-          : typeof r['durationSeconds'] === 'number'
-            ? Math.round(r['durationSeconds'])
+        typeof meta['call_duration_secs'] === 'number'
+          ? Math.round(meta['call_duration_secs'] as number)
+          : typeof r['call_duration_secs'] === 'number'
+            ? Math.round(r['call_duration_secs'] as number)
             : null;
 
       const costCredits =
-        typeof r['cost'] === 'number'
-          ? r['cost']
-          : typeof r['costCredits'] === 'number'
-            ? r['costCredits']
+        typeof meta['cost'] === 'number'
+          ? (meta['cost'] as number)
+          : typeof r['cost'] === 'number'
+            ? r['cost']
             : null;
 
-      const summary = typeof r['summary'] === 'string' ? r['summary'] : null;
+      const summary =
+        typeof analysis['transcript_summary'] === 'string'
+          ? (analysis['transcript_summary'] as string)
+          : typeof r['summary'] === 'string'
+            ? r['summary']
+            : null;
       const status = String(r['status'] ?? 'unknown');
+
+      // Flatten data-collection results into plain key → value answers.
+      const structuredAnswers: Record<string, unknown> = {};
+      const rawCollection = analysis['data_collection_results'];
+      if (rawCollection && typeof rawCollection === 'object' && !Array.isArray(rawCollection)) {
+        for (const [key, value] of Object.entries(rawCollection as Record<string, unknown>)) {
+          if (value && typeof value === 'object' && !Array.isArray(value)) {
+            const row = value as Record<string, unknown>;
+            structuredAnswers[key] =
+              row['value'] ?? row['result'] ?? row['answer'] ?? row['rationale'] ?? value;
+          } else if (value != null && value !== '') {
+            structuredAnswers[key] = value;
+          }
+        }
+      }
 
       return {
         externalConversationId,
@@ -250,20 +380,134 @@ export function createVoiceSessionAdapter(env: Env): VoiceSessionAdapter {
         summary,
         durationSeconds: durationSecs,
         costCredits: costCredits as number | null,
+        structuredAnswers:
+          Object.keys(structuredAnswers).length > 0 ? structuredAnswers : null,
       };
     },
 
+    async fetchConversationAudio(externalConversationId: string) {
+      const res = await fetch(
+        `https://api.elevenlabs.io/v1/convai/conversations/${externalConversationId}/audio`,
+        { headers: { 'xi-api-key': env.ELEVENLABS_API_KEY } },
+      );
+      if (!res.ok) {
+        throw new Error(`Conversation audio fetch failed HTTP ${res.status}`);
+      }
+      const contentType =
+        res.headers.get('content-type')?.split(';')[0]?.trim() || 'audio/mpeg';
+      const body = Buffer.from(await res.arrayBuffer());
+      if (body.length === 0) {
+        throw new Error('Conversation audio was empty');
+      }
+      return { body, contentType };
+    },
+
     verifyWebhookSignature(payload: string, signatureHeader: string): boolean {
-      if (!env.ELEVENLABS_WEBHOOK_SECRET) return false;
+      if (!env.ELEVENLABS_WEBHOOK_SECRET || !signatureHeader.trim()) return false;
       try {
-        // ElevenLabs sends: xi-signature-256=<hex-hmac>
+        // Production header: ElevenLabs-Signature: t=<unix>,v0=<hex>[,v0=...]
+        // Signed payload is `${timestamp}.${rawBody}` (docs / SDK constructEvent).
+        if (/\bt=\d+/.test(signatureHeader) && /\bv0=/.test(signatureHeader)) {
+          const timestamp = signatureHeader
+            .split(',')
+            .map((p) => p.trim())
+            .find((p) => p.startsWith('t='))
+            ?.slice(2);
+          const candidates = signatureHeader
+            .split(',')
+            .map((p) => p.trim())
+            .filter((p) => p.startsWith('v0='))
+            .map((p) => p.slice(3));
+          if (!timestamp || candidates.length === 0) return false;
+          const ageSecs = Math.abs(Math.floor(Date.now() / 1000) - Number(timestamp));
+          if (!Number.isFinite(Number(timestamp)) || ageSecs > 30 * 60) return false;
+          const expected = createHmac('sha256', env.ELEVENLABS_WEBHOOK_SECRET)
+            .update(`${timestamp}.${payload}`, 'utf8')
+            .digest('hex');
+          const expectedBuf = Buffer.from(expected, 'hex');
+          for (const received of candidates) {
+            const receivedBuf = Buffer.from(received, 'hex');
+            if (
+              expectedBuf.length === receivedBuf.length &&
+              timingSafeEqual(expectedBuf, receivedBuf)
+            ) {
+              return true;
+            }
+          }
+          return false;
+        }
+
+        // Test / legacy harness: xi-signature-256=<hex> of the raw body alone.
         const expected = createHmac('sha256', env.ELEVENLABS_WEBHOOK_SECRET)
           .update(payload, 'utf8')
           .digest('hex');
-        const received = signatureHeader.replace(/^xi-signature-256=/, '');
-        return timingSafeEqual(Buffer.from(expected, 'hex'), Buffer.from(received, 'hex'));
+        const received = signatureHeader.replace(/^xi-signature-256=/i, '');
+        const a = Buffer.from(expected, 'hex');
+        const b = Buffer.from(received, 'hex');
+        if (a.length !== b.length) return false;
+        return timingSafeEqual(a, b);
       } catch {
         return false;
+      }
+    },
+
+    isOutboundConfigured() {
+      return Boolean(env.ELEVENLABS_ENABLED && env.ELEVENLABS_PHONE_NUMBER_ID.trim());
+    },
+
+    async startOutboundPhoneCall({ externalAgentId, toNumber }) {
+      const phoneNumberId = env.ELEVENLABS_PHONE_NUMBER_ID.trim();
+      if (!phoneNumberId) {
+        return {
+          externalConversationId: null,
+          accepted: false,
+          message: 'Live phone calling is not connected for this company yet.',
+        };
+      }
+
+      const cl = client();
+      const body = {
+        agentId: externalAgentId,
+        agentPhoneNumberId: phoneNumberId,
+        toNumber,
+      };
+
+      // Carrier choice stays inside this adapter. `india` → Exotel path; else Twilio.
+      const useIndiaPath = env.ELEVENLABS_OUTBOUND_PROVIDER === 'india';
+      const path = useIndiaPath ? 'india' : 'primary';
+      try {
+        const result = useIndiaPath
+          ? await cl.conversationalAi.exotel.outboundCall(body)
+          : await cl.conversationalAi.twilio.outboundCall(body);
+
+        const accepted = Boolean(result.success);
+        if (!accepted) {
+          const raw = (result.message || '').slice(0, 800);
+          logger.warn(
+            { path, raw, toLast4: toNumber.slice(-4) },
+            'voice.outbound_dial_failed',
+          );
+        }
+
+        return {
+          externalConversationId: result.conversationId ?? null,
+          accepted,
+          message: publicOutboundDialMessage({
+            success: accepted,
+            rawMessage: result.message || '',
+          }),
+        };
+      } catch (err) {
+        const raw = (err instanceof Error ? err.message : String(err)).slice(0, 800);
+        logger.warn(
+          { path, raw, toLast4: toNumber.slice(-4) },
+          'voice.outbound_dial_failed',
+        );
+        return {
+          externalConversationId: null,
+          accepted: false,
+          message: publicOutboundDialMessage({ success: false, rawMessage: raw }),
+        };
       }
     },
   };
@@ -299,12 +543,30 @@ export function createStubVoiceSessionAdapter(): VoiceSessionAdapter {
         summary: 'Stub conversation summary.',
         durationSeconds: 42,
         costCredits: null,
+        structuredAnswers: { experience_years: '2', notice_period: '30 days' },
+      };
+    },
+    async fetchConversationAudio(_externalConversationId: string) {
+      // Minimal valid-ish MPEG frame header bytes for tests (not playable music).
+      return {
+        body: Buffer.from([0xff, 0xfb, 0x90, 0x00, 0x00, 0x00, 0x00, 0x00]),
+        contentType: 'audio/mpeg',
       };
     },
     verifyWebhookSignature(_payload: string, _sig: string) {
       // Tests can control this by using the live adapter with a fake secret,
       // or by checking calls made to this method.
       return true;
+    },
+    isOutboundConfigured() {
+      return true;
+    },
+    async startOutboundPhoneCall({ externalAgentId, toNumber }) {
+      return {
+        externalConversationId: `stub-outbound-${externalAgentId}-${toNumber.replace(/\D/g, '').slice(-4)}`,
+        accepted: true,
+        message: 'Stub outbound accepted.',
+      };
     },
   };
 }

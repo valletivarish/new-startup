@@ -41,6 +41,9 @@ docker/postgres/data/
 .storage/
 apps/api/.storage/
 
+# Postgres dumps from scripts/backup.sh — may contain candidate PII.
+.backups/
+
 # Benchmark corpus and results.
 # Voice recordings and transcripts are personal data under the DPDP Act.
 # Manifests are committed; audio and run output never are.

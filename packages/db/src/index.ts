@@ -32,3 +32,9 @@ export {
 export type { PostgresJsDatabase as PlatformDatabase } from 'drizzle-orm/postgres-js';
 
 export { runMigrations } from './migrate.js';
+
+export {
+  backfillJobScreeningFromAgents,
+  runBackfillJobScreeningDml,
+  type BackfillJobScreeningResult,
+} from './backfill-job-screening-from-agents.js';

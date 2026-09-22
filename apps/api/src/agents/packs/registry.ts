@@ -15,7 +15,8 @@ export function listPacks(): PackDefinition[] {
 }
 
 export function listEnabledPacks(): PackDefinition[] {
-  return [getPack('hiring'), getPack('custom')];
+  // Day-one launch: hiring only. Other packs stay in the registry for later unlock.
+  return [getPack('hiring')];
 }
 
 export function getPack(id: AgentType): PackDefinition {

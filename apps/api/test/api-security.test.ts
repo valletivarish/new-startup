@@ -535,13 +535,26 @@ describe('invitation abuse', () => {
     expect(res.statusCode).toBe(404);
   });
 
-  it('the invitation API response never contains the raw token', async () => {
-    // Enforced inside inviteAndCaptureToken on every call already; this test
-    // exists so the property is named in the report.
+  it('create returns a one-time acceptUrl; list never repeats the raw token', async () => {
     const target = `no-leak-${Math.random()}@example.test`;
-    await expect(
-      inviteAndCaptureToken(api, ownerA, target, 'viewer'),
-    ).resolves.toBeTruthy();
+    const created = await api.request({
+      method: 'POST',
+      url: '/organization/invitations',
+      cookie: ownerA.cookie,
+      payload: { email: target, roleKey: 'viewer' },
+    });
+    expect(created.statusCode).toBe(201);
+    const body = JSON.parse(created.body) as { id: string; acceptUrl: string };
+    expect(body.acceptUrl).toMatch(/\/invitations\/accept\?token=[A-Za-z0-9_-]+/);
+
+    const listed = await api.request({
+      method: 'GET',
+      url: '/organization/invitations',
+      cookie: ownerA.cookie,
+    });
+    expect(listed.statusCode).toBe(200);
+    expect(listed.body).not.toMatch(/token=/);
+    expect(listed.body).not.toContain(body.acceptUrl);
   });
 });
 

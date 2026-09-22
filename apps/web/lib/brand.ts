@@ -1,32 +1,26 @@
 /**
- * Brand tokens — ai voice agent (locked mock: deep blue desk, India B2B).
- * Shared by landing + product chrome so later packs keep one face.
+ * Legacy brand object — maps to CSS design tokens in globals.css.
+ * Prefer CSS variables / Tailwind in new UI. Kept for pages still on inline styles.
  */
 
 export const brand = {
-  name: 'ai voice agent',
+  name: 'Hiring desk',
   colors: {
-    ink: '#020617',
-    inkMuted: '#475569',
+    ink: '#0c1222',
+    inkMuted: '#5c6578',
     paper: '#ffffff',
-    paperWash: '#f8fafc',
-    line: '#e2e8f0',
-    primary: '#1e40af',
-    primaryHover: '#1d4ed8',
-    primarySoft: '#eff6ff',
-    navy: '#0f172a',
-    navySoft: '#1e293b',
-    success: '#047857',
-    danger: '#b91c1c',
-    tileHiring: '#dbeafe',
-    tileSupport: '#d1fae5',
-    tileSales: '#fce7f3',
-    tileAppointments: '#e0e7ff',
-    tileReminders: '#ffedd5',
-    tileCustom: '#f3e8ff',
+    paperWash: '#f4f6f9',
+    line: '#e4e8ef',
+    primary: '#3b5bdb',
+    primaryHover: '#314fc4',
+    primarySoft: '#eef2ff',
+    navy: '#0c1222',
+    navySoft: '#1a2236',
+    success: '#0f7a4e',
+    danger: '#c0392b',
   },
   fonts: {
-    sans: '"Plus Jakarta Sans", system-ui, sans-serif',
+    sans: 'var(--font-body), system-ui, sans-serif',
   },
   radii: {
     control: 10,

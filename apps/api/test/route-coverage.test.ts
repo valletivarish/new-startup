@@ -38,6 +38,8 @@ import {
 import {
   VoiceDeploymentsController,
   VoiceSessionsController,
+  VoiceCallsController,
+  TelephonyStatusController,
   VoiceWebhookController,
 } from '../src/providers/elevenlabs/voice.controller.js';
 import { JobsController } from '../src/hiring/jobs.controller.js';
@@ -62,6 +64,8 @@ const CONTROLLERS = [
   // MVP-01 ElevenLabs browser-voice
   VoiceDeploymentsController,
   VoiceSessionsController,
+  VoiceCallsController,
+  TelephonyStatusController,
   VoiceWebhookController,
   JobsController,
   CandidatesController,
@@ -151,6 +155,7 @@ describe('every route declares its authorization requirement', () => {
     // present a session cookie — instead it is verified by HMAC-SHA256 signature
     // inside the handler itself.
     expect(publicRoutes).toEqual([
+      'AuthController.consoleResetLink',
       'HealthController.health',
       'VoiceWebhookController.webhook',
     ]);

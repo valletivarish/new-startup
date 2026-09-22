@@ -39,6 +39,20 @@ export interface OrganizationsService {
     readonly slug?: string;
   }): Promise<{ readonly id: string; readonly slug: string }>;
 
+  /**
+   * Guarantee the user has a company workspace.
+   * If they already belong to one, return the first (stable for single-org).
+   * Otherwise create one named `name` and return it.
+   */
+  ensureForUser(params: {
+    readonly userId: string;
+    readonly name: string;
+  }): Promise<{
+    readonly id: string;
+    readonly slug: string;
+    readonly created: boolean;
+  }>;
+
   get(organizationId: string): Promise<{
     readonly id: string;
     readonly name: string;
@@ -72,7 +86,7 @@ export function createOrganizationsService(
   database: Database,
   audit: AuditService,
 ): OrganizationsService {
-  return {
+  const service: OrganizationsService = {
     async listForUser(userId) {
       // Actor context: the membership policy exposes exactly this user's
       // rows. Organizations and system roles are globally readable.
@@ -148,6 +162,16 @@ export function createOrganizationsService(
       return { id, slug: finalSlug };
     },
 
+    async ensureForUser({ userId, name }) {
+      const existing = await service.listForUser(userId);
+      const first = existing[0];
+      if (first) {
+        return { id: first.id, slug: first.slug, created: false };
+      }
+      const created = await service.create({ userId, name });
+      return { id: created.id, slug: created.slug, created: true };
+    },
+
     async get(organizationId) {
       const rows = await withoutTenantContext(database.db, async (tx) =>
         tx.execute<{
@@ -161,7 +185,7 @@ export function createOrganizationsService(
         `),
       );
       const org = rows[0];
-      if (!org) throw ApiError.notFound('Organization');
+      if (!org) throw ApiError.notFound('Company');
       return org;
     },
 
@@ -213,8 +237,9 @@ export function createOrganizationsService(
       if (rows.length === 0) {
         // Same response whether the org does not exist or the user simply
         // is not in it — existence is not inferable (IDOR hygiene).
-        throw ApiError.notFound('Organization');
+        throw ApiError.notFound('Company');
       }
     },
   };
+  return service;
 }

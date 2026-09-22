@@ -1,0 +1,57 @@
+# Production overlay (ADR-006). Use with the base compose file:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+#     --profile app --profile tls up -d --build
+#
+# Requires strong secrets in the environment (no local_dev defaults).
+# Does not publish Postgres or app ports on the host — only Caddy 80/443.
+
+services:
+  postgres:
+    ports: !reset []
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_MIGRATOR_PASSWORD: ${POSTGRES_MIGRATOR_PASSWORD:?set POSTGRES_MIGRATOR_PASSWORD}
+      POSTGRES_APP_PASSWORD: ${POSTGRES_APP_PASSWORD:?set POSTGRES_APP_PASSWORD}
+
+  migrate:
+    environment:
+      DATABASE_MIGRATION_URL: postgresql://platform_migrator:${POSTGRES_MIGRATOR_PASSWORD:?}@postgres:5432/platform
+
+  api:
+    ports: !reset []
+    environment:
+      DATABASE_URL: postgresql://platform_app:${POSTGRES_APP_PASSWORD:?}@postgres:5432/platform
+      API_URL: ${API_URL:?set API_URL to https://your.domain}
+      WEB_URL: ${WEB_URL:?set WEB_URL to https://your.domain}
+      COOKIE_SECURE: "true"
+      TRUST_PROXY: "true"
+      RATE_LIMIT_MAX: ${RATE_LIMIT_MAX:-1200}
+      RATE_LIMIT_WINDOW_MS: ${RATE_LIMIT_WINDOW_MS:-60000}
+      NOTIFICATION_TRANSPORT: smtp
+      EMAIL_FROM: ${EMAIL_FROM:?set EMAIL_FROM}
+      SMTP_URL: ${SMTP_URL:?set SMTP_URL}
+      STORAGE_BACKEND: s3
+      S3_BUCKET: ${S3_BUCKET:?set S3_BUCKET}
+      S3_REGION: ${S3_REGION:-auto}
+      S3_ENDPOINT: ${S3_ENDPOINT:?set S3_ENDPOINT}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:?set S3_ACCESS_KEY_ID}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:?set S3_SECRET_ACCESS_KEY}
+      S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-false}
+
+  worker:
+    environment:
+      DATABASE_URL: postgresql://platform_app:${POSTGRES_APP_PASSWORD:?}@postgres:5432/platform
+      NOTIFICATION_TRANSPORT: smtp
+      EMAIL_FROM: ${EMAIL_FROM:?set EMAIL_FROM}
+      SMTP_URL: ${SMTP_URL:?set SMTP_URL}
+      STORAGE_BACKEND: s3
+      S3_BUCKET: ${S3_BUCKET:?set S3_BUCKET}
+      S3_REGION: ${S3_REGION:-auto}
+      S3_ENDPOINT: ${S3_ENDPOINT:?set S3_ENDPOINT}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:?set S3_ACCESS_KEY_ID}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:?set S3_SECRET_ACCESS_KEY}
+      S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-false}
+
+  web:
+    ports: !reset []

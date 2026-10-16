@@ -51,6 +51,30 @@ describe('OpenAPI document', () => {
     expect(missing).toEqual([]);
   });
 
+  it('gives every response a non-empty description and every $ref a target', () => {
+    const bad: string[] = [];
+    const schemas = doc.components.schemas as Record<string, unknown>;
+    const walkRefs = (n: unknown) => {
+      if (Array.isArray(n)) return n.forEach(walkRefs);
+      if (n && typeof n === 'object') {
+        for (const [k, v] of Object.entries(n)) {
+          if (k === '$ref' && typeof v === 'string' && v.startsWith('#/components/schemas/') && !(v.slice(21) in schemas)) bad.push(v);
+          walkRefs(v);
+        }
+      }
+    };
+    for (const [path, ops] of Object.entries(doc.paths)) {
+      for (const [method, o] of Object.entries(ops)) {
+        const responses = (o as { responses: Record<string, { description?: unknown }> }).responses;
+        for (const [status, r] of Object.entries(responses)) {
+          if (typeof r.description !== 'string' || r.description === '') bad.push(`${method} ${path} ${status}`);
+        }
+      }
+    }
+    walkRefs(doc);
+    expect(bad).toEqual([]);
+  });
+
   it('never mentions fitPercent as a property', () => {
     const found: string[] = [];
     const walk = (node: unknown, at: string) => {

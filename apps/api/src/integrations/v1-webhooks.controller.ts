@@ -12,15 +12,11 @@ import { ApiError } from '../errors.js';
 import { DATABASE } from '../tokens.js';
 import { WEBHOOKS_SERVICE } from '../tokens.more.js';
 import { parse } from '../validate.js';
-import { WEBHOOK_EVENTS } from './events.js';
+import { V1WebhookEndpointCreate } from './v1-schemas.js';
 import { withIdempotency } from './idempotency.js';
 import type { WebhooksService } from './webhooks.service.js';
 
 const Id = z.string().uuid();
-const EndpointCreate = z.object({
-  url: z.string().trim().min(1).max(2000),
-  events: z.array(z.enum(WEBHOOK_EVENTS)).min(1).transform((e) => [...new Set(e)]),
-});
 const DeliveryQuery = z.object({ status: z.enum(['pending', 'delivered', 'failed']).optional() });
 
 function actorOf(req: RequestWithAuth) {
@@ -56,7 +52,7 @@ export class V1WebhooksController {
     @Res({ passthrough: true }) reply: FastifyReply,
     @Body() body: unknown,
   ) {
-    const input = parse(EndpointCreate, body);
+    const input = parse(V1WebhookEndpointCreate, body);
     return this.write(req, reply, async () => ({
       status: 201,
       body: await this.webhooks.create(actorOf(req), input),

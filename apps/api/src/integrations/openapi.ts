@@ -6,7 +6,8 @@ import * as S from './v1-schemas.js';
 
 const schemas = {
   Error: S.V1Error, Job: S.V1Job, JobCreate: S.V1JobCreate, JobPatch: S.V1JobPatch,
-  Candidate: S.V1Candidate, CandidateCreate: S.V1CandidateCreate, CandidateBatch: S.V1CandidateBatch,
+  Candidate: S.V1Candidate, CandidateCreated: S.V1CandidateCreated,
+  CandidateBatchCreated: S.V1CandidateBatchCreated, CandidateCreate: S.V1CandidateCreate, CandidateBatch: S.V1CandidateBatch,
   Result: S.V1Result, Call: S.V1Call, Usage: S.V1Usage,
   WebhookEndpointCreate: S.V1WebhookEndpointCreate, WebhookEndpoint: S.V1WebhookEndpoint,
   WebhookEndpointCreated: S.V1WebhookEndpointCreated, WebhookDelivery: S.V1WebhookDelivery,
@@ -14,7 +15,7 @@ const schemas = {
   CandidateLinkSubmit: S.V1CandidateLinkSubmit,
 };
 // Requests are described by what a client may send (defaults optional); responses by what it gets.
-const INPUT = new Set(['JobCreate', 'JobPatch', 'CandidateCreate', 'CandidateBatch', 'CandidateLinkSubmit']);
+const INPUT = new Set(['WebhookEndpointCreate', 'JobCreate', 'JobPatch', 'CandidateCreate', 'CandidateBatch', 'CandidateLinkSubmit']);
 
 const ref = (n: string) => ({ $ref: `#/components/schemas/${n}` });
 const json = (schema: object) => ({ 'application/json': { schema } });
@@ -32,6 +33,7 @@ const ERRORS: Record<string, string> = {
   '403': 'forbidden: the key lacks the scope for this route.',
   '404': 'not_found.',
   '409': 'conflict, agent_required, idempotency_in_progress, delivery_in_progress or link_phone_conflict.',
+  '410': 'gone: the link expired or was already used.',
   '422': 'validation_failed, or consent_required when a candidate is created without "consent": true.',
   '429': 'rate_limited, or call_limit_reached / test_call_limit_reached (details.resetsAt is an ISO time).',
   '500': 'internal.',
@@ -134,9 +136,9 @@ export function buildOpenApi(): object {
           tag: 'Candidates', params: [jobId], write: true,
           body: { oneOf: [ref('CandidateCreate'), ref('CandidateBatch')] },
           ok: {
-            ...ok('201', 'Created (batch: {candidates: [...]}, each with `created`)', {
-              oneOf: [ref('Candidate'), obj({ candidates: { type: 'array', items: ref('Candidate') } })] }),
-            ...ok('200', 'Existing candidate updated by externalId', ref('Candidate')),
+            ...ok('201', 'Created (single candidate, or a batch)', {
+              oneOf: [ref('CandidateCreated'), ref('CandidateBatchCreated')] }),
+            ...ok('200', 'Existing candidate updated by externalId', ref('CandidateCreated')),
           },
           errors: ['404', '409', '422'] }),
       },

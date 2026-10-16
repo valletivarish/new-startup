@@ -107,10 +107,14 @@ export const V1Usage = z.object({
 
 export const V1WebhookEventType = z.enum(['call.completed', 'call.failed']);
 
+/** Shared by the controller (runtime) and OpenAPI (input side); events are de-duplicated. */
 export const V1WebhookEndpointCreate = z.object({
   url: z.string().trim().min(1).max(2000),
-  events: z.array(V1WebhookEventType).min(1),
+  events: z.array(V1WebhookEventType).min(1).transform((e) => [...new Set(e)]),
 });
+
+export const V1CandidateCreated = V1Candidate.extend({ created: z.boolean() });
+export const V1CandidateBatchCreated = z.object({ candidates: z.array(V1CandidateCreated) });
 
 export const V1WebhookEndpoint = z.object({
   id: z.string().uuid(),

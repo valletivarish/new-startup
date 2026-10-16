@@ -185,10 +185,11 @@ export function createCostService(database: Database, env: Env): CostService {
             job_id: string | null;
             candidate_id: string | null;
             channel: string | null;
+            is_test: boolean;
           }>(sql`
             select vs.status, vs.engine, vs.failure_reason, vs.duration_seconds,
                    vs.cost_credits::text, vs.transcript, vs.job_id, vs.candidate_id,
-                   s.channel
+                   s.channel, vs.is_test
             from voice_sessions vs
             left join agent_sessions s on s.id = vs.session_id
             where vs.id = ${voiceSessionId} and vs.organization_id = ${organizationId}
@@ -232,7 +233,11 @@ export function createCostService(database: Database, env: Env): CostService {
             providerCredits: num(vs.cost_credits),
           };
           const rates = await loadRates(tx);
-          const price = priceCall(usage, rates);
+          const priced = priceCall(usage, rates);
+          // Test-key calls are free: keep the usage, zero every cost.
+          const price = vs.is_test
+            ? { ...priced, telephony: 0, stt: 0, llm: 0, tts: 0, agent: 0, total: 0 }
+            : priced;
           const outcome = callOutcome(vs);
           const rateCard = JSON.stringify(rates);
 

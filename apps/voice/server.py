@@ -2,19 +2,26 @@
 
     GET /health          liveness
     WS  /voice/exotel    Exotel Voicebot stream (Caddy routes /voice/* here)
+    POST /internal/test-call   Nest only (x-voice-token): ring the fake line for a test call
 """
 
 from __future__ import annotations
 
 import asyncio
+import hmac
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, WebSocket
+from fastapi import FastAPI, Header, HTTPException, WebSocket
 from loguru import logger
 from pipecat.runner.utils import parse_telephony_websocket
+from pydantic import BaseModel, Field
 
 from bot import run_call
-from nest import fetch_plan, flush_spool
+from nest import TOKEN, fetch_plan, flush_spool
+from test_call import run_test_call
+
+# Strong refs: asyncio only keeps weak ones to running tasks.
+_test_calls: set[asyncio.Task] = set()
 
 
 async def _flush_forever():
@@ -41,6 +48,22 @@ app = FastAPI(lifespan=lifespan)
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+
+class TestCall(BaseModel):
+    callId: str = Field(pattern=r"^test-[0-9a-f-]{36}$")
+    language: str = Field(default="en", max_length=16)
+
+
+@app.post("/internal/test-call", status_code=202)
+async def test_call(body: TestCall, x_voice_token: str = Header(default="")):
+    # Like Nest's internal routes: without the shared secret the route does not exist.
+    if not TOKEN or not hmac.compare_digest(x_voice_token.encode(), TOKEN.encode()):
+        raise HTTPException(status_code=404)
+    task = asyncio.create_task(run_test_call(body.callId, body.language))
+    _test_calls.add(task)
+    task.add_done_callback(_test_calls.discard)
+    return {"status": "started"}
 
 
 @app.websocket("/voice/exotel")

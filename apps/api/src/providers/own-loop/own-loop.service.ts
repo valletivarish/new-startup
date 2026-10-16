@@ -8,10 +8,15 @@
  *                     we extract answers/summary and price the call.
  *   refreshCarrier    the carrier's status callback: final status, length and
  *                     billed price come from the carrier's API, never the body.
+ *   placeTestCall     a test-key call: the same session as a real own-loop call
+ *                     (is_test, id `test-<uuid>`), then apps/voice plays recorded
+ *                     candidate answers into it instead of Exotel dialing.
  *
  * Every lookup by call id runs under the conversation-id policy (0022); every
  * write runs under the session's own organization.
  */
+
+import { randomUUID } from 'node:crypto';
 
 import {
   sql,
@@ -23,6 +28,7 @@ import type { Env } from '../../config.js';
 import { ApiError } from '../../errors.js';
 import type { CostService, LoopUsage } from '../../costs/costs.service.js';
 import { extractScreeningResult } from '../../hiring/screening-extract.js';
+import type { VoiceSessionService } from '../elevenlabs/voice-session.service.js';
 
 const SYSTEM_ACTOR_ID = '00000000-0000-0000-0000-000000000000';
 /** A stream must open within this long of the dial, or the call id is stale. */
@@ -71,6 +77,16 @@ export interface OwnLoopService {
   getCallPlan(callId: string): Promise<CallPlan>;
   saveCallResult(callId: string, result: CallResult): Promise<void>;
   refreshCarrier(callId: string): Promise<void>;
+  placeTestCall(
+    actor: { organizationId: string; userId: string },
+    target: { jobId: string; candidateId: string },
+  ): Promise<{ voiceSessionId: string }>;
+}
+
+/** What placeTestCall needs: the shared session path and a way to reach apps/voice. */
+export interface TestLine {
+  voice: Pick<VoiceSessionService, 'startOutboundPhoneCall'>;
+  fetch?: typeof fetch;
 }
 
 type SessionRow = {
@@ -90,6 +106,7 @@ export function createOwnLoopService(
   carrier: CallCarrier | null,
   /** Call ended: emits the client webhook event. Must not throw. */
   onCallEnded: (organizationId: string, voiceSessionId: string) => Promise<void> = async () => {},
+  testLine: TestLine | null = null,
 ): OwnLoopService {
   async function lookup(callId: string): Promise<SessionRow | null> {
     if (!callId.trim()) return null;
@@ -199,6 +216,52 @@ export function createOwnLoopService(
       await costs.recordCallCost(row.organization_id, row.id, { usage: result.usage });
       await onCallEnded(row.organization_id, row.id);
       await priceWithCarrier(row, callId);
+    },
+
+    async placeTestCall(actor, { jobId, candidateId }) {
+      if (!testLine) throw ApiError.conflict('Test calls are not available on this deployment.');
+      const jobs = await withTenantContext(database.db, actor, (tx) =>
+        tx.execute<{ agent_id: string | null }>(sql`
+          select agent_id from jobs where id = ${jobId} and organization_id = ${actor.organizationId}
+        `),
+      );
+      if (!jobs[0]) throw ApiError.notFound('Job');
+      if (!jobs[0].agent_id) throw ApiError.agentRequired();
+
+      const callId = `test-${randomUUID()}`;
+      const { voiceSessionId } = await testLine.voice.startOutboundPhoneCall(actor, jobs[0].agent_id, {
+        jobId,
+        candidateId,
+        testCallId: callId,
+      });
+      const row = await lookup(callId);
+      const language = String(row?.provision_snapshot?.['screeningLanguage'] ?? 'en');
+
+      let started = false;
+      try {
+        const res = await (testLine.fetch ?? fetch)(
+          `${env.VOICE_SERVICE_URL.replace(/\/$/, '')}/internal/test-call`,
+          {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', 'x-voice-token': env.VOICE_INTERNAL_TOKEN },
+            body: JSON.stringify({ callId, language }),
+            signal: AbortSignal.timeout(5_000),
+          },
+        );
+        started = res.status === 202;
+      } catch {
+        /* voice service down: fail the session below */
+      }
+      if (!started) {
+        await asOrg(actor.organizationId, (tx) =>
+          tx.execute(sql`
+            update voice_sessions set status = 'failed', failure_reason = 'engine_error', ended_at = now()
+            where id = ${voiceSessionId} and organization_id = ${actor.organizationId}
+          `),
+        );
+        throw new ApiError('service_unavailable', 'The test line is not reachable. Retry shortly.');
+      }
+      return { voiceSessionId };
     },
 
     async refreshCarrier(callId) {

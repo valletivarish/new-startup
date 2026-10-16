@@ -59,7 +59,7 @@ export interface CallRequestsDeps {
   /** Public API base URL, for recording links. */
   apiUrl?: string;
   logger?: { warn(obj: object, msg: string): void };
-  /** Task 8: test-key placement on the fake line. Unwired → `test_mode_unavailable`. */
+  /** Test-key placement on the fake line (OwnLoopService.placeTestCall). Unwired → `test_mode_unavailable`. */
   placeTest?: (
     actor: CallActor,
     target: { jobId: string; candidateId: string },

@@ -6,6 +6,8 @@ long the agent took to start replying after each line.
 
     python fake_exotel.py --url ws://localhost:8765/voice/exotel --call-id <CallSid> \
         --lang en "Thirty days." "Twelve lakhs per annum." "Yes, I can join in November."
+
+    python fake_exotel.py --save-clips   # (re)make test_clips/ for test-mode calls
 """
 
 from __future__ import annotations
@@ -18,6 +20,7 @@ import json
 import os
 import time
 import wave
+from pathlib import Path
 
 import httpx
 import websockets
@@ -26,6 +29,23 @@ RATE = 8000
 FRAME_MS = 20
 FRAME_BYTES = RATE * 2 * FRAME_MS // 1000  # pcm16 mono
 SILENCE = b"\x00" * FRAME_BYTES
+CLIPS_DIR = Path(__file__).parent / "test_clips"
+
+# Neutral candidate answers for test-mode calls: notice period, CTC, joining date, close.
+TEST_ANSWERS = {
+    "en": [
+        "My notice period is thirty days.",
+        "My current CTC is six lakhs per annum, and I am expecting around seven and a half.",
+        "I can join from the first of next month.",
+        "No questions from my side. Thank you.",
+    ],
+    "hi": [
+        "मेरा नोटिस पीरियड तीस दिन का है।",
+        "मेरा अभी का सीटीसी छह लाख सालाना है, और मुझे लगभग साढ़े सात लाख की उम्मीद है।",
+        "मैं अगले महीने की पहली तारीख से जॉइन कर सकती हूँ।",
+        "मेरी तरफ़ से कोई सवाल नहीं है। धन्यवाद।",
+    ],
+}
 
 
 def synth(text: str, lang: str) -> bytes:
@@ -47,8 +67,23 @@ def synth(text: str, lang: str) -> bytes:
         return w.readframes(w.getnframes())
 
 
-async def run(url: str, call_id: str, lines: list[str], lang: str, max_seconds: float) -> dict:
-    clips = [synth(line, lang) for line in lines]
+def save_clips() -> None:
+    for lang, lines in TEST_ANSWERS.items():
+        (CLIPS_DIR / lang).mkdir(parents=True, exist_ok=True)
+        for i, line in enumerate(lines, 1):
+            with wave.open(str(CLIPS_DIR / lang / f"answer_{i}.wav"), "wb") as w:
+                w.setnchannels(1)
+                w.setsampwidth(2)
+                w.setframerate(RATE)
+                w.writeframes(synth(line, lang))
+
+
+async def run(
+    url: str, call_id: str, lines: list[str], lang: str, max_seconds: float, clips: list[bytes] | None = None
+) -> dict:
+    """Play `clips` (pcm16 8 kHz mono) if given, else synthesise `lines`."""
+    if clips is None:
+        clips = [synth(line, lang) for line in lines]
     stream_sid = f"fake-stream-{call_id}"
     last_agent_audio = 0.0
     agent_audio_frames = 0
@@ -136,16 +171,22 @@ async def run(url: str, call_id: str, lines: list[str], lang: str, max_seconds: 
     return {
         "agentAudioSeconds": round(agent_audio_frames * FRAME_MS / 1000, 1),
         "replyMs": [round(x) for x in replies_ms],
-        "linesSent": len(lines),
+        "linesSent": len(clips),
     }
 
 
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
-    p.add_argument("--url", required=True)
-    p.add_argument("--call-id", required=True)
+    p.add_argument("--save-clips", action="store_true")
+    p.add_argument("--url")
+    p.add_argument("--call-id")
     p.add_argument("--lang", default="en")
     p.add_argument("--max-seconds", type=float, default=150)
-    p.add_argument("lines", nargs="+")
+    p.add_argument("lines", nargs="*")
     a = p.parse_args()
+    if a.save_clips:
+        save_clips()
+        raise SystemExit(0)
+    if not (a.url and a.call_id and a.lines):
+        p.error("--url, --call-id and at least one line are required")
     print(json.dumps(asyncio.run(run(a.url, a.call_id, a.lines, a.lang, a.max_seconds)), indent=2))

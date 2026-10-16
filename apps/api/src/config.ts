@@ -207,6 +207,8 @@ const EnvSchema = z.object({
     .transform((v) => v === 'true'),
   /** Shared secret between apps/voice and the internal routes. */
   VOICE_INTERNAL_TOKEN: z.string().default(''),
+  /** apps/voice base URL, for starting test calls on the fake line. */
+  VOICE_SERVICE_URL: z.string().default('http://voice:8765'),
   /** Hard cap on one own-loop call. */
   VOICE_MAX_CALL_SECONDS: z.coerce.number().int().min(60).max(1800).default(480),
   /** Voices for the own-loop arms. */

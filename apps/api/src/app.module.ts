@@ -372,8 +372,11 @@ export class AppModule {
         },
         {
           provide: OWN_LOOP_SERVICE,
-          inject: [COST_SERVICE],
-          useFactory: (costs: ReturnType<typeof createCostService>) => {
+          inject: [COST_SERVICE, VOICE_SESSION_SERVICE],
+          useFactory: (
+            costs: ReturnType<typeof createCostService>,
+            voice: ReturnType<typeof createVoiceSessionService>,
+          ) => {
             const exotel = createExotelClient(deps.env);
             return createOwnLoopService(
               deps.database,
@@ -381,6 +384,7 @@ export class AppModule {
               costs,
               exotel.isConfigured() ? exotelCarrier(exotel) : null,
               onCallEnded,
+              { voice },
             );
           },
         },
@@ -441,15 +445,17 @@ export class AppModule {
           // The API process runs the call worker: placing a call needs the
           // voice service, which lives here. Null queue (tests) → no worker.
           provide: CALL_REQUESTS_SERVICE,
-          inject: [VOICE_SESSION_SERVICE, JOBS_SERVICE],
+          inject: [VOICE_SESSION_SERVICE, JOBS_SERVICE, OWN_LOOP_SERVICE],
           useFactory: async (
             voice: ReturnType<typeof createVoiceSessionService>,
             jobs: ReturnType<typeof createJobsService>,
+            ownLoop: ReturnType<typeof createOwnLoopService>,
           ) => {
             const service = createCallRequestsService({
               database: deps.database,
               voice,
               jobs,
+              placeTest: ownLoop.placeTestCall,
               queue: deps.jobs,
               logger: deps.logger,
               apiUrl: deps.env.API_URL,

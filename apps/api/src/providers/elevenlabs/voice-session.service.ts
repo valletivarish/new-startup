@@ -182,8 +182,13 @@ export interface VoiceSessionService {
   startOutboundPhoneCall(
     actor: Actor,
     agentId: string,
-    /** `now` is the clock the call limits are evaluated at (default: real time). */
-    options: { jobId: string; candidateId: string; now?: Date },
+    /**
+     * `now` is the clock the call limits are evaluated at (default: real time).
+     * `testCallId`: a test-key call on the fake line — always the own loop
+     * (Sarvam voice), is_test, no limits, no phone needed, and no dial: the
+     * session goes live under this id and the caller starts the fake line.
+     */
+    options: { jobId: string; candidateId: string; now?: Date; testCallId?: string },
   ): Promise<{ voiceSessionId: string; voiceSession: VoiceSessionResult }>;
 
   /** Whether live outbound dialing is configured for this deployment. */
@@ -1060,9 +1065,10 @@ export function createVoiceSessionService(
 
     async startOutboundPhoneCall(actor, agentId, options) {
       guardEnabled();
-      // Company call limits (org_call_limits) cover dashboard and /v1 calls alike.
-      await assertWithinLimits(database, actor.organizationId, options.now ?? new Date());
-      const { jobId, candidateId } = options;
+      const { jobId, candidateId, testCallId } = options;
+      const isTest = testCallId !== undefined;
+      // Company call limits (org_call_limits) cover dashboard and /v1 calls alike; test calls are free.
+      if (!isTest) await assertWithinLimits(database, actor.organizationId, options.now ?? new Date());
 
       // Which engine runs this job's calls (admin-set per job; kill switch → baseline).
       const engineRows = await withTenantContext(
@@ -1074,13 +1080,14 @@ export function createVoiceSessionService(
             where id = ${jobId} and organization_id = ${actor.organizationId}
           `),
       );
-      const engine: VoiceEngine =
-        env.VOICE_OWN_LOOP_ENABLED && engineRows[0]?.voice_engine
+      const engine: VoiceEngine = isTest
+        ? 'own_loop_sarvam_voice'
+        : env.VOICE_OWN_LOOP_ENABLED && engineRows[0]?.voice_engine
           ? engineRows[0].voice_engine
           : 'elevenlabs_agent';
       const ownLoop = engine !== 'elevenlabs_agent';
 
-      if (ownLoop ? !exotel?.isConfigured() : !adapter.isOutboundConfigured()) {
+      if (!isTest && (ownLoop ? !exotel?.isConfigured() : !adapter.isOutboundConfigured())) {
         throw ApiError.conflict(
           'Live phone calling is not connected for this company yet. Use a browser screen for now, or ask us to connect a phone line.',
         );
@@ -1198,7 +1205,8 @@ export function createVoiceSessionService(
           `);
           const candidate = candidateRows[0];
           if (!candidate) throw ApiError.notFound('Job candidate');
-          if (!candidate.phone) {
+          // The fake line never dials, so a test candidate needs no number.
+          if (!candidate.phone && !isTest) {
             throw ApiError.validation([
               {
                 field: 'phone',
@@ -1206,8 +1214,8 @@ export function createVoiceSessionService(
               },
             ]);
           }
-          const e164 = toE164Phone(candidate.phone);
-          if (!e164) {
+          const e164 = candidate.phone ? toE164Phone(candidate.phone) : null;
+          if (!e164 && !isTest) {
             throw ApiError.validation([
               {
                 field: 'phone',
@@ -1246,11 +1254,11 @@ export function createVoiceSessionService(
           const vsRows = await tx.execute<VoiceSessionRecord>(sql`
             insert into voice_sessions
               (organization_id, session_id, deployment_id, provider, engine, status,
-               job_id, candidate_id, provision_snapshot)
+               job_id, candidate_id, provision_snapshot, is_test)
             values (
               ${actor.organizationId}, ${localSessionId}, ${deploymentId},
               ${ownLoop ? 'own_loop' : 'elevenlabs'}, ${engine}, 'pending',
-              ${jobId}, ${candidateId}, ${snapshotJson}::jsonb
+              ${jobId}, ${candidateId}, ${snapshotJson}::jsonb, ${isTest}
             )
             returning id, organization_id, session_id, deployment_id, provider,
                       external_conversation_id, status,
@@ -1267,9 +1275,11 @@ export function createVoiceSessionService(
 
       let dial: { accepted: boolean; externalConversationId: string | null; message?: string };
       try {
-        if (ownLoop) {
+        if (isTest) {
+          dial = { accepted: true, externalConversationId: testCallId };
+        } else if (ownLoop) {
           const call = await exotel!.connectCall({
-            to: prepared.e164,
+            to: prepared.e164!,
             statusCallbackUrl: `${env.API_URL.replace(/\/$/, '')}/webhooks/exotel`,
             timeLimitSeconds: env.VOICE_MAX_CALL_SECONDS + 60,
           });
@@ -1277,7 +1287,7 @@ export function createVoiceSessionService(
         } else {
           dial = await adapter.startOutboundPhoneCall({
             externalAgentId: externalAgentId!,
-            toNumber: prepared.e164,
+            toNumber: prepared.e164!,
           });
         }
       } catch (err) {

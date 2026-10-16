@@ -29,6 +29,7 @@ function actorOf(req: RequestWithAuth) {
     organizationId: ctx.organization.organizationId,
     userId: ctx.userId,
     isTest: ctx.apiKey?.mode === 'test',
+    pii: ctx.organization.permissions.has('candidates.read_pii'),
   };
 }
 
@@ -135,34 +136,26 @@ export class V1JobsController {
     const a = actorOf(req);
 
     return this.write(req, reply, async () => {
-      const out: (ReturnType<typeof toV1Candidate> & { created: boolean })[] = [];
-      // ponytail: items commit one by one; a failure mid-batch keeps earlier ones
-      // (externalId makes a retry safe). One transaction if all-or-nothing is needed.
-      for (const c of items) {
-        const fields = {
+      const results = await this.candidates.createBatch(
+        a,
+        items.map((c) => ({
           jobId,
           fullName: c.fullName,
           countryCode: c.countryCode,
           ...(c.phone ? { phone: c.phone } : {}),
           ...(c.email ? { email: c.email } : {}),
           ...(c.resumeText ? { resumeText: c.resumeText } : {}),
-        };
-        const res = c.externalId
-          ? await this.candidates.upsertByExternalId(a, {
-              ...fields,
-              externalId: c.externalId,
-              consentSource: 'customer',
-              isTest: a.isTest,
-            })
-          : {
-              created: true,
-              ...(await this.candidates.create(a, {
-                ...fields,
-                consentSource: 'customer',
-                isTest: a.isTest,
-              })),
-            };
-        out.push({ ...toV1Candidate(await this.candidates.get(a, res.id)), created: res.created });
+          ...(c.externalId ? { externalId: c.externalId } : {}),
+          consentSource: 'customer' as const,
+          isTest: a.isTest,
+        })),
+      );
+      const out = [];
+      for (const r of results) {
+        out.push({
+          ...toV1Candidate(await this.candidates.get(a, r.id), a.pii),
+          created: r.created,
+        });
       }
       return isBatch
         ? { status: 201, body: { candidates: out } }
@@ -178,12 +171,13 @@ export class V1JobsController {
     @Query() query: unknown,
   ) {
     const q = parse(PaginationQuery, query);
-    const page = await this.candidates.listPage(actorOf(req), {
+    const a = actorOf(req);
+    const page = await this.candidates.listPage(a, {
       jobId: parse(Id, jobId),
       limit: q.limit,
       ...(q.cursor ? { cursor: q.cursor } : {}),
     });
-    return { candidates: page.candidates.map(toV1Candidate), nextCursor: page.nextCursor };
+    return { candidates: page.candidates.map((c) => toV1Candidate(c, a.pii)), nextCursor: page.nextCursor };
   }
 
   @Get(':jobId/candidates/:id')
@@ -193,8 +187,9 @@ export class V1JobsController {
     @Param('jobId') jobId: string,
     @Param('id') id: string,
   ) {
-    const row = await this.candidates.get(actorOf(req), parse(Id, id));
+    const a = actorOf(req);
+    const row = await this.candidates.get(a, parse(Id, id));
     if (row.jobId !== parse(Id, jobId)) throw ApiError.notFound('Candidate');
-    return toV1Candidate(row);
+    return toV1Candidate(row, a.pii);
   }
 }

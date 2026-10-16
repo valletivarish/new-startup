@@ -70,6 +70,17 @@ export interface CandidatesService {
       isTest: boolean;
     },
   ): Promise<{ id: string; created: boolean }>;
+  /**
+   * All-or-nothing batch of upserts/creates in one transaction. A failing item
+   * aborts everything; the error message names its index.
+   */
+  createBatch(
+    actor: Actor,
+    items: readonly (Parameters<CandidatesService['create']>[1] & {
+      consentSource: 'customer' | 'candidate';
+      isTest: boolean;
+    })[],
+  ): Promise<{ id: string; created: boolean }[]>;
   /** Keyset-paginated list (created_at, id ascending). */
   listPage(
     actor: Actor,
@@ -241,6 +252,44 @@ export function createCandidatesService(database: Database): CandidatesService {
     }
   }
 
+  async function upsertInTx(
+    tx: Parameters<Parameters<typeof withTenantContext>[2]>[0],
+    actor: Actor,
+    input: Parameters<CandidatesService['upsertByExternalId']>[1],
+  ): Promise<{ id: string; created: boolean }> {
+    await assertJob(tx, actor, input.jobId);
+    const found = await tx.execute<{ id: string }>(sql`
+      select id from candidates
+      where organization_id = ${actor.organizationId}
+        and job_id = ${input.jobId}
+        and external_id = ${input.externalId}
+      for update
+    `);
+    const existing = found[0];
+    if (!existing) {
+      const { id } = await insertCandidate(tx, actor, input);
+      return { id, created: true };
+    }
+    try {
+      await tx.execute(sql`
+        update candidates set
+          full_name = ${input.fullName},
+          phone = coalesce(${input.phone?.trim() || null}, phone),
+          country_code = coalesce(${input.phone ? input.countryCode : null}, country_code),
+          email = coalesce(${input.email ?? null}, email),
+          resume_text = coalesce(${input.resumeText ?? null}, resume_text),
+          updated_at = now()
+        where id = ${existing.id} and organization_id = ${actor.organizationId}
+      `);
+    } catch (error) {
+      if ((error as { cause?: { code?: string } }).cause?.code === '23505') {
+        throw dupPhone();
+      }
+      throw error;
+    }
+    return { id: existing.id, created: false };
+  }
+
   return {
     async list(actor, options) {
       const rows = await withTenantContext(
@@ -282,38 +331,31 @@ export function createCandidatesService(database: Database): CandidatesService {
       return withTenantContext(
         database.db,
         { organizationId: actor.organizationId, userId: actor.userId },
+        (tx) => upsertInTx(tx, actor, input),
+      );
+    },
+
+    async createBatch(actor, items) {
+      return withTenantContext(
+        database.db,
+        { organizationId: actor.organizationId, userId: actor.userId },
         async (tx) => {
-          await assertJob(tx, actor, input.jobId);
-          const found = await tx.execute<{ id: string }>(sql`
-            select id from candidates
-            where organization_id = ${actor.organizationId}
-              and job_id = ${input.jobId}
-              and external_id = ${input.externalId}
-            for update
-          `);
-          const existing = found[0];
-          if (!existing) {
-            const { id } = await insertCandidate(tx, actor, input);
-            return { id, created: true };
-          }
-          try {
-            await tx.execute(sql`
-              update candidates set
-                full_name = ${input.fullName},
-                phone = coalesce(${input.phone?.trim() || null}, phone),
-                country_code = coalesce(${input.phone ? input.countryCode : null}, country_code),
-                email = coalesce(${input.email ?? null}, email),
-                resume_text = coalesce(${input.resumeText ?? null}, resume_text),
-                updated_at = now()
-              where id = ${existing.id} and organization_id = ${actor.organizationId}
-            `);
-          } catch (error) {
-            if ((error as { cause?: { code?: string } }).cause?.code === '23505') {
-              throw dupPhone();
+          const out: { id: string; created: boolean }[] = [];
+          for (const [i, item] of items.entries()) {
+            try {
+              out.push(
+                item.externalId
+                  ? await upsertInTx(tx, actor, { ...item, externalId: item.externalId })
+                  : { created: true, id: (await insertCandidate(tx, actor, item)).id },
+              );
+            } catch (error) {
+              if (error instanceof ApiError) {
+                throw new ApiError(error.code, `candidates[${i}]: ${error.message}`, error.fields);
+              }
+              throw error;
             }
-            throw error;
           }
-          return { id: existing.id, created: false };
+          return out;
         },
       );
     },

@@ -38,15 +38,16 @@ export function toV1Job(row: JobRow): V1Job {
   };
 }
 
-export function toV1Candidate(row: CandidateRow): V1Candidate {
+/** Without `allowPii` (candidates.read_pii) phone, email and countryCode are null. */
+export function toV1Candidate(row: CandidateRow, allowPii: boolean): V1Candidate {
   return {
     id: row.id,
     jobId: row.jobId,
     externalId: row.externalId,
     fullName: row.fullName,
-    phone: row.phone,
-    countryCode: row.countryCode,
-    email: row.email,
+    phone: allowPii ? row.phone : null,
+    countryCode: allowPii ? row.countryCode : null,
+    email: allowPii ? row.email : null,
     status: row.screeningStatus,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,

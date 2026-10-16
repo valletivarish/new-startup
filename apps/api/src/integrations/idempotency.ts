@@ -2,8 +2,6 @@
  * `Idempotency-Key` support for /v1 writes. The same key + method + path within
  * 24 h replays the stored status and body instead of running the handler again.
  * Only successful responses are stored; errors can be retried freely.
- * ponytail: two truly concurrent first requests with one key can both run;
- * add an advisory lock if clients retry in parallel.
  */
 
 import { sql, withTenantContext, type Database } from '@platform/db';
@@ -33,25 +31,27 @@ export async function withIdempotency(
   const method = req.method;
   const path = req.url.split('?')[0]!;
 
-  const hit = await withTenantContext(database.db, ctx, (tx) =>
-    tx.execute<{ status: number; body: unknown }>(sql`
+  // One transaction holds an advisory lock on the key for lookup + handler + store,
+  // so a concurrent request with the same key waits, then replays.
+  const lock = `${ctx.organizationId}:${key}:${method}:${path}`;
+  return withTenantContext(database.db, ctx, async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${lock}))`);
+    const hit = await tx.execute<{ status: number; body: unknown }>(sql`
       select status, body from idempotency_keys
       where organization_id = ${ctx.organizationId} and key = ${key}
         and method = ${method} and path = ${path}
         and created_at > now() - interval '24 hours'
-    `),
-  );
-  if (hit[0]) return { status: hit[0].status, body: hit[0].body };
+    `);
+    if (hit[0]) return { status: hit[0].status, body: hit[0].body };
 
-  const result = await handler();
-  await withTenantContext(database.db, ctx, (tx) =>
-    tx.execute(sql`
+    const result = await handler();
+    await tx.execute(sql`
       insert into idempotency_keys (organization_id, key, method, path, status, body)
       values (${ctx.organizationId}, ${key}, ${method}, ${path}, ${result.status},
               ${JSON.stringify(result.body)}::jsonb)
       on conflict (organization_id, key, method, path)
       do update set status = excluded.status, body = excluded.body, created_at = now()
-    `),
-  );
-  return result;
+    `);
+    return result;
+  });
 }

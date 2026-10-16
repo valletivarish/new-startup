@@ -4,6 +4,8 @@ import { sql, withoutTenantContext } from '@platform/db';
 
 import { superDatabase } from './setup/fixtures.js';
 import {
+  acceptInvitation,
+  inviteAndCaptureToken,
   createOrganization,
   registerUser,
   startApi,
@@ -199,6 +201,70 @@ describe('/v1 jobs and candidates', () => {
     expect(JSON.parse(b.body)).toEqual(JSON.parse(a.body));
     const all = JSON.parse((await v1(liveKey, 'GET', `${path}?limit=200`)).body).candidates;
     expect(all.filter((c: { fullName: string }) => c.fullName === 'Idem')).toHaveLength(1);
+  });
+
+  it('creates nothing when one batch item fails, and a corrected retry creates all', async () => {
+    const path = `/v1/jobs/${jobId}/candidates`;
+    const mk = (n: number, phone: string) => ({ fullName: `Atomic ${n}`, phone, consent: true });
+    const bad = await v1(liveKey, 'POST', path, {
+      candidates: [mk(1, '9000000401'), mk(2, '9000000402'), mk(3, '9000000200')],
+    });
+    expect(bad.statusCode).toBe(409);
+    expect(JSON.parse(bad.body).message).toContain('candidates[2]');
+    const count = async () =>
+      (JSON.parse((await v1(liveKey, 'GET', `${path}?limit=200`)).body).candidates as { fullName: string }[])
+        .filter((c) => c.fullName.startsWith('Atomic')).length;
+    expect(await count()).toBe(0);
+
+    const ok = await v1(liveKey, 'POST', path, {
+      candidates: [mk(1, '9000000401'), mk(2, '9000000402'), mk(3, '9000000403')],
+    });
+    expect(ok.statusCode, ok.body).toBe(201);
+    expect(await count()).toBe(3);
+  });
+
+  it('runs concurrent requests with one Idempotency-Key once', async () => {
+    const path = `/v1/jobs/${jobId}/candidates`;
+    const headers = { 'idempotency-key': 'idem-race' };
+    const payload = { fullName: 'Race', phone: '9000000500', consent: true };
+    const [a, b] = await Promise.all([
+      v1(liveKey, 'POST', path, payload, headers),
+      v1(liveKey, 'POST', path, payload, headers),
+    ]);
+    expect([a.statusCode, b.statusCode]).toEqual([201, 201]);
+    expect(JSON.parse(a.body).id).toBe(JSON.parse(b.body).id);
+  });
+
+  it('hides phone, email and country code from a key whose creator lacks candidates.read_pii', async () => {
+    const admin = await registerUser(api, 'v1jobs-admin');
+    const token = await inviteAndCaptureToken(api, owner, admin.email, 'administrator');
+    expect((await acceptInvitation(api, admin, token)).statusCode).toBe(201);
+    const key = await mintKey(admin, 'live');
+    const path = `/v1/jobs/${jobId}/candidates`;
+    const before = await v1(key, 'POST', path, { fullName: 'Pii', phone: '9000000600', consent: true });
+    expect(JSON.parse(before.body)).toMatchObject({ phone: '9000000600' });
+
+    // Downgrade the creator to analyst (read-only, no contact details).
+    const db = superDatabase();
+    try {
+      await withoutTenantContext(db.db, (tx) =>
+        tx.execute(sql`
+          update organization_memberships m set role_id = r.id
+          from roles r, users u
+          where u.email = ${admin.email} and m.user_id = u.id
+            and r.organization_id is null and r.key = 'analyst'
+        `),
+      );
+    } finally {
+      await db.close();
+    }
+    const list = JSON.parse((await v1(key, 'GET', `${path}?limit=200`)).body);
+    expect(list.candidates.length).toBeGreaterThan(0);
+    for (const c of list.candidates) {
+      expect([c.phone, c.email, c.countryCode]).toEqual([null, null, null]);
+    }
+    const one = JSON.parse((await v1(key, 'GET', `${path}/${list.candidates[0].id}`)).body);
+    expect([one.phone, one.email, one.countryCode]).toEqual([null, null, null]);
   });
 
   it("another company's key cannot see the job", async () => {

@@ -42,7 +42,7 @@ function canReadPii(req: RequestWithAuth): boolean {
   return ctx.organization.permissions.has('candidates.read_pii');
 }
 
-type PublicCandidate = Omit<CandidateRow, 'phone' | 'email' | 'resumeText'>;
+type PublicCandidate = Omit<CandidateRow, 'phone' | 'email' | 'resumeText' | 'externalId'>;
 
 function toPublicCandidate(row: CandidateRow): PublicCandidate {
   return {

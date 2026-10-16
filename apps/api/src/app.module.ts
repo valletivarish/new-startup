@@ -110,6 +110,7 @@ import { createCandidatesService } from './hiring/candidates.service.js';
 import { createApiKeysService } from './integrations/api-keys.service.js';
 import { ApiKeysController } from './integrations/api-keys.controller.js';
 import { V1PingController } from './integrations/v1-ping.controller.js';
+import { V1JobsController } from './integrations/v1-jobs.controller.js';
 
 export interface AppDeps {
   readonly env: Env;
@@ -158,6 +159,7 @@ export class AppModule {
         ExotelWebhookController,
         ApiKeysController,
         V1PingController,
+        V1JobsController,
       ],
       providers: [
         { provide: ENV, useValue: deps.env },

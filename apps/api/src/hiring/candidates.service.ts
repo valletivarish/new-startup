@@ -1,6 +1,7 @@
 import { sql, withTenantContext, type Database } from '@platform/db';
 
 import { ApiError } from '../errors.js';
+import { decodeCursor, encodeCursor } from '../pagination.js';
 import { extractPhonesFromText } from './phone-extract.js';
 import {
   previewCandidateImport,
@@ -23,6 +24,7 @@ export interface CandidateRow {
   readonly email: string | null;
   readonly resumeText: string | null;
   readonly source: string;
+  readonly externalId: string | null;
   readonly screeningStatus: string;
   readonly createdAt: string;
   readonly updatedAt: string;
@@ -44,8 +46,35 @@ export interface CandidatesService {
       countryCode: string;
       email?: string;
       resumeText?: string;
+      externalId?: string;
+      /** Set when consent was recorded; stamps consent_at = now(). */
+      consentSource?: 'customer' | 'candidate';
+      isTest?: boolean;
     },
   ): Promise<{ id: string; phone: string; phoneFromResume: boolean }>;
+  /**
+   * Insert, or update the existing candidate with the same externalId on this
+   * job (name and any provided contact fields). Used by /v1 syncs.
+   */
+  upsertByExternalId(
+    actor: Actor,
+    input: {
+      jobId: string;
+      externalId: string;
+      fullName: string;
+      phone?: string;
+      countryCode: string;
+      email?: string;
+      resumeText?: string;
+      consentSource: 'customer' | 'candidate';
+      isTest: boolean;
+    },
+  ): Promise<{ id: string; created: boolean }>;
+  /** Keyset-paginated list (created_at, id ascending). */
+  listPage(
+    actor: Actor,
+    options: { jobId: string; limit: number; cursor?: string },
+  ): Promise<{ candidates: readonly CandidateRow[]; nextCursor: string | null }>;
   update(
     actor: Actor,
     candidateId: string,
@@ -88,6 +117,7 @@ type CandidateRecord = {
   email: string | null;
   resume_text: string | null;
   source: string;
+  external_id: string | null;
   screening_status: string;
   created_at: string;
   updated_at: string;
@@ -103,6 +133,7 @@ function toCandidate(r: CandidateRecord): CandidateRow {
     email: r.email,
     resumeText: r.resume_text,
     source: r.source,
+    externalId: r.external_id,
     screeningStatus: r.screening_status,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
@@ -148,7 +179,7 @@ export function createCandidatesService(database: Database): CandidatesService {
     forUpdate = false,
   ): Promise<CandidateRecord> {
     const rows = await tx.execute<CandidateRecord>(sql`
-      select id, job_id, full_name, phone, country_code, email, resume_text, source,
+      select id, job_id, full_name, phone, country_code, email, resume_text, source, external_id,
              screening_status, created_at::text, updated_at::text
       from candidates
       where id = ${candidateId} and organization_id = ${actor.organizationId}
@@ -171,6 +202,45 @@ export function createCandidatesService(database: Database): CandidatesService {
     if (rows.length === 0) throw ApiError.notFound('Job');
   }
 
+  const dupPhone = () =>
+    ApiError.conflict('A candidate with this phone already exists on this job');
+
+  async function insertCandidate(
+    tx: Parameters<Parameters<typeof withTenantContext>[2]>[0],
+    actor: Actor,
+    input: Parameters<CandidatesService['create']>[1],
+  ): Promise<{ id: string; phone: string; phoneFromResume: boolean }> {
+    const { phone, source, phoneFromResume } = resolveCreateFields(input);
+    const countryCode = input.countryCode.trim() || '+91';
+    await assertJob(tx, actor, input.jobId);
+    try {
+      const rows = await tx.execute<{ id: string }>(sql`
+        insert into candidates
+          (organization_id, job_id, full_name, phone, country_code,
+           email, resume_text, source, screening_status,
+           external_id, consent_at, consent_source, is_test)
+        values (
+          ${actor.organizationId}, ${input.jobId}, ${input.fullName},
+          ${phone}, ${countryCode},
+          ${input.email ?? null}, ${input.resumeText ?? null},
+          ${source}, 'new',
+          ${input.externalId ?? null},
+          ${input.consentSource ? sql`now()` : sql`null`},
+          ${input.consentSource ?? null}, ${input.isTest ?? false}
+        )
+        returning id
+      `);
+      const id = rows[0]?.id;
+      if (!id) throw new Error('candidate insert returned no id');
+      return { id, phone, phoneFromResume };
+    } catch (error) {
+      if ((error as { cause?: { code?: string } }).cause?.code === '23505') {
+        throw dupPhone();
+      }
+      throw error;
+    }
+  }
+
   return {
     async list(actor, options) {
       const rows = await withTenantContext(
@@ -179,7 +249,7 @@ export function createCandidatesService(database: Database): CandidatesService {
         async (tx) => {
           await assertJob(tx, actor, options.jobId);
           return tx.execute<CandidateRecord>(sql`
-            select id, job_id, full_name, phone, country_code, email, resume_text, source,
+            select id, job_id, full_name, phone, country_code, email, resume_text, source, external_id,
                    screening_status, created_at::text, updated_at::text
             from candidates
             where organization_id = ${actor.organizationId}
@@ -201,41 +271,81 @@ export function createCandidatesService(database: Database): CandidatesService {
     },
 
     async create(actor, input) {
-      const { phone, source, phoneFromResume } = resolveCreateFields(input);
-      const countryCode = input.countryCode.trim() || '+91';
+      return withTenantContext(
+        database.db,
+        { organizationId: actor.organizationId, userId: actor.userId },
+        (tx) => insertCandidate(tx, actor, input),
+      );
+    },
 
+    async upsertByExternalId(actor, input) {
       return withTenantContext(
         database.db,
         { organizationId: actor.organizationId, userId: actor.userId },
         async (tx) => {
           await assertJob(tx, actor, input.jobId);
-
+          const found = await tx.execute<{ id: string }>(sql`
+            select id from candidates
+            where organization_id = ${actor.organizationId}
+              and job_id = ${input.jobId}
+              and external_id = ${input.externalId}
+            for update
+          `);
+          const existing = found[0];
+          if (!existing) {
+            const { id } = await insertCandidate(tx, actor, input);
+            return { id, created: true };
+          }
           try {
-            const rows = await tx.execute<{ id: string }>(sql`
-              insert into candidates
-                (organization_id, job_id, full_name, phone, country_code,
-                 email, resume_text, source, screening_status)
-              values (
-                ${actor.organizationId}, ${input.jobId}, ${input.fullName},
-                ${phone}, ${countryCode},
-                ${input.email ?? null}, ${input.resumeText ?? null},
-                ${source}, 'new'
-              )
-              returning id
+            await tx.execute(sql`
+              update candidates set
+                full_name = ${input.fullName},
+                phone = coalesce(${input.phone?.trim() || null}, phone),
+                country_code = coalesce(${input.phone ? input.countryCode : null}, country_code),
+                email = coalesce(${input.email ?? null}, email),
+                resume_text = coalesce(${input.resumeText ?? null}, resume_text),
+                updated_at = now()
+              where id = ${existing.id} and organization_id = ${actor.organizationId}
             `);
-            const id = rows[0]?.id;
-            if (!id) throw new Error('candidate insert returned no id');
-            return { id, phone, phoneFromResume };
           } catch (error) {
             if ((error as { cause?: { code?: string } }).cause?.code === '23505') {
-              throw ApiError.conflict(
-                'A candidate with this phone already exists on this job',
-              );
+              throw dupPhone();
             }
             throw error;
           }
+          return { id: existing.id, created: false };
         },
       );
+    },
+
+    async listPage(actor, options) {
+      const after = options.cursor ? decodeCursor(options.cursor) : null;
+      const rows = await withTenantContext(
+        database.db,
+        { organizationId: actor.organizationId, userId: actor.userId },
+        async (tx) => {
+          await assertJob(tx, actor, options.jobId);
+          return tx.execute<CandidateRecord>(sql`
+            select id, job_id, full_name, phone, country_code, email, resume_text, source,
+                   external_id, screening_status, created_at::text, updated_at::text
+            from candidates
+            where organization_id = ${actor.organizationId}
+              and job_id = ${options.jobId}
+              ${after ? sql`and (created_at, id) > (${after.createdAt}::timestamptz, ${after.id}::uuid)` : sql``}
+            order by created_at, id
+            limit ${options.limit + 1}
+          `);
+        },
+      );
+      const page = rows.slice(0, options.limit);
+      const last = page[page.length - 1];
+      return {
+        candidates: page.map(toCandidate),
+        nextCursor:
+          rows.length > options.limit && last
+            ? encodeCursor({ createdAt: last.created_at, id: last.id })
+            : null,
+      };
     },
 
     async update(actor, candidateId, input) {

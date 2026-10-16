@@ -10,6 +10,8 @@ export type ApiErrorCode =
   | 'conflict'
   | 'gone'
   | 'validation_failed'
+  | 'consent_required'
+  | 'agent_required'
   | 'rate_limited'
   | 'internal';
 
@@ -20,6 +22,8 @@ const STATUS: Record<ApiErrorCode, number> = {
   conflict: 409,
   gone: 410,
   validation_failed: 422,
+  consent_required: 422,
+  agent_required: 409,
   rate_limited: 429,
   internal: 500,
 };
@@ -59,6 +63,15 @@ export class ApiError extends Error {
   }
   static gone(message: string): ApiError {
     return new ApiError('gone', message);
+  }
+  static consentRequired(): ApiError {
+    return new ApiError('consent_required', 'Candidate consent is required: send "consent": true');
+  }
+  static agentRequired(): ApiError {
+    return new ApiError(
+      'agent_required',
+      'Pass an agent, or publish exactly one hiring agent to link automatically',
+    );
   }
   static validation(fields: readonly FieldError[]): ApiError {
     const message = fields[0]?.message?.trim() || 'Validation failed';

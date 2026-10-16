@@ -94,6 +94,10 @@ export interface JobsService {
       agentId?: string;
       mustAskQuestions?: readonly string[];
       screeningLanguage?: ScreeningLanguage;
+      /** Marks the job as created by a test API key. */
+      isTest?: boolean;
+      /** With no agentId: link the org's single published hiring agent, else 409 agent_required. */
+      autoLinkAgent?: boolean;
     },
   ): Promise<{ id: string }>;
   update(
@@ -515,8 +519,18 @@ export function createJobsService(database: Database): JobsService {
         database.db,
         { organizationId: actor.organizationId, userId: actor.userId },
         async (tx) => {
-          if (input.agentId) {
-            await loadAgent(tx, actor, input.agentId);
+          let agentId = input.agentId ?? null;
+          if (agentId) {
+            await loadAgent(tx, actor, agentId);
+          } else if (input.autoLinkAgent) {
+            const found = await tx.execute<{ id: string }>(sql`
+              select id from agents
+              where organization_id = ${actor.organizationId}
+                and status = 'published' and type = 'hiring'
+              limit 2
+            `);
+            if (found.length !== 1) throw ApiError.agentRequired();
+            agentId = found[0]!.id;
           }
 
           const questions = toStoredScreeningQuestions(
@@ -529,13 +543,13 @@ export function createJobsService(database: Database): JobsService {
           const rows = await tx.execute<{ id: string }>(sql`
             insert into jobs
               (organization_id, title, description, agent_id,
-               screening_questions, screening_language, created_by_user_id)
+               screening_questions, screening_language, created_by_user_id, is_test)
             values (${actor.organizationId}, ${input.title},
                     ${input.description ?? ''},
-                    ${input.agentId ?? null},
+                    ${agentId},
                     ${JSON.stringify(questions)}::jsonb,
                     ${language},
-                    ${actor.userId})
+                    ${actor.userId}, ${input.isTest ?? false})
             returning id
           `);
           const id = rows[0]?.id;

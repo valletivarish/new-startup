@@ -70,6 +70,7 @@ import {
   API_KEYS_SERVICE,
   CALL_REQUESTS_SERVICE,
   WEBHOOKS_SERVICE,
+  USAGE_SERVICE,
 } from './tokens.more.js';
 import {
   AuthController,
@@ -114,6 +115,8 @@ import { ApiKeysController } from './integrations/api-keys.controller.js';
 import { V1PingController } from './integrations/v1-ping.controller.js';
 import { V1JobsController } from './integrations/v1-jobs.controller.js';
 import { V1CallsController } from './integrations/v1-calls.controller.js';
+import { V1UsageController } from './integrations/v1-usage.controller.js';
+import { createUsageService } from './integrations/usage.service.js';
 import { V1WebhooksController } from './integrations/v1-webhooks.controller.js';
 import { emitCallEvent } from './integrations/events.js';
 import { createWebhooksService } from './integrations/webhooks.service.js';
@@ -171,6 +174,7 @@ export class AppModule {
         V1PingController,
         V1JobsController,
         V1CallsController,
+        V1UsageController,
         V1WebhooksController,
       ],
       providers: [
@@ -398,6 +402,10 @@ export class AppModule {
               queue: deps.jobs,
               production: deps.env.NODE_ENV === 'production',
             }),
+        },
+        {
+          provide: USAGE_SERVICE,
+          useFactory: () => createUsageService(deps.database),
         },
         {
           provide: JOBS_SERVICE,

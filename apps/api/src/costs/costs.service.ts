@@ -55,6 +55,7 @@ export interface CostService {
   ): Promise<ServiceRow>;
   adminSummary(userId: string, monthStart: string): Promise<CostSummary>;
   adminListCalls(userId: string, limit: number): Promise<LedgerCall[]>;
+  adminListOrganizations(userId: string): Promise<{ id: string; name: string }[]>;
   adminRateCall(userId: string, voiceSessionId: string, rating: number, note: string | null): Promise<void>;
   /** Pick a job's engine — in the admin's own active workspace (tenant RLS applies). */
   setJobEngine(organizationId: string, userId: string, jobId: string, engine: VoiceEngine): Promise<void>;
@@ -414,6 +415,12 @@ export function createCostService(database: Database, env: Env): CostService {
           arms,
         };
       });
+    },
+
+    async adminListOrganizations(userId) {
+      return asAdmin(userId, async (tx) =>
+        tx.execute<{ id: string; name: string }>(sql`select id, name from organizations order by name`),
+      );
     },
 
     async adminListCalls(userId, limit) {

@@ -5,13 +5,15 @@
  * else gets 404 so the route's existence is not advertised to customers.
  */
 
-import { Body, Controller, Get, Inject, Param, Patch, Post, Query, Req } from '@nestjs/common';
+import { Body, Controller, Get, Inject, Param, Patch, Post, Put, Query, Req, Res } from '@nestjs/common';
+import type { FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { Authenticated } from '../authz/decorators.js';
 import type { RequestWithAuth } from '../authz/authz.guard.js';
 import { ApiError } from '../errors.js';
 import { parse } from '../validate.js';
-import { COST_SERVICE } from '../tokens.more.js';
+import { COST_SERVICE, USAGE_SERVICE } from '../tokens.more.js';
+import type { UsageService } from '../integrations/usage.service.js';
 import type { CostService } from './costs.service.js';
 
 const ServicePatch = z
@@ -40,13 +42,28 @@ const MonthQuery = z.object({
     .optional(),
 });
 
+const LimitsBody = z
+  .object({
+    callsPerDay: z.number().int().min(0).max(1_000_000),
+    maxConcurrent: z.number().int().min(0).max(10_000),
+    monthlyCap: z.number().int().min(0).max(100_000_000).nullable(),
+    pricePerScreenInr: z.number().min(0).max(1_000_000).nullable(),
+  })
+  .strict();
+
+const csvCell = (v: string | number | null): string =>
+  v === null ? '' : /[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : String(v);
+
 function currentMonth(): string {
   return new Date().toISOString().slice(0, 7);
 }
 
 @Controller('admin/costs')
 export class AdminCostsController {
-  constructor(@Inject(COST_SERVICE) private readonly costs: CostService) {}
+  constructor(
+    @Inject(COST_SERVICE) private readonly costs: CostService,
+    @Inject(USAGE_SERVICE) private readonly usage: UsageService,
+  ) {}
 
   private adminUserId(req: RequestWithAuth): string {
     const ctx = req.authContext;
@@ -107,5 +124,42 @@ export class AdminCostsController {
     const { rating, note } = parse(Rating, body);
     await this.costs.adminRateCall(userId, id, rating, note ?? null);
     return { ok: true };
+  }
+
+  @Authenticated()
+  @Get('orgs/:orgId/limits')
+  async getLimits(@Req() req: RequestWithAuth, @Param('orgId') orgId: string) {
+    this.adminUserId(req);
+    return { limits: await this.usage.getLimits(parse(z.string().uuid(), orgId)) };
+  }
+
+  @Authenticated()
+  @Put('orgs/:orgId/limits')
+  async setLimits(@Req() req: RequestWithAuth, @Param('orgId') orgId: string, @Body() body: unknown) {
+    this.adminUserId(req);
+    return {
+      limits: await this.usage.setLimits(parse(z.string().uuid(), orgId), parse(LimitsBody, body)),
+    };
+  }
+
+  /** One row per company: completed screens x per-screen price for the month. */
+  @Authenticated()
+  @Get('invoice.csv')
+  async invoice(
+    @Req() req: RequestWithAuth,
+    @Query() query: unknown,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ) {
+    const userId = this.adminUserId(req);
+    const month = parse(MonthQuery, query).month ?? currentMonth();
+    const lines = ['organization,month,completed_screens,price_per_screen_inr,amount_inr'];
+    for (const org of await this.costs.adminListOrganizations(userId)) {
+      const u = await this.usage.month(org.id, month);
+      lines.push(
+        [org.name, month, u.completedScreens, u.pricePerScreenInr, u.amountInr].map(csvCell).join(','),
+      );
+    }
+    void reply.header('content-type', 'text/csv; charset=utf-8');
+    return lines.join('\n') + '\n';
   }
 }

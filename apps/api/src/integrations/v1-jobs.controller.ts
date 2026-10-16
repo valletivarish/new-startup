@@ -13,10 +13,13 @@ import type { CandidatesService } from '../hiring/candidates.service.js';
 import type { JobsService } from '../hiring/jobs.service.js';
 import { PaginationQuery } from '../pagination.js';
 import { DATABASE } from '../tokens.js';
-import { CANDIDATES_SERVICE, JOBS_SERVICE } from '../tokens.more.js';
+import { CANDIDATES_SERVICE, JOBS_SERVICE, VOICE_SESSION_SERVICE } from '../tokens.more.js';
+import { AUDIT_SERVICE } from '../tokens.js';
+import type { AuditService } from '../audit/audit.service.js';
+import type { VoiceSessionService } from '../providers/elevenlabs/voice-session.service.js';
 import { parse } from '../validate.js';
 import { withIdempotency } from './idempotency.js';
-import { toV1Candidate, toV1Job } from './public-mappers.js';
+import { toV1Candidate, toV1Job, toV1Result } from './public-mappers.js';
 import { V1CandidateBatch, V1CandidateCreate, V1JobCreate, V1JobPatch } from './v1-schemas.js';
 
 const Id = z.string().uuid();
@@ -30,6 +33,8 @@ function actorOf(req: RequestWithAuth) {
     userId: ctx.userId,
     isTest: ctx.apiKey?.mode === 'test',
     pii: ctx.organization.permissions.has('candidates.read_pii'),
+    allowTranscript: ctx.organization.permissions.has('calls.read_transcript'),
+    allowRecording: ctx.organization.permissions.has('calls.read_recording'),
   };
 }
 
@@ -46,6 +51,8 @@ export class V1JobsController {
     @Inject(DATABASE) private readonly database: Database,
     @Inject(JOBS_SERVICE) private readonly jobs: JobsService,
     @Inject(CANDIDATES_SERVICE) private readonly candidates: CandidatesService,
+    @Inject(VOICE_SESSION_SERVICE) private readonly voice: VoiceSessionService,
+    @Inject(AUDIT_SERVICE) private readonly audit: AuditService,
   ) {}
 
   /** Runs `handler` under the Idempotency-Key header and writes the status it returns. */
@@ -191,5 +198,50 @@ export class V1JobsController {
     const row = await this.candidates.get(a, parse(Id, id));
     if (row.jobId !== parse(Id, jobId)) throw ApiError.notFound('Candidate');
     return toV1Candidate(row, a.pii);
+  }
+
+  /**
+   * Latest screen result. Pulls the transcript/summary from the provider when the
+   * call ended but results have not landed yet (same as the dashboard route).
+   * ponytail: recordingUrl is never set; recordings stream only from the session-auth dashboard route.
+   */
+  @Get(':jobId/candidates/:id/results')
+  @RequirePermission('calls.read')
+  async results(
+    @Req() req: RequestWithAuth,
+    @Param('jobId') rawJobId: string,
+    @Param('id') rawId: string,
+  ) {
+    const a = actorOf(req);
+    const jobId = parse(Id, rawJobId);
+    const candidateId = parse(Id, rawId);
+    let packet = await this.jobs.getCandidateResults(a, jobId, candidateId);
+    const latest = packet.results;
+    const answersMissing =
+      latest.structuredAnswers == null || Object.keys(latest.structuredAnswers).length === 0;
+    if (
+      latest.voiceSessionId &&
+      latest.status !== 'failed' &&
+      (latest.transcript == null || latest.summary == null || (latest.status === 'ended' && answersMissing))
+    ) {
+      try {
+        await this.voice.reconcileVoiceSession(a, latest.voiceSessionId);
+        packet = await this.jobs.getCandidateResults(a, jobId, candidateId);
+      } catch {
+        // Keep what we have: reading results must not fail hard.
+      }
+    }
+    if (a.allowTranscript) {
+      await this.audit.record({
+        organizationId: a.organizationId,
+        actorUserId: a.userId,
+        eventType: 'authz.sensitive_access',
+        metadata: { permission: 'calls.read_transcript', method: req.method, url: req.url },
+      });
+    }
+    const job = await this.jobs.get(a, jobId);
+    return toV1Result(packet.results, a.allowTranscript, a.allowRecording, {
+      questions: job.screeningQuestions,
+    });
   }
 }

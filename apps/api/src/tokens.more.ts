@@ -36,3 +36,6 @@ export const CALL_REQUESTS_SERVICE = Symbol('CALL_REQUESTS_SERVICE');
 
 /** /v1 webhook endpoints and delivery log. */
 export const WEBHOOKS_SERVICE = Symbol('WEBHOOKS_SERVICE');
+
+/** Monthly usage, per-company limits and price. */
+export const USAGE_SERVICE = Symbol('USAGE_SERVICE');

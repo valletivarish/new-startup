@@ -256,6 +256,8 @@ export function createVoiceSessionService(
   adapter: VoiceSessionAdapter,
   costs?: Pick<CostService, 'recordCallCost'>,
   exotel?: ExotelClient,
+  /** Call ended: emits the client webhook event. Must not throw. */
+  onCallEnded: (organizationId: string, voiceSessionId: string) => Promise<void> = async () => {},
 ): VoiceSessionService {
   /** Ledger writes never break a call flow; the dashboard can be re-derived. */
   async function recordCost(organizationId: string, voiceSessionId: string): Promise<void> {
@@ -1485,7 +1487,10 @@ export function createVoiceSessionService(
         },
       );
 
-      if (nowEnded) await recordCost(actor.organizationId, voiceSessionId);
+      if (nowEnded) {
+        await recordCost(actor.organizationId, voiceSessionId);
+        await onCallEnded(actor.organizationId, voiceSessionId);
+      }
 
       await audit.record({
         organizationId: actor.organizationId,
@@ -1638,6 +1643,7 @@ export function createVoiceSessionService(
             and organization_id = ${vs.organization_id}
         `));
         await recordCost(vs.organization_id, vs.id);
+        await onCallEnded(vs.organization_id, vs.id);
         await audit.record({
           organizationId: vs.organization_id,
           actorUserId: null,

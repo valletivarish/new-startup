@@ -69,6 +69,7 @@ import {
   CANDIDATES_SERVICE,
   API_KEYS_SERVICE,
   CALL_REQUESTS_SERVICE,
+  WEBHOOKS_SERVICE,
 } from './tokens.more.js';
 import {
   AuthController,
@@ -113,6 +114,9 @@ import { ApiKeysController } from './integrations/api-keys.controller.js';
 import { V1PingController } from './integrations/v1-ping.controller.js';
 import { V1JobsController } from './integrations/v1-jobs.controller.js';
 import { V1CallsController } from './integrations/v1-calls.controller.js';
+import { V1WebhooksController } from './integrations/v1-webhooks.controller.js';
+import { emitCallEvent } from './integrations/events.js';
+import { createWebhooksService } from './integrations/webhooks.service.js';
 import { createCallRequestsService } from './integrations/call-requests.service.js';
 import { CALL_QUEUE, type CallJob } from './jobs/queue.js';
 
@@ -135,6 +139,8 @@ export interface AppDeps {
 @Module({})
 export class AppModule {
   static forRoot(deps: AppDeps): DynamicModule {
+    const onCallEnded = (organizationId: string, voiceSessionId: string) =>
+      emitCallEvent(deps.database, deps.jobs, organizationId, voiceSessionId, deps.logger);
     return {
       module: AppModule,
       controllers: [
@@ -165,6 +171,7 @@ export class AppModule {
         V1PingController,
         V1JobsController,
         V1CallsController,
+        V1WebhooksController,
       ],
       providers: [
         { provide: ENV, useValue: deps.env },
@@ -361,6 +368,7 @@ export class AppModule {
               deps.env,
               costs,
               exotel.isConfigured() ? exotelCarrier(exotel) : null,
+              onCallEnded,
             );
           },
         },
@@ -379,7 +387,17 @@ export class AppModule {
               adapter,
               costs,
               createExotelClient(deps.env),
+              onCallEnded,
             ),
+        },
+        {
+          provide: WEBHOOKS_SERVICE,
+          useFactory: () =>
+            createWebhooksService({
+              database: deps.database,
+              queue: deps.jobs,
+              production: deps.env.NODE_ENV === 'production',
+            }),
         },
         {
           provide: JOBS_SERVICE,

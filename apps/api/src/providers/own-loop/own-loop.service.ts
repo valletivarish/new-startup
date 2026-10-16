@@ -88,6 +88,8 @@ export function createOwnLoopService(
   env: Env,
   costs: Pick<CostService, 'recordCallCost'>,
   carrier: CallCarrier | null,
+  /** Call ended: emits the client webhook event. Must not throw. */
+  onCallEnded: (organizationId: string, voiceSessionId: string) => Promise<void> = async () => {},
 ): OwnLoopService {
   async function lookup(callId: string): Promise<SessionRow | null> {
     if (!callId.trim()) return null;
@@ -195,6 +197,7 @@ export function createOwnLoopService(
       }
 
       await costs.recordCallCost(row.organization_id, row.id, { usage: result.usage });
+      await onCallEnded(row.organization_id, row.id);
       await priceWithCarrier(row, callId);
     },
 
@@ -214,6 +217,7 @@ export function createOwnLoopService(
             where id = ${row.id} and organization_id = ${row.organization_id}
           `),
         );
+        await onCallEnded(row.organization_id, row.id);
       }
       await costs.recordCallCost(row.organization_id, row.id, {
         telephonyBilledInr: outcome.priceInr,

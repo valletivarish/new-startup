@@ -43,7 +43,7 @@ export interface ApiKeysService {
 const BASE62 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
 
 /** `length` uniformly random base62 characters (rejection sampling, no modulo bias). */
-function randomBase62(length: number): string {
+export function randomBase62(length: number): string {
   let out = '';
   while (out.length < length) {
     for (const byte of randomBytes(length * 2)) {

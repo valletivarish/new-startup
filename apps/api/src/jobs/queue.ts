@@ -17,6 +17,13 @@ import type { Logger } from 'pino';
 export const EMAIL_QUEUE = 'notifications.email';
 export const DOCUMENT_QUEUE = 'knowledge.document.process';
 export const CALL_QUEUE = 'calls.place';
+export const WEBHOOK_QUEUE = 'webhooks.deliver';
+
+/** Deliver one webhook_deliveries row. Org id because the worker has no tenant context. */
+export interface WebhookJob {
+  readonly organizationId: string;
+  readonly deliveryId: string;
+}
 
 /**
  * Place one /v1 call request. Carries the org and acting user because the
@@ -63,6 +70,7 @@ export interface JobQueue {
   ): Promise<void>;
   /** `startAfter` holds the job until then (calls outside calling hours). */
   enqueueCall(job: CallJob, startAfter?: Date): Promise<void>;
+  enqueueWebhook(job: WebhookJob): Promise<void>;
   readonly boss: PgBoss;
 }
 
@@ -116,8 +124,13 @@ export function createJobQueue(
         retentionSeconds: 2 * 86_400,
         deleteAfterSeconds: 3600,
       });
+      await boss.createQueue(WEBHOOK_QUEUE, {
+        // Ids only; the payload stays in webhook_deliveries (RLS). Retries run up to ~24 h.
+        retentionSeconds: 2 * 86_400,
+        deleteAfterSeconds: 3600,
+      });
       logger.info(
-        { queues: [EMAIL_QUEUE, DOCUMENT_QUEUE, CALL_QUEUE] },
+        { queues: [EMAIL_QUEUE, DOCUMENT_QUEUE, CALL_QUEUE, WEBHOOK_QUEUE] },
         'jobs.queue_ready',
       );
     },
@@ -144,6 +157,16 @@ export function createJobQueue(
         retryLimit: 0,
         expireInSeconds: 300,
         ...(startAfter ? { startAfter } : {}),
+      });
+    },
+
+    async enqueueWebhook(job) {
+      await boss.send(WEBHOOK_QUEUE, job as unknown as object, {
+        // 30 s doubling; handleWebhookJob marks the row failed past 24 h.
+        retryLimit: 12,
+        retryDelay: 30,
+        retryBackoff: true,
+        expireInSeconds: 60,
       });
     },
 

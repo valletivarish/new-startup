@@ -33,3 +33,6 @@ export const API_KEYS_SERVICE = Symbol('API_KEYS_SERVICE');
 
 /** Queued /v1 call requests. */
 export const CALL_REQUESTS_SERVICE = Symbol('CALL_REQUESTS_SERVICE');
+
+/** /v1 webhook endpoints and delivery log. */
+export const WEBHOOKS_SERVICE = Symbol('WEBHOOKS_SERVICE');

@@ -48,6 +48,7 @@ import { ApiKeysController } from '../src/integrations/api-keys.controller.js';
 import { V1PingController } from '../src/integrations/v1-ping.controller.js';
 import { V1JobsController } from '../src/integrations/v1-jobs.controller.js';
 import { V1CallsController } from '../src/integrations/v1-calls.controller.js';
+import { V1WebhooksController } from '../src/integrations/v1-webhooks.controller.js';
 
 // The complete controller list. app.module.ts must register exactly these;
 // the companion assertion below keeps the two lists from drifting.
@@ -77,6 +78,7 @@ const CONTROLLERS = [
   V1PingController,
   V1JobsController,
   V1CallsController,
+  V1WebhooksController,
 ];
 
 interface RouteInfo {

@@ -15,9 +15,12 @@ import {
   createJobQueue,
   DOCUMENT_QUEUE,
   EMAIL_QUEUE,
+  WEBHOOK_QUEUE,
   type DocumentJob,
   type EmailJob,
+  type WebhookJob,
 } from './queue.js';
+import { handleWebhookJob } from '../integrations/deliver.js';
 import { createNotificationTransport } from '../notifications/create-notification-transport.js';
 import { createObjectStorage } from '../knowledge/create-object-storage.js';
 import { startTelemetry } from '../observability/telemetry.js';
@@ -90,6 +93,11 @@ await queue.boss.work<DocumentJob>(DOCUMENT_QUEUE, async (jobs) => {
   for (const job of jobs) {
     await processDocument(job.data);
   }
+});
+
+// Signed client webhooks. A throw makes pg-boss retry with backoff.
+await queue.boss.work<WebhookJob>(WEBHOOK_QUEUE, async (jobs) => {
+  for (const job of jobs) await handleWebhookJob(database, job.data);
 });
 
 logger.info('platform-worker started');

@@ -1,7 +1,7 @@
 /**
  * Test keys on the fake line: a test call is placed through the own loop
- * without dialing Exotel, its session is is_test, it is free on the ledger
- * and it never shows up in usage.
+ * without dialing Exotel, its session is is_test, it is free on the ledger,
+ * it never shows up in usage, it has its own caps and skips calling hours.
  */
 
 import 'reflect-metadata';
@@ -15,6 +15,7 @@ import {
   registerUser,
   startApi,
   type ApiHarness,
+  type TestActor,
 } from './setup/api-harness.js';
 import { createStubVoiceSessionAdapter } from '../src/providers/elevenlabs/adapter.js';
 import { createVoiceSessionService } from '../src/providers/elevenlabs/voice-session.service.js';
@@ -22,18 +23,23 @@ import { createOwnLoopService } from '../src/providers/own-loop/own-loop.service
 import { createCallRequestsService } from '../src/integrations/call-requests.service.js';
 import { createUsageService } from '../src/integrations/usage.service.js';
 import { AUDIT_SERVICE } from '../src/tokens.js';
-import { COST_SERVICE, JOBS_SERVICE } from '../src/tokens.more.js';
+import { COST_SERVICE, JOBS_SERVICE, VOICE_SESSION_SERVICE } from '../src/tokens.more.js';
 import type { ExotelClient } from '../src/providers/exotel/exotel.js';
 
 const ENV: Record<string, string> = {
   ELEVENLABS_ENABLED: 'true',
   ELEVENLABS_API_KEY: 'test-key',
   ELEVENLABS_WEBHOOK_SECRET: 'test-webhook-secret-32-chars-xxxxx',
+  // One live phone screen at a time: test calls must not use up this slot.
+  ELEVENLABS_MAX_CONCURRENT_PHONE: '1',
   VOICE_INTERNAL_TOKEN: 'internal-voice-token-for-tests-0123456789',
   VOICE_SERVICE_URL: 'http://voice.test:8765',
 };
+const IN_HOURS = new Date('2026-10-16T10:00:00+05:30');
+const OUT_OF_HOURS = new Date('2026-10-16T22:00:00+05:30');
 
 let api: ApiHarness;
+let phoneSeq = 700;
 
 beforeAll(async () => {
   api = await startApi(ENV, createStubVoiceSessionAdapter());
@@ -52,100 +58,148 @@ async function superSql<T extends Record<string, unknown>>(query: ReturnType<typ
   }
 }
 
-describe('test mode', () => {
-  it('places a test-key call on the fake line, free and uncounted', async () => {
-    const owner = await registerUser(api, 'testmode');
-    const orgId = await createOrganization(api, owner, 'Test Mode Co');
+interface Org {
+  owner: TestActor;
+  orgId: string;
+  key: (mode: 'test' | 'live') => Promise<string>;
+}
+
+async function setupOrg(label: string): Promise<Org> {
+  const owner = await registerUser(api, label);
+  const orgId = await createOrganization(api, owner, `${label} Co`);
+  const agent = await api.request({
+    method: 'POST',
+    url: '/agents',
+    cookie: owner.cookie,
+    payload: { name: 'Screener', purpose: 'Screen', description: 'calls', agentType: 'hiring' },
+  });
+  const a = JSON.parse(agent.body) as { id: string; versionId: string };
+  await api.request({
+    method: 'POST',
+    url: `/agents/${a.id}/versions/${a.versionId}/publish`,
+    cookie: owner.cookie,
+    payload: {},
+  });
+  const key = async (mode: 'test' | 'live') => {
     const minted = await api.request({
       method: 'POST',
       url: '/organization/api-keys',
       cookie: owner.cookie,
-      payload: { name: 'ATS', mode: 'test', scopes: ['jobs', 'candidates', 'calls', 'results'] },
+      payload: { name: `ATS ${mode}`, mode, scopes: ['jobs', 'candidates', 'calls', 'results'] },
     });
     expect(minted.statusCode, minted.body).toBe(201);
-    const key = JSON.parse(minted.body).key as string;
-    const agent = await api.request({
-      method: 'POST',
-      url: '/agents',
-      cookie: owner.cookie,
-      payload: { name: 'Screener', purpose: 'Screen', description: 'calls', agentType: 'hiring' },
-    });
-    const a = JSON.parse(agent.body) as { id: string; versionId: string };
-    await api.request({
-      method: 'POST',
-      url: `/agents/${a.id}/versions/${a.versionId}/publish`,
-      cookie: owner.cookie,
-      payload: {},
-    });
-    const v1 = (method: 'GET' | 'POST', url: string, payload?: object) =>
-      api.request({ method, url, headers: { authorization: `Bearer ${key}` }, ...(payload ? { payload } : {}) });
-    const job = await v1('POST', '/v1/jobs', { title: 'Picker' });
-    expect(job.statusCode, job.body).toBe(201);
-    const jobId = JSON.parse(job.body).id as string;
-    const cand = await v1('POST', `/v1/jobs/${jobId}/candidates`, {
-      fullName: 'Test Cand',
-      phone: '9000000777',
+    return JSON.parse(minted.body).key as string;
+  };
+  return { owner, orgId, key };
+}
+
+function v1(key: string, method: 'GET' | 'POST', url: string, payload?: object) {
+  return api.request({
+    method,
+    url,
+    headers: { authorization: `Bearer ${key}` },
+    ...(payload ? { payload } : {}),
+  });
+}
+
+async function jobWithCandidates(key: string, n: number, language?: 'en' | 'hi') {
+  const job = await v1(key, 'POST', '/v1/jobs', {
+    title: 'Picker',
+    // A job's language applies once the job has its own screening content.
+    ...(language ? { language, mustAskQuestions: ['What is your notice period?'] } : {}),
+  });
+  expect(job.statusCode, job.body).toBe(201);
+  const jobId = JSON.parse(job.body).id as string;
+  const candidateIds: string[] = [];
+  for (let i = 0; i < n; i++) {
+    const phone = `9000000${++phoneSeq}`;
+    const cand = await v1(key, 'POST', `/v1/jobs/${jobId}/candidates`, {
+      fullName: `Cand ${phone}`,
+      phone,
       consent: true,
     });
     expect(cand.statusCode, cand.body).toBe(201);
-    const candidateId = JSON.parse(cand.body).id as string;
+    candidateIds.push(JSON.parse(cand.body).id);
+  }
+  return { jobId, candidateIds };
+}
 
-    // Services wired like app.module, with a spy Exotel and a stubbed voice service.
-    const app = api.built.app;
-    const env = api.built.env;
-    const exotelCalls: unknown[] = [];
-    const exotel: ExotelClient = {
-      isConfigured: () => true,
-      connectCall: async (input) => {
-        exotelCalls.push(input);
-        throw new Error('must not dial');
-      },
-      getCall: async () => {
-        throw new Error('must not dial');
-      },
-    };
-    const costs = app.get(COST_SERVICE);
-    const voice = createVoiceSessionService(
-      api.built.database,
-      env,
-      app.get(AUDIT_SERVICE),
-      createStubVoiceSessionAdapter(),
-      costs,
-      exotel,
-    );
-    const posted: { url: string; headers: Record<string, string>; body: unknown }[] = [];
-    const fakeFetch = (async (url: string, init: RequestInit) => {
-      posted.push({
-        url,
-        headers: init.headers as Record<string, string>,
-        body: JSON.parse(String(init.body)),
-      });
-      return new Response(null, { status: 202 });
-    }) as typeof fetch;
-    const ownLoop = createOwnLoopService(api.built.database, env, costs, null, async () => {}, {
-      voice,
-      fetch: fakeFetch,
+/** Services wired like app.module, with a spy Exotel and a stubbed voice service. */
+function testLine(opts: { voiceStatus?: number; now?: Date } = {}) {
+  const app = api.built.app;
+  // Test calls need the own loop, not ElevenLabs.
+  const env = { ...api.built.env, ELEVENLABS_ENABLED: false, VOICE_OWN_LOOP_ENABLED: true };
+  const exotelCalls: unknown[] = [];
+  const exotel: ExotelClient = {
+    isConfigured: () => true,
+    connectCall: async (input) => {
+      exotelCalls.push(input);
+      throw new Error('must not dial');
+    },
+    getCall: async () => {
+      throw new Error('must not dial');
+    },
+  };
+  const costs = app.get(COST_SERVICE);
+  const voice = createVoiceSessionService(
+    api.built.database,
+    env,
+    app.get(AUDIT_SERVICE),
+    createStubVoiceSessionAdapter(),
+    costs,
+    exotel,
+  );
+  const posted: { url: string; headers: Record<string, string>; body: unknown }[] = [];
+  const fakeFetch = (async (url: string, init: RequestInit) => {
+    posted.push({
+      url,
+      headers: init.headers as Record<string, string>,
+      body: JSON.parse(String(init.body)),
     });
-    const calls = createCallRequestsService({
-      database: api.built.database,
-      voice,
-      jobs: app.get(JOBS_SERVICE),
-      queue: null,
-      placeTest: ownLoop.placeTestCall,
-      // Inside calling hours whatever the real clock says.
-      now: () => new Date('2026-10-16T10:00:00+05:30'),
-    });
+    return new Response(null, { status: opts.voiceStatus ?? 202 });
+  }) as typeof fetch;
+  const ownLoop = createOwnLoopService(api.built.database, env, costs, null, async () => {}, {
+    voice,
+    fetch: fakeFetch,
+  });
+  const calls = createCallRequestsService({
+    database: api.built.database,
+    voice,
+    jobs: app.get(JOBS_SERVICE),
+    queue: null,
+    placeTest: ownLoop.placeTestCall,
+    now: () => opts.now ?? IN_HOURS,
+  });
+  return { ownLoop, calls, exotelCalls, posted };
+}
 
-    const req = await v1('POST', `/v1/jobs/${jobId}/candidates/${candidateId}/calls`);
-    expect(req.statusCode, req.body).toBe(202);
-    const callRequestId = JSON.parse(req.body).id as string;
-    await calls.place({ organizationId: orgId, userId: owner.userId, callRequestId });
+async function requestAndPlace(
+  org: Org,
+  key: string,
+  jobId: string,
+  candidateId: string,
+  calls: ReturnType<typeof createCallRequestsService>,
+) {
+  const req = await v1(key, 'POST', `/v1/jobs/${jobId}/candidates/${candidateId}/calls`);
+  expect(req.statusCode, req.body).toBe(202);
+  const callRequestId = JSON.parse(req.body).id as string;
+  await calls.place({ organizationId: org.orgId, userId: org.owner.userId, callRequestId });
+  const [cr] = await superSql<{ status: string; reason: string | null; voice_session_id: string | null }>(sql`
+    select status, reason, voice_session_id from call_requests where id = ${callRequestId}
+  `);
+  return cr!;
+}
 
-    const [cr] = await superSql<{ status: string; reason: string | null; voice_session_id: string }>(sql`
-      select status, reason, voice_session_id from call_requests where id = ${callRequestId}
-    `);
+describe('test mode', () => {
+  it('places a test-key call on the fake line, free and uncounted', async () => {
+    const org = await setupOrg('testmode');
+    const key = await org.key('test');
+    const { jobId, candidateIds } = await jobWithCandidates(key, 1, 'hi');
+    const line = testLine();
+
+    const cr = await requestAndPlace(org, key, jobId, candidateIds[0]!, line.calls);
     expect(cr).toMatchObject({ status: 'placed', reason: null });
-    expect(exotelCalls).toHaveLength(0);
+    expect(line.exotelCalls).toHaveLength(0);
 
     const [vs] = await superSql<{
       is_test: boolean;
@@ -154,21 +208,22 @@ describe('test mode', () => {
       external_conversation_id: string;
     }>(sql`
       select is_test, provider, engine, external_conversation_id
-      from voice_sessions where id = ${cr!.voice_session_id}
+      from voice_sessions where id = ${cr.voice_session_id}
     `);
     expect(vs).toMatchObject({ is_test: true, provider: 'own_loop', engine: 'own_loop_sarvam_voice' });
     expect(vs!.external_conversation_id).toMatch(/^test-[0-9a-f-]{36}$/);
     const callId = vs!.external_conversation_id;
 
-    expect(posted).toHaveLength(1);
-    expect(posted[0]!.url).toBe('http://voice.test:8765/internal/test-call');
-    expect(posted[0]!.headers['x-voice-token']).toBe(ENV['VOICE_INTERNAL_TOKEN']);
-    expect(posted[0]!.body).toEqual({ callId, language: 'en' });
+    expect(line.posted).toHaveLength(1);
+    expect(line.posted[0]!.url).toBe('http://voice.test:8765/internal/test-call');
+    expect(line.posted[0]!.headers['x-voice-token']).toBe(ENV['VOICE_INTERNAL_TOKEN']);
+    // The language comes from the job's frozen snapshot.
+    expect(line.posted[0]!.body).toEqual({ callId, language: 'hi' });
 
     // The fake line can fetch the plan, then posts a long, spoken result.
-    const plan = await ownLoop.getCallPlan(callId);
-    expect(plan.voiceSessionId).toBe(cr!.voice_session_id);
-    await ownLoop.saveCallResult(callId, {
+    const plan = await line.ownLoop.getCallPlan(callId);
+    expect(plan.voiceSessionId).toBe(cr.voice_session_id);
+    await line.ownLoop.saveCallResult(callId, {
       transcript: [
         { role: 'agent', message: 'What is your notice period?' },
         { role: 'user', message: 'Thirty days.' },
@@ -180,12 +235,69 @@ describe('test mode', () => {
 
     const [ledger] = await superSql<Record<string, string | null>>(sql`
       select total_cost::text, telephony_cost::text, stt_cost::text, llm_cost::text, tts_cost::text
-      from call_cost_ledger where voice_session_id = ${cr!.voice_session_id}
+      from call_cost_ledger where voice_session_id = ${cr.voice_session_id}
     `);
     for (const v of Object.values(ledger!)) expect(Number(v ?? 0)).toBe(0);
 
     const month = new Date(Date.now() + 330 * 60_000).toISOString().slice(0, 7);
-    const usage = await createUsageService(api.built.database).month(orgId, month);
+    const usage = await createUsageService(api.built.database).month(org.orgId, month);
     expect(usage).toMatchObject({ callsPlaced: 0, completedScreens: 0 });
+  });
+
+  it('skips the calling-hours hold', async () => {
+    const org = await setupOrg('testmode-hours');
+    const key = await org.key('test');
+    const { jobId, candidateIds } = await jobWithCandidates(key, 1);
+    const line = testLine({ now: OUT_OF_HOURS });
+    expect(await requestAndPlace(org, key, jobId, candidateIds[0]!, line.calls)).toMatchObject({
+      status: 'placed',
+    });
+  });
+
+  it('caps test calls at 3 live per company, without using the live-call slots', async () => {
+    const org = await setupOrg('testmode-caps');
+    const key = await org.key('test');
+    const { jobId, candidateIds } = await jobWithCandidates(key, 4);
+    const line = testLine();
+    for (const id of candidateIds.slice(0, 3)) {
+      expect(await requestAndPlace(org, key, jobId, id, line.calls)).toMatchObject({ status: 'placed' });
+    }
+
+    // ELEVENLABS_MAX_CONCURRENT_PHONE is 1 and three test calls are live: a real call still goes.
+    const live = await org.key('live');
+    const real = await jobWithCandidates(live, 1);
+    const appCalls = createCallRequestsService({
+      database: api.built.database,
+      voice: api.built.app.get(VOICE_SESSION_SERVICE),
+      jobs: api.built.app.get(JOBS_SERVICE),
+      queue: null,
+      now: () => IN_HOURS,
+    });
+    expect(await requestAndPlace(org, live, real.jobId, real.candidateIds[0]!, appCalls)).toMatchObject({
+      status: 'placed',
+    });
+
+    // ...and the live call does not take a test slot either: the 4th test call is refused by the test cap.
+    expect(await requestAndPlace(org, key, jobId, candidateIds[3]!, line.calls)).toMatchObject({
+      status: 'failed',
+      reason: 'test_call_limit_reached',
+    });
+  });
+
+  it('fails the session and the request when the fake line does not start', async () => {
+    const org = await setupOrg('testmode-down');
+    const key = await org.key('test');
+    const { jobId, candidateIds } = await jobWithCandidates(key, 2);
+
+    const down = await requestAndPlace(org, key, jobId, candidateIds[0]!, testLine({ voiceStatus: 500 }).calls);
+    expect(down).toMatchObject({ status: 'failed', reason: 'service_unavailable', voice_session_id: null });
+    const busy = await requestAndPlace(org, key, jobId, candidateIds[1]!, testLine({ voiceStatus: 429 }).calls);
+    expect(busy).toMatchObject({ status: 'failed', reason: 'test_call_limit_reached' });
+
+    const sessions = await superSql<{ status: string; failure_reason: string | null }>(sql`
+      select status, failure_reason from voice_sessions where organization_id = ${org.orgId}
+    `);
+    expect(sessions).toHaveLength(2);
+    for (const s of sessions) expect(s).toMatchObject({ status: 'failed', failure_reason: 'engine_error' });
   });
 });

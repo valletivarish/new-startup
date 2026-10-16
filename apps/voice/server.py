@@ -20,8 +20,10 @@ from bot import run_call
 from nest import TOKEN, fetch_plan, flush_spool
 from test_call import run_test_call
 
-# Strong refs: asyncio only keeps weak ones to running tasks.
+# Strong refs: asyncio only keeps weak ones to running tasks. Its size is the
+# process-wide cap on concurrent test calls (each one runs a full agent).
 _test_calls: set[asyncio.Task] = set()
+MAX_TEST_CALLS = 5
 
 
 async def _flush_forever():
@@ -60,6 +62,8 @@ async def test_call(body: TestCall, x_voice_token: str = Header(default="")):
     # Like Nest's internal routes: without the shared secret the route does not exist.
     if not TOKEN or not hmac.compare_digest(x_voice_token.encode(), TOKEN.encode()):
         raise HTTPException(status_code=404)
+    if len(_test_calls) >= MAX_TEST_CALLS:
+        raise HTTPException(status_code=429, detail="test line busy")
     task = asyncio.create_task(run_test_call(body.callId, body.language))
     _test_calls.add(task)
     task.add_done_callback(_test_calls.discard)

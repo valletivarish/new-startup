@@ -194,6 +194,16 @@ export function createCallRequestsService(deps: CallRequestsDeps): CallRequestsS
           return await finish(a, id, 'skipped', { reason: 'dnd' });
         }
 
+        const target = { jobId: row.job_id, candidateId: row.candidate_id };
+        // Test calls ring the fake line, not a person: no calling-hours hold.
+        if (row.is_test) {
+          if (!deps.placeTest) {
+            return await finish(a, id, 'failed', { reason: 'test_mode_unavailable' });
+          }
+          const placed = await deps.placeTest(a, target);
+          return await finish(a, id, 'placed', { voiceSessionId: placed.voiceSessionId });
+        }
+
         if (row.source !== 'dashboard') {
           const at = nextCallingTime(now());
           if (at) {
@@ -204,15 +214,6 @@ export function createCallRequestsService(deps: CallRequestsDeps): CallRequestsS
             else deps.logger?.warn({ callRequestId: id, notBefore: at }, 'calls.schedule_in_past');
             return;
           }
-        }
-
-        const target = { jobId: row.job_id, candidateId: row.candidate_id };
-        if (row.is_test) {
-          if (!deps.placeTest) {
-            return await finish(a, id, 'failed', { reason: 'test_mode_unavailable' });
-          }
-          const placed = await deps.placeTest(a, target);
-          return await finish(a, id, 'placed', { voiceSessionId: placed.voiceSessionId });
         }
 
         // startOutboundPhoneCall runs assertWithinLimits itself (shared with the dashboard).

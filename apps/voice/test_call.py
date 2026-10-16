@@ -5,6 +5,7 @@ a whole screen (plan, agent, transcript, result) without a phone or carrier.
 
 from __future__ import annotations
 
+import asyncio
 import wave
 from pathlib import Path
 
@@ -27,8 +28,10 @@ def load_clips(lang: str, clips_dir: Path = CLIPS_DIR) -> list[bytes]:
 
 async def run_test_call(call_id: str, lang: str) -> None:
     try:
-        report = await run(
-            f"ws://127.0.0.1:{PORT}/voice/exotel", call_id, [], lang, MAX_SECONDS, clips=load_clips(lang)
+        # run() checks max_seconds only between frames; this bounds connect, close and all.
+        report = await asyncio.wait_for(
+            run(f"ws://127.0.0.1:{PORT}/voice/exotel", call_id, [], lang, MAX_SECONDS, clips=load_clips(lang)),
+            MAX_SECONDS + 30,
         )
         logger.info(f"test call {call_id} done: {report}")
     except Exception as err:  # noqa: BLE001

@@ -78,3 +78,43 @@ export async function assertWithinLimits(
     throw limitReached(`Monthly call cap (${r.monthly_cap}) reached.`, istMonthStart(now, 1));
   }
 }
+
+/** Test-key calls are free but not unlimited: they still run our STT/LLM/TTS. */
+export const TEST_CALLS_MAX_CONCURRENT = 3;
+export const TEST_CALLS_PER_DAY = 100;
+
+// ponytail: check-then-insert, like assertWithinLimits.
+export async function assertWithinTestLimits(
+  database: Database,
+  organizationId: string,
+  now: Date,
+): Promise<void> {
+  const dayStart = istMidnight(now);
+  const rows = await withTenantContext(
+    database.db,
+    { organizationId, userId: SYSTEM_USER },
+    (tx) =>
+      tx.execute<{ today: number; live: number }>(sql`
+        select
+          (count(*) filter (where started_at >= ${dayStart.toISOString()}::timestamptz))::int as today,
+          (count(*) filter (where status in ('pending', 'active')))::int as live
+        from voice_sessions
+        where organization_id = ${organizationId} and is_test = true
+      `),
+  );
+  const r = rows[0]!;
+  const reached = (message: string, resetsAt: Date) =>
+    new ApiError('test_call_limit_reached', message, undefined, { resetsAt: resetsAt.toISOString() });
+  if (r.today >= TEST_CALLS_PER_DAY) {
+    throw reached(
+      `Daily test call limit (${TEST_CALLS_PER_DAY}) reached.`,
+      new Date(dayStart.getTime() + 86_400_000),
+    );
+  }
+  if (r.live >= TEST_CALLS_MAX_CONCURRENT) {
+    throw reached(
+      `${TEST_CALLS_MAX_CONCURRENT} test calls are already in progress. Retry when one finishes.`,
+      new Date(now.getTime() + 60_000),
+    );
+  }
+}

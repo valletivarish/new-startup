@@ -40,7 +40,7 @@ import type {
   VoiceProvisionSnapshot,
 } from './types.js';
 import { toE164Phone } from './phone-e164.js';
-import { assertWithinLimits } from '../../integrations/call-limits.js';
+import { assertWithinLimits, assertWithinTestLimits } from '../../integrations/call-limits.js';
 import { buildVoiceProvisionConfig } from './provision-config.js';
 import { buildVoiceProvisionSnapshot } from './provision-snapshot.js';
 import type { CostService } from '../../costs/costs.service.js';
@@ -415,13 +415,13 @@ export function createVoiceSessionService(
           where vs.status in ('active', 'pending') and s.channel = 'browser'
         ) as active_browser,
         count(*) filter (
-          where vs.status in ('active', 'pending') and s.channel = 'phone'
+          where vs.status in ('active', 'pending') and s.channel = 'phone' and not vs.is_test
         ) as active_phone,
         count(*) filter (
           where vs.started_at >= current_date and s.channel = 'browser'
         ) as today_browser,
         count(*) filter (
-          where vs.started_at >= current_date and s.channel = 'phone'
+          where vs.started_at >= current_date and s.channel = 'phone' and not vs.is_test
         ) as today_phone,
         coalesce(
           sum(vs.duration_seconds) filter (
@@ -1064,11 +1064,20 @@ export function createVoiceSessionService(
     },
 
     async startOutboundPhoneCall(actor, agentId, options) {
-      guardEnabled();
       const { jobId, candidateId, testCallId } = options;
       const isTest = testCallId !== undefined;
-      // Company call limits (org_call_limits) cover dashboard and /v1 calls alike; test calls are free.
-      if (!isTest) await assertWithinLimits(database, actor.organizationId, options.now ?? new Date());
+      const at = options.now ?? new Date();
+      if (isTest) {
+        // Test calls run only on the own loop (no ElevenLabs needed) and have their own caps.
+        if (!env.VOICE_OWN_LOOP_ENABLED) {
+          throw ApiError.conflict('Test calls need the own voice loop, which is off on this deployment.');
+        }
+        await assertWithinTestLimits(database, actor.organizationId, at);
+      } else {
+        guardEnabled();
+        // Company call limits (org_call_limits) cover dashboard and /v1 calls alike.
+        await assertWithinLimits(database, actor.organizationId, at);
+      }
 
       // Which engine runs this job's calls (admin-set per job; kill switch → baseline).
       const engineRows = await withTenantContext(
@@ -1175,12 +1184,12 @@ export function createVoiceSessionService(
         { organizationId: actor.organizationId, userId: actor.userId },
         async (tx) => {
           const counts = await countVoiceUsage(tx, actor.organizationId);
-          if (counts.activePhone >= env.ELEVENLABS_MAX_CONCURRENT_PHONE) {
+          if (!isTest && counts.activePhone >= env.ELEVENLABS_MAX_CONCURRENT_PHONE) {
             throw ApiError.conflict(
               `This company already has ${env.ELEVENLABS_MAX_CONCURRENT_PHONE} live phone screens in progress. End one on Calls before starting another.`,
             );
           }
-          if (counts.todayPhone >= env.ELEVENLABS_DAILY_PHONE_SESSIONS) {
+          if (!isTest && counts.todayPhone >= env.ELEVENLABS_DAILY_PHONE_SESSIONS) {
             throw ApiError.conflict(
               `Daily live phone screen limit (${env.ELEVENLABS_DAILY_PHONE_SESSIONS}) reached. Try again tomorrow.`,
             );

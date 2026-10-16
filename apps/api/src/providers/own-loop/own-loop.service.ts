@@ -237,7 +237,7 @@ export function createOwnLoopService(
       const row = await lookup(callId);
       const language = String(row?.provision_snapshot?.['screeningLanguage'] ?? 'en');
 
-      let started = false;
+      let status = 0;
       try {
         const res = await (testLine.fetch ?? fetch)(
           `${env.VOICE_SERVICE_URL.replace(/\/$/, '')}/internal/test-call`,
@@ -248,18 +248,20 @@ export function createOwnLoopService(
             signal: AbortSignal.timeout(5_000),
           },
         );
-        started = res.status === 202;
+        status = res.status;
       } catch {
         /* voice service down: fail the session below */
       }
-      if (!started) {
+      if (status !== 202) {
         await asOrg(actor.organizationId, (tx) =>
           tx.execute(sql`
             update voice_sessions set status = 'failed', failure_reason = 'engine_error', ended_at = now()
             where id = ${voiceSessionId} and organization_id = ${actor.organizationId}
           `),
         );
-        throw new ApiError('service_unavailable', 'The test line is not reachable. Retry shortly.');
+        throw status === 429
+          ? new ApiError('test_call_limit_reached', 'The test line is busy. Retry in a minute.')
+          : new ApiError('service_unavailable', 'The test line is not reachable. Retry shortly.');
       }
       return { voiceSessionId };
     },

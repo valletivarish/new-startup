@@ -27,3 +27,6 @@ export const COST_SERVICE = Symbol('COST_SERVICE');
 
 /** Own voice loop (apps/voice ↔ Nest). */
 export const OWN_LOOP_SERVICE = Symbol('OWN_LOOP_SERVICE');
+
+/** Company API keys (client integrations). */
+export const API_KEYS_SERVICE = Symbol('API_KEYS_SERVICE');

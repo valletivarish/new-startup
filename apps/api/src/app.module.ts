@@ -67,6 +67,7 @@ import {
   OWN_LOOP_SERVICE,
   JOBS_SERVICE,
   CANDIDATES_SERVICE,
+  API_KEYS_SERVICE,
 } from './tokens.more.js';
 import {
   AuthController,
@@ -106,6 +107,9 @@ import { createVoiceSessionAdapter, createStubVoiceSessionAdapter } from './prov
 import { createVoiceSessionService } from './providers/elevenlabs/voice-session.service.js';
 import { createJobsService } from './hiring/jobs.service.js';
 import { createCandidatesService } from './hiring/candidates.service.js';
+import { createApiKeysService } from './integrations/api-keys.service.js';
+import { ApiKeysController } from './integrations/api-keys.controller.js';
+import { V1PingController } from './integrations/v1-ping.controller.js';
 
 export interface AppDeps {
   readonly env: Env;
@@ -152,6 +156,8 @@ export class AppModule {
         AdminCostsController,
         InternalVoiceController,
         ExotelWebhookController,
+        ApiKeysController,
+        V1PingController,
       ],
       providers: [
         { provide: ENV, useValue: deps.env },
@@ -375,6 +381,10 @@ export class AppModule {
         {
           provide: CANDIDATES_SERVICE,
           useFactory: () => createCandidatesService(deps.database),
+        },
+        {
+          provide: API_KEYS_SERVICE,
+          useFactory: () => createApiKeysService(deps.database),
         },
       ],
     };

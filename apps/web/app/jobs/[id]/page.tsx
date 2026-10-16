@@ -1,15 +1,36 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import Link from 'next/link';
-import { useParams, useRouter } from 'next/navigation';
-import { AppShell } from '../../../components/AppShell';
-import { Badge, statusTone } from '../../../components/ui/badge';
-import { Button } from '../../../components/ui/button';
-import { Field, FileInput, Select, Textarea } from '../../../components/ui/input';
-import { Notice, PageHeader, PageMain, Surface } from '../../../components/ui/page';
-import { SkeletonCard } from '../../../components/ui/skeleton';
-import { formatWhen, shortRef } from '../../../lib/format';
+import { useParams } from 'next/navigation';
+import { toast } from 'sonner';
+import {
+  ArrowRight,
+  Circle,
+  CircleCheck,
+  CircleDashed,
+  FileText,
+  Hourglass,
+  PenLine,
+  Plus,
+  Sparkles,
+  Upload,
+  X,
+} from 'lucide-react';
+import { AppShell } from '@/components/AppShell';
+import { Agent } from '@/components/brand/agent';
+import { cleanQuestions, jobReadiness, readinessLine, sameQuestions } from '@/components/jobs/setup';
+import { JobHeader } from '@/components/shared/job-header';
+import { Button } from '@/components/ui/button';
+import { cn } from '@/components/ui/cn';
+import { ErrorState } from '@/components/ui/error-state';
+import { IconButton } from '@/components/ui/icon-button';
+import { Field, FileInput, Select, Textarea, formatBytes } from '@/components/ui/input';
+import { Alert } from '@/components/ui/notice';
+import { PageMain } from '@/components/ui/page-header';
+import { Segmented } from '@/components/ui/segmented';
+import { Skeleton, SkeletonRecord, useHeldLoading } from '@/components/ui/skeleton';
+import { StatusBadge, StatusTag } from '@/components/ui/state-tag';
 import {
   ApiClientError,
   assistJobDescription,
@@ -18,79 +39,91 @@ import {
   formatApiError,
   getAgent,
   getJob,
+  JOB_SOURCE_DESCRIPTION,
   listAgents,
   listJobCandidates,
   listJobKnowledge,
   listKnowledgeSources,
-  me,
   saveJobDescriptionText,
   updateJob,
   uploadKnowledgeDocument,
+  ENGINE_LABEL,
+  setJobEngine,
   type Job,
   type JobKnowledgeSource,
-  type Me,
-} from '../../../lib/api';
-import { loginPathForReturn } from '../../../lib/auth-redirect';
-import { toPublicId, fromPublicId } from '../../../lib/public-id';
-import { JOB_STATUS_LABEL } from '../../../lib/status-labels';
-import {
-  ACCEPT_DOCUMENT,
-  fileToBase64,
-  resolveUploadContentType,
-} from '../../../lib/upload';
-const JOB_STATUSES = ['draft', 'open', 'closed'] as const;
-const JOB_STATUS_ACTION: Record<(typeof JOB_STATUSES)[number], string> = {
-  draft: 'Mark as draft',
-  open: 'Open for hiring',
-  closed: 'Close role',
-};
+  type VoiceEngine,
+} from '@/lib/api';
+import { useUnsavedChangesGuard } from '@/lib/drafts';
+import { toUserMessage } from '@/lib/errors';
+import { shortRef } from '@/lib/format';
+import { fromPublicId, toPublicId } from '@/lib/public-id';
+import { ACCEPT_DOCUMENT, fileToBase64, resolveUploadContentType } from '@/lib/upload';
+import { useMe } from '@/lib/use-me';
+import { useUseCase } from '@/lib/use-cases';
 
-function parseLines(value: string): string[] {
-  return value
-    .split('\n')
-    .map((s) => s.trim())
-    .filter(Boolean);
-}
+/*
+  Job setup (D2): the job's header and tabs, then the steps that make it ready for calls, each
+  a white card: the description, the must-ask questions and the call language, the AI hiring
+  agent. Beside them (below on phones) what is still missing and the job's status. Every
+  "ready" comes from saved data; unsaved edits are marked and guarded.
+*/
+
+const JOB_STATUS_ACTION = {
+  draft: 'Move to draft',
+  open: 'Open for calls',
+  closed: 'Close job',
+} as const;
+type JobStatus = keyof typeof JOB_STATUS_ACTION;
+
+// The backend's limits: 30 questions of up to 300 characters, documents up to 10 MB.
+const MAX_QUESTIONS = 30;
+const MAX_FILE_BYTES = 10 * 1024 * 1024;
 
 export default function JobDetailPage() {
-  const router = useRouter();
   const params = useParams<{ id: string }>();
-  const jobId = fromPublicId(params.id) ?? params.id;
+  // Keyed, so moving to another job starts from a clean page.
+  return <JobSetup key={params.id} publicId={params.id} />;
+}
 
-  const [profile, setProfile] = useState<Me | null>(null);
+function JobSetup({ publicId }: { publicId: string }) {
+  const jobId = fromPublicId(publicId) ?? publicId;
+  const me = useMe();
+  const { labels } = useUseCase();
+
   const [job, setJob] = useState<Job | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<unknown>(null);
   const [loading, setLoading] = useState(true);
-  const [agentPublished, setAgentPublished] = useState(false);
+  // The linked agent's raw status: null while loading, 'unknown' when it couldn't be read.
+  const [agentStatus, setAgentStatus] = useState<string | null>(null);
   const [docsPreparing, setDocsPreparing] = useState(false);
   const [jobKnowledge, setJobKnowledge] = useState<JobKnowledgeSource[]>([]);
-  const [mustAskEdit, setMustAskEdit] = useState('');
+  const [questions, setQuestions] = useState<string[]>([]);
   const [screeningLanguage, setScreeningLanguage] = useState<'en' | 'hi'>('en');
   const [savingScreening, setSavingScreening] = useState(false);
   const [jdFiles, setJdFiles] = useState<File[]>([]);
   const [uploadingJd, setUploadingJd] = useState(false);
   const [jdText, setJdText] = useState('');
   const [jdMode, setJdMode] = useState<'paste' | 'file'>('paste');
-  const [jdAssistBusy, setJdAssistBusy] = useState(false);
-  const [jdNotice, setJdNotice] = useState<{
-    kind: 'ok' | 'err';
-    text: string;
-  } | null>(null);
-  const [questionsNotice, setQuestionsNotice] = useState<{
-    kind: 'ok' | 'err';
-    text: string;
-  } | null>(null);
+  const [assisting, setAssisting] = useState<'generate' | 'format' | 'questions' | null>(null);
+  const [jdError, setJdError] = useState<string | null>(null);
+  const [questionsError, setQuestionsError] = useState<string | null>(null);
   const [savingJdText, setSavingJdText] = useState(false);
-  const [agents, setAgents] = useState<{ id: string; name: string; status: string }[]>([]);
+  // null while loading.
+  const [agents, setAgents] = useState<{ id: string; name: string; status: string }[] | null>(null);
   const [linkAgentId, setLinkAgentId] = useState('');
-  const [peopleTotal, setPeopleTotal] = useState(0);
+  const [linking, setLinking] = useState(false);
+  const [changingStatus, setChangingStatus] = useState<JobStatus | null>(null);
+  // null when the roster couldn't be read: shown as unknown, never as 0.
+  const [peopleTotal, setPeopleTotal] = useState<number | null>(null);
+  const hydrated = useRef(false);
+  const questionInputs = useRef<(HTMLTextAreaElement | null)[]>([]);
+  const addQuestionButton = useRef<HTMLButtonElement>(null);
 
   const reloadJobKnowledge = useCallback(async () => {
     try {
       const { sources } = await listJobKnowledge(jobId);
       setJobKnowledge(sources);
-      const pending = sources.reduce((n, s) => n + s.pendingDocs, 0);
-      setDocsPreparing(pending > 0);
+      setDocsPreparing(sources.some((s) => s.pendingDocs > 0));
     } catch {
       setJobKnowledge([]);
       setDocsPreparing(false);
@@ -100,65 +133,47 @@ export default function JobDetailPage() {
   const reload = useCallback(async () => {
     setLoading(true);
     try {
-      const p = await me();
-      setProfile(p);
-      try {
-        const j = await getJob(jobId);
-        setJob(j);
-        setJdText((prev) => {
-          const fromJob = (j.description ?? '').trim();
-          // Keep in-progress edits; only hydrate when the editor is empty.
-          if (prev.trim().length > 0) return prev;
-          return fromJob;
-        });
-        setMustAskEdit(
-          (j.screeningQuestions ?? []).map((q) => q.label).join('\n'),
-        );
+      const j = await getJob(jobId);
+      setJob(j);
+      setLoadError(null);
+      // The editors take the saved values once; later reloads never overwrite work in progress.
+      if (!hydrated.current) {
+        hydrated.current = true;
+        setJdText((j.description ?? '').trim());
+        setQuestions((j.screeningQuestions ?? []).map((q) => q.label));
         setScreeningLanguage(j.screeningLanguage === 'hi' ? 'hi' : 'en');
-        void reloadJobKnowledge();
-        try {
-          const roster = await listJobCandidates(jobId, { limit: 1 });
-          setPeopleTotal(roster.totals.all);
-        } catch {
-          setPeopleTotal(0);
-        }
-      } catch (e) {
-        setJob(null);
-        setPeopleTotal(0);
-        if (e instanceof ApiClientError && e.status === 404) {
-          setNotice('Job not found.');
-        } else if (e instanceof ApiClientError && e.status === 403) {
-          setNotice('You do not have access to this job.');
-        } else setNotice('Could not load job.');
+      }
+      void reloadJobKnowledge();
+      try {
+        const roster = await listJobCandidates(jobId, { limit: 1 });
+        setPeopleTotal(roster.totals.all);
+      } catch {
+        setPeopleTotal(null);
       }
     } catch (e) {
-      if (e instanceof ApiClientError && e.status === 401) router.push(loginPathForReturn());
-      else setNotice('Could not load profile.');
+      setLoadError(e);
     } finally {
       setLoading(false);
     }
-  }, [jobId, router, reloadJobKnowledge]);
+  }, [jobId, reloadJobKnowledge]);
 
   useEffect(() => {
     void reload();
   }, [reload]);
 
+  const jobLoaded = job !== null;
+  const linkedId = job?.agentId ?? null;
   useEffect(() => {
+    if (!jobLoaded) return;
     let cancelled = false;
+    setAgentStatus(null);
     async function loadAgent() {
       try {
         const a = await listAgents();
         if (!cancelled) {
-          const mapped = a.agents.map((x) => ({
-            id: x.id,
-            name: x.name,
-            status: x.status,
-          }));
-          // HR picker: published agents only, plus the one already on this job.
-          const linkedId = job?.agentId;
-          const forPicker = mapped.filter(
-            (x) => x.status === 'published' || x.id === linkedId,
-          );
+          const mapped = a.agents.map((x) => ({ id: x.id, name: x.name, status: x.status }));
+          // The picker: live agents only, plus the one already on this job.
+          const forPicker = mapped.filter((x) => x.status === 'published' || x.id === linkedId);
           setAgents(forPicker.length > 0 ? forPicker : mapped);
           setLinkAgentId(
             (prev) =>
@@ -172,101 +187,116 @@ export default function JobDetailPage() {
       } catch {
         if (!cancelled) setAgents([]);
       }
-      if (!job?.agentId) {
-        if (!cancelled) setAgentPublished(false);
-        return;
-      }
+      if (!linkedId) return;
       try {
-        const agent = await getAgent(job.agentId);
+        const agent = await getAgent(linkedId);
         if (!cancelled) {
-          setAgentPublished(agent.status === 'published');
+          setAgentStatus(agent.status);
           setLinkAgentId(agent.id);
         }
       } catch {
-        if (!cancelled) setAgentPublished(false);
+        if (!cancelled) setAgentStatus('unknown');
       }
     }
     void loadAgent();
     return () => {
       cancelled = true;
     };
-  }, [job?.agentId]);
+  }, [jobLoaded, linkedId]);
 
-  // Keep preparing warning live while job JD docs are not ready.
+  // Long questions wrap: each box grows to its text. Native where field-sizing is supported.
+  useEffect(() => {
+    if (CSS.supports('field-sizing', 'content')) return;
+    const fit = () =>
+      questionInputs.current.forEach((el) => {
+        if (!el) return;
+        el.style.height = 'auto';
+        el.style.height = `${el.scrollHeight + 2}px`; // plus the 1px borders
+      });
+    fit();
+    window.addEventListener('resize', fit);
+    return () => window.removeEventListener('resize', fit);
+  }, [questions]);
+
+  // While uploaded files are being read, check again every 3 seconds.
   useEffect(() => {
     if (!docsPreparing) return;
-    const id = window.setInterval(() => {
-      void reloadJobKnowledge();
-    }, 3000);
+    const id = window.setInterval(() => void reloadJobKnowledge(), 3000);
     return () => window.clearInterval(id);
   }, [docsPreparing, reloadJobKnowledge]);
 
-  const can = (p: string) =>
-    profile?.activeOrganization?.permissions.includes(p) ?? false;
-  const linkedAgent = agents.find((a) => a.id === job?.agentId) ?? null;
+  const savedDescription = (job?.description ?? '').trim();
+  const savedQuestions = (job?.screeningQuestions ?? []).map((q) => q.label);
+  const savedLanguage = job?.screeningLanguage === 'hi' ? 'hi' : 'en';
+  const jdDirty = job !== null && jdText.trim() !== savedDescription;
+  const questionsDirty =
+    job !== null && (!sameQuestions(questions, savedQuestions) || screeningLanguage !== savedLanguage);
+  useUnsavedChangesGuard(jdDirty || questionsDirty);
+
+  const permissions = me.data?.activeOrganization?.permissions ?? [];
+  const canEdit = permissions.includes('jobs.update');
+  const linkedAgent = agents?.find((a) => a.id === job?.agentId) ?? null;
+  // Unknown while loading or when it couldn't be read: then nothing claims it is or isn't live.
+  const agentLive =
+    agentStatus === null || agentStatus === 'unknown' ? null : agentStatus === 'published';
+  const otherAgents = agents?.filter((a) => a.id !== job?.agentId) ?? [];
+  const showSkeleton = useHeldLoading(loading && !job);
 
   async function onLinkAgent() {
     if (!linkAgentId) return;
+    setLinking(true);
     await run(
       () => updateJob(jobId, { agentId: linkAgentId }),
-      job?.agentId ? 'Hiring voice updated.' : 'Hiring voice linked.',
+      job?.agentId ? 'Agent changed for this job.' : 'Agent chosen for this job.',
+      'Couldn’t change the agent. Try again.',
     );
+    setLinking(false);
   }
 
   async function onSaveScreening() {
     setSavingScreening(true);
-    setNotice(null);
+    setQuestionsError(null);
     try {
       const text = jdText.trim();
-      const prior = (job?.description ?? '').trim();
-      if (text.length >= 20 && text !== prior) {
-        await saveJobDescriptionText(jobId, text);
-      }
-      await updateJob(jobId, {
-        mustAskQuestions: parseLines(mustAskEdit),
-        screeningLanguage,
-      });
-      setNotice(
-        text.length >= 20 && text !== prior
-          ? 'Job description and screening setup saved.'
-          : parseLines(mustAskEdit).length === 0
-            ? 'Screening language saved. Questions left blank (optional).'
-            : 'Questions and language saved for this job.',
+      const withDescription = text.length >= 20 && text !== savedDescription;
+      if (withDescription) await saveJobDescriptionText(jobId, text);
+      const cleaned = cleanQuestions(questions);
+      await updateJob(jobId, { mustAskQuestions: cleaned, screeningLanguage });
+      setQuestions(cleaned);
+      toast.success(
+        withDescription
+          ? 'Description, questions and language saved.'
+          : cleaned.length === 0
+            ? 'Saved. Calls use the questions set on the agent.'
+            : 'Questions and language saved.',
       );
       await reload();
     } catch (e) {
-      setNotice(formatApiError(e, 'Could not save screening setup.'));
+      setQuestionsError(formatApiError(e, 'Couldn’t save the questions. Try again.'));
     } finally {
       setSavingScreening(false);
     }
   }
 
   async function resolveJdSourceId(): Promise<string> {
-    // Already linked to this job — upload into it (covers empty sources from a
-    // prior create that never finished uploading).
+    // Already linked to this job: upload into it (covers empty sources from a create that never
+    // finished uploading).
     const linked = jobKnowledge[0]?.id;
     if (linked) return linked;
 
     const title = job?.title?.trim() || 'Job';
     const ref = shortRef(jobId);
-    // Unique per job so two "Java Backend Developer" roles don't collide.
-    const preferred = ref
-      ? `${title} description · ${ref}`
-      : `${title} description`;
+    // Unique per job, so two jobs with the same title don't collide.
+    const preferred = ref ? `${title} description · ${ref}` : `${title} description`;
     const legacy = `${title} description`;
 
     try {
-      const created = await createKnowledgeSource(
-        preferred,
-        'Job description and role docs for screening',
-      );
+      const created = await createKnowledgeSource(preferred, JOB_SOURCE_DESCRIPTION);
       return created.id;
     } catch (e) {
       if (!(e instanceof ApiClientError) || e.status !== 409) throw e;
       const { sources } = await listKnowledgeSources();
-      const match =
-        sources.find((s) => s.name === preferred) ??
-        sources.find((s) => s.name === legacy);
+      const match = sources.find((s) => s.name === preferred) ?? sources.find((s) => s.name === legacy);
       if (!match) throw e;
       return match.id;
     }
@@ -275,7 +305,7 @@ export default function JobDetailPage() {
   async function onUploadJd() {
     if (jdFiles.length === 0) return;
     setUploadingJd(true);
-    setJdNotice(null);
+    setJdError(null);
     try {
       const sourceId = await resolveJdSourceId();
       for (const file of jdFiles) {
@@ -289,618 +319,844 @@ export default function JobDetailPage() {
       }
       await attachJobKnowledge(jobId, sourceId);
       setJdFiles([]);
-      setJdNotice({ kind: 'ok', text: 'Job description uploaded to this job.' });
+      toast.success(jdFiles.length === 1 ? 'File uploaded. It’s being read now.' : 'Files uploaded. They’re being read now.');
       await reloadJobKnowledge();
     } catch (e) {
-      setJdNotice({
-        kind: 'err',
-        text: formatApiError(e, 'Could not upload job description.'),
-      });
+      setJdError(formatApiError(e, 'Couldn’t upload the file. Try again.'));
     } finally {
       setUploadingJd(false);
     }
   }
 
   async function onAssistJd(mode: 'generate' | 'format' | 'questions') {
-    const notes =
-      mode === 'questions'
-        ? jdText.trim() || (job?.description ?? '').trim()
-        : jdText.trim();
-    const flash = (kind: 'ok' | 'err', text: string) => {
-      if (mode === 'questions') setQuestionsNotice({ kind, text });
-      else setJdNotice({ kind, text });
-    };
+    const notes = mode === 'questions' ? jdText.trim() || savedDescription : jdText.trim();
+    const fail = mode === 'questions' ? setQuestionsError : setJdError;
     if (notes.length < 20) {
-      flash(
-        'err',
+      fail(
         mode === 'generate'
-          ? 'Add at least a short outline of roles and responsibilities in the box above, then try again.'
+          ? 'Write a few lines about the job in the box first: what the person does and what they need. Then try again.'
           : mode === 'questions'
-            ? 'Paste or generate the JD in the box above first, then suggest questions.'
-            : 'Paste at least a short job description to format.',
+            ? 'Add the job description first. The questions are suggested from it.'
+            : 'Paste the job description in the box first, then clean it up.',
       );
       return;
     }
-    setJdAssistBusy(true);
-    if (mode === 'questions') setQuestionsNotice(null);
-    else setJdNotice(null);
+    setAssisting(mode);
+    fail(null);
     try {
-      const result = await assistJobDescription(jobId, {
-        mode,
-        notes,
-        title: job?.title,
-      });
+      const result = await assistJobDescription(jobId, { mode, notes, title: job?.title });
       if (mode === 'questions') {
         const lines =
           result.questions && result.questions.length > 0
             ? result.questions
-            : result.jdText.split(/\n+/).map((l) => l.trim()).filter(Boolean);
-        setMustAskEdit(lines.join('\n'));
-        flash(
-          'ok',
-          'Suggested questions added below. Edit if needed, then save. Or clear and leave blank.',
-        );
+            : result.jdText
+                .split(/\n+/)
+                .map((l) => l.trim())
+                .filter(Boolean);
+        setQuestions(lines.slice(0, MAX_QUESTIONS));
+        toast.success('Questions suggested from the description. Edit them, then save.');
       } else {
         setJdText(result.jdText);
-        flash(
-          'ok',
+        toast.success(
           mode === 'generate'
-            ? 'Draft generated. Review it, then save the description.'
-            : 'Formatted. Review it, then save the description.',
+            ? 'Draft written. Read it through, then save.'
+            : 'Formatting cleaned up. Read it through, then save.',
         );
       }
     } catch (e) {
-      flash(
-        'err',
+      fail(
         formatApiError(
           e,
           mode === 'questions'
-            ? 'Could not suggest questions.'
-            : 'Could not assist with the job description.',
+            ? 'Couldn’t suggest questions. Try again.'
+            : 'Couldn’t write the description. Try again.',
         ),
       );
     } finally {
-      setJdAssistBusy(false);
+      setAssisting(null);
     }
   }
 
   async function onSaveJdText() {
     const text = jdText.trim();
     if (text.length < 20) {
-      setJdNotice({
-        kind: 'err',
-        text: 'Type or paste a job description (at least a short paragraph) before saving.',
-      });
+      setJdError('Paste or write the job description first. A short paragraph is enough.');
       return;
     }
     setSavingJdText(true);
-    setJdNotice(null);
+    setJdError(null);
     try {
       await saveJobDescriptionText(jobId, text);
-      setJdNotice({ kind: 'ok', text: 'Job description saved to this job.' });
+      toast.success('Description saved. The agent uses it on every call for this job.');
       const refreshed = await getJob(jobId);
       setJob(refreshed);
       setJdText(text);
       await reloadJobKnowledge();
     } catch (e) {
-      setJdNotice({
-        kind: 'err',
-        text: formatApiError(e, 'Could not save job description.'),
-      });
+      setJdError(formatApiError(e, 'Couldn’t save the description. Try again.'));
     } finally {
       setSavingJdText(false);
     }
   }
 
-  async function run(action: () => Promise<unknown>, ok: string) {
+  async function run(action: () => Promise<unknown>, ok: string, failed: string) {
     try {
       await action();
-      setNotice(ok);
+      toast.success(ok);
       await reload();
     } catch (e) {
-      setNotice(e instanceof ApiClientError ? e.message : 'That did not work.');
+      toast.error(formatApiError(e, failed));
     }
   }
 
-  async function onJobStatusChange(status: (typeof JOB_STATUSES)[number]) {
-    await run(() => updateJob(jobId, { status }), 'Job status updated.');
+  async function onJobStatusChange(status: JobStatus) {
+    setChangingStatus(status);
+    await run(
+      () => updateJob(jobId, { status }),
+      status === 'open' ? 'The job is open for calls.' : status === 'closed' ? 'Job closed.' : 'Job moved to draft.',
+      'Couldn’t change the job’s status. Try again.',
+    );
+    setChangingStatus(null);
   }
 
-  if (!profile || !job) {
+  function focusQuestion(index: number | null) {
+    // After React has drawn the new list. null: the list is empty, so Add question.
+    window.requestAnimationFrame(() =>
+      (index === null ? addQuestionButton.current : questionInputs.current[index])?.focus(),
+    );
+  }
+
+  function addQuestion() {
+    setQuestions((qs) => [...qs, '']);
+    focusQuestion(questions.length);
+  }
+
+  function removeQuestion(index: number) {
+    setQuestions((qs) => qs.filter((_, i) => i !== index));
+    // Focus stays in the list: the question that took its place, or the one before.
+    focusQuestion(questions.length > 1 ? Math.min(index, questions.length - 2) : null);
+  }
+
+  if (!job) {
+    let body: ReactNode = null;
+    if (showSkeleton) body = <SetupSkeleton />;
+    else if (loadError) {
+      const m = toUserMessage(loadError, `load this ${labels.workItem.one.toLowerCase()}`);
+      // The whole page: the error names it (h1). Retry when it may help; the way out is the list.
+      body = (
+        <ErrorState
+          headingLevel={1}
+          title={m.title}
+          cause={m.detail}
+          onRetry={m.action === 'retry' ? () => void reload() : undefined}
+          retrying={loading}
+          action={
+            <Button asChild variant={m.action === 'retry' ? 'tertiary' : 'secondary'}>
+              <Link href="/jobs">Back to {labels.workItem.many.toLowerCase()}</Link>
+            </Button>
+          }
+        />
+      );
+    }
     return (
-      <AppShell profile={profile}>
-        <PageMain className="space-y-4">
-          {loading ? (
-            <SkeletonCard />
-          ) : (
-            <>
-              <Link
-                href="/jobs"
-                className="text-sm text-[var(--accent)] no-underline hover:underline"
-              >
-                All jobs
-              </Link>
-              {notice ? (
-                <Notice kind="err">{notice}</Notice>
-              ) : null}
-            </>
-          )}
-        </PageMain>
+      <AppShell profile={me.data ?? null}>
+        <PageMain>{body}</PageMain>
       </AppShell>
     );
   }
 
+  const readiness = jobReadiness(job, jobKnowledge, agentLive);
+  const contacts = labels.contact.many.toLowerCase();
+
   return (
-    <AppShell profile={profile}>
-      <PageMain className="pb-10">
-        <PageHeader
+    <AppShell
+      profile={me.data ?? null}
+      breadcrumb={[{ label: labels.workItem.many, href: '/jobs' }, { label: job.title }]}
+    >
+      <PageMain>
+        <JobHeader
+          jobId={toPublicId(jobId)}
           title={job.title}
-          description={[
-            formatWhen(job.createdAt)
-              ? `Created ${formatWhen(job.createdAt)}`
-              : null,
-            'Job setup — description, questions, and voice for this role.',
-          ]
-            .filter(Boolean)
-            .join(' · ')}
-          actions={
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge tone={statusTone(job.status)}>
-                {JOB_STATUS_LABEL[job.status] ?? job.status}
-              </Badge>
-              <Button asChild size="sm">
-                <Link href={`/jobs/${toPublicId(jobId)}/candidates`}>
-                  People
-                </Link>
-              </Button>
-              <Button asChild variant="ghost" size="sm">
-                <Link href="/jobs">All jobs</Link>
-              </Button>
-            </div>
-          }
+          status={job.status}
+          current="setup"
+          readiness={readinessLine(readiness)}
+          workItemLabel={labels.workItem.many}
+          contactLabel={labels.contact.many}
         />
-        {notice ? <Notice kind="ok">{notice}</Notice> : null}
 
-        {(() => {
-          const jdReady =
-            Boolean(job.hasJdDocs) ||
-            jobKnowledge.some((s) => s.readyDocs > 0) ||
-            (job.description ?? '').trim().length >= 20 ||
-            jdText.trim().length >= 20;
-          const questionsReady =
-            (job.screeningQuestions?.length ?? 0) > 0 ||
-            mustAskEdit
-              .split('\n')
-              .map((l) => l.trim())
-              .filter(Boolean).length > 0;
-          const agentReady = Boolean(job.agentId && agentPublished);
-          const agentLinked = Boolean(job.agentId);
-          const steps = [
-            {
-              ok: jdReady,
-              label: jdReady
-                ? 'Job description ready'
-                : docsPreparing
-                  ? 'Job description still preparing'
-                  : 'Add the job description',
-            },
-            {
-              ok: questionsReady,
-              soft: true as const,
-              label: questionsReady
-                ? 'Screening questions ready'
-                : 'Add screening questions (optional)',
-            },
-            {
-              ok: agentReady,
-              label: agentReady
-                ? `Hiring voice ready${linkedAgent?.name ? ` · ${linkedAgent.name}` : ''}`
-                : agentLinked
-                  ? 'Publish the hiring voice before screens'
-                  : 'Choose a hiring voice for this role',
-            },
-            {
-              ok: peopleTotal > 0,
-              soft: true as const,
-              label:
-                peopleTotal > 0
-                  ? peopleTotal === 1
-                    ? '1 person added'
-                    : `${peopleTotal} people added`
-                  : 'Add people and run screens',
-            },
-          ];
-          const nextHref = `/jobs/${toPublicId(jobId)}/candidates`;
-          return (
-            <Surface className="space-y-3">
-              <div className="flex flex-wrap items-end justify-between gap-3">
-                <div>
-                  <h2 className="m-0 font-display text-base font-semibold tracking-tight">
-                    Before you call
-                  </h2>
-                  <p className="mt-1 mb-0 text-sm text-[var(--foreground-tertiary)]">
-                    Description, questions, and hiring voice — then People.
-                  </p>
-                </div>
-                <Button asChild size="sm">
-                  <Link href={nextHref}>
-                    {jdReady && agentReady
-                      ? 'Go to people →'
-                      : 'People on this job →'}
-                  </Link>
-                </Button>
-              </div>
-              <ul className="m-0 list-none space-y-2 p-0">
-                {steps.map((step) => (
-                  <li
-                    key={step.label}
-                    className="flex flex-wrap items-center gap-2 text-sm text-[var(--foreground-secondary)]"
-                  >
-                    <Badge
-                      tone={
-                        step.ok
-                          ? 'success'
-                          : 'soft' in step && step.soft
-                            ? 'neutral'
-                            : 'warning'
-                      }
-                    >
-                      {step.ok
-                        ? 'Ready'
-                        : 'soft' in step && step.soft
-                          ? 'Next'
-                          : 'Needed'}
-                    </Badge>
-                    <span>{step.label}</span>
-                  </li>
-                ))}
-              </ul>
-            </Surface>
-          );
-        })()}
-
-        {can('jobs.update') ? (
-          <Surface className="space-y-4">
-            <div>
-              <h2 className="m-0 font-display text-base font-semibold tracking-tight">
-                1. Description
-              </h2>
-              <p className="mt-1 mb-0 text-sm text-[var(--foreground-tertiary)]">
-                Upload a file or paste the job description. This is what screens
-                use for role context.
-              </p>
-            </div>
-            {!jdText.trim() && job.description ? (
-              <p className="m-0 text-sm text-[var(--foreground-tertiary)]">
-                Saved description is on file. Edit below to change it.
-              </p>
-            ) : null}
-            {jobKnowledge.some((s) => s.readyDocs > 0) &&
-            !(job.description ?? '').trim() &&
-            !jdText.trim() ? (
-              <p className="m-0 text-sm">Job description file is ready.</p>
-            ) : null}
-            {docsPreparing ? (
-              <p
-                role="status"
-                className="m-0 rounded-md border border-[color-mix(in_srgb,var(--warning)_35%,transparent)] bg-[color-mix(in_srgb,var(--warning)_12%,transparent)] px-3.5 py-2.5 text-[13px] text-[var(--warning)]"
-              >
-                Uploaded documents are still preparing. You can screen now, but
-                the call may miss role context until they show Ready.
-              </p>
-            ) : null}
-            <div
-              role="tablist"
-              aria-label="How to add the description"
-              className="inline-flex rounded-md border border-[var(--separator)] bg-[var(--surface-secondary)] p-0.5"
-            >
-              <button
-                type="button"
-                role="tab"
-                aria-selected={jdMode === 'file'}
-                className={
-                  jdMode === 'file'
-                    ? 'rounded-[5px] bg-[var(--surface)] px-3 py-1.5 text-xs font-medium text-[var(--foreground)] shadow-sm'
-                    : 'rounded-[5px] px-3 py-1.5 text-xs font-medium text-[var(--foreground-tertiary)] hover:text-[var(--foreground-secondary)]'
-                }
-                onClick={() => setJdMode('file')}
-              >
-                Upload file
-              </button>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={jdMode === 'paste'}
-                className={
-                  jdMode === 'paste'
-                    ? 'rounded-[5px] bg-[var(--surface)] px-3 py-1.5 text-xs font-medium text-[var(--foreground)] shadow-sm'
-                    : 'rounded-[5px] px-3 py-1.5 text-xs font-medium text-[var(--foreground-tertiary)] hover:text-[var(--foreground-secondary)]'
-                }
-                onClick={() => setJdMode('paste')}
-              >
-                Paste text
-              </button>
-            </div>
-            {jdMode === 'file' ? (
-              <div className="grid max-w-xl gap-3">
-                <Field label="Job description file" compound>
-                  <FileInput
-                    accept={ACCEPT_DOCUMENT}
-                    multiple
-                    variant="dropzone"
-                    onFilesChange={setJdFiles}
-                    emptyLabel="Drop a PDF, Word, or PowerPoint here"
-                    aria-label="Job description documents"
-                  />
-                </Field>
-                {jdFiles.length > 0 ? (
-                  <ul className="m-0 list-disc pl-5 text-sm">
-                    {jdFiles.map((f) => (
-                      <li key={`${f.name}-${f.size}`}>{f.name}</li>
-                    ))}
-                  </ul>
-                ) : null}
-                <Button
-                  type="button"
-                  className="justify-self-start"
-                  disabled={uploadingJd || jdFiles.length === 0}
-                  onClick={() => void onUploadJd()}
-                >
-                  {uploadingJd ? 'Uploading…' : 'Upload to this job'}
-                </Button>
-              </div>
-            ) : (
-              <>
-                <Field label="Job description">
-                  <Textarea
-                    value={jdText}
-                    onChange={(e) => setJdText(e.target.value)}
-                    rows={10}
-                    placeholder="Paste the job description, or jot roles and responsibilities then Generate from roles…"
-                    aria-label="Job description text"
-                  />
-                </Field>
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    disabled={jdAssistBusy || savingJdText}
-                    onClick={() => void onAssistJd('generate')}
-                  >
-                    {jdAssistBusy ? 'Working…' : 'Generate from roles'}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    disabled={jdAssistBusy || savingJdText}
-                    onClick={() => void onAssistJd('format')}
-                  >
-                    Format pasted text
-                  </Button>
-                  <Button
-                    type="button"
-                    disabled={savingJdText || jdAssistBusy}
-                    onClick={() => void onSaveJdText()}
-                  >
-                    {savingJdText ? 'Saving…' : 'Save description'}
-                  </Button>
-                </div>
-              </>
-            )}
-            {jdNotice ? (
-              <Notice kind={jdNotice.kind === 'err' ? 'err' : 'ok'}>
-                {jdNotice.text}
-              </Notice>
-            ) : null}
-            {jobKnowledge.length > 0 ? (
-              <ul className="m-0 list-disc pl-5 text-sm text-[var(--foreground-secondary)]">
-                {jobKnowledge.map((s) => (
-                  <li key={s.id}>
-                    {s.name}
-                    {s.pendingDocs > 0
-                      ? ' · preparing'
-                      : s.readyDocs > 0
-                        ? ' · ready'
-                        : s.failedDocs > 0
-                          ? ' · could not read file'
-                          : ''}
-                  </li>
-                ))}
-              </ul>
-            ) : null}
-          </Surface>
-        ) : (
-          <Surface className="space-y-3">
-            <h2 className="m-0 font-display text-base font-semibold tracking-tight">
-              Description
-            </h2>
-            {job.description ? (
-              <p className="m-0 whitespace-pre-wrap text-sm text-[var(--foreground)]">
-                {job.description}
-              </p>
-            ) : jobKnowledge.some((s) => s.readyDocs > 0) ? (
-              <p className="m-0 text-sm">Job description is ready.</p>
-            ) : (
-              <p className="m-0 text-sm text-[var(--foreground-tertiary)]">
-                No description on this job yet.
-              </p>
-            )}
-          </Surface>
-        )}
-
-        {can('jobs.update') ? (
-          <Surface className="space-y-4">
-            <div>
-              <h2 className="m-0 font-display text-base font-semibold tracking-tight">
-                2. Questions
-              </h2>
-              <p className="mt-1 mb-0 text-sm text-[var(--foreground-tertiary)]">
-                Optional. Leave blank if the description is enough for the
-                phone screen.
-              </p>
-            </div>
-            <Field label="Screening questions">
-              <Textarea
-                value={mustAskEdit}
-                onChange={(e) => setMustAskEdit(e.target.value)}
-                rows={5}
-                placeholder="Leave blank, or type one question per line…"
-              />
-            </Field>
-            <div className="flex flex-wrap gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                disabled={jdAssistBusy || savingScreening}
-                onClick={() => void onAssistJd('questions')}
-              >
-                {jdAssistBusy ? 'Working…' : 'Suggest questions'}
+        {loadError ? (
+          <Alert
+            kind="warning"
+            title={`Couldn’t refresh this ${labels.workItem.one.toLowerCase()}`}
+            action={
+              <Button variant="secondary" size="sm" loading={loading} onClick={() => void reload()}>
+                Retry
               </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                disabled={savingScreening || !mustAskEdit.trim()}
-                onClick={() => setMustAskEdit('')}
-              >
-                Clear questions
-              </Button>
-            </div>
-            {questionsNotice ? (
-              <Notice kind={questionsNotice.kind === 'err' ? 'err' : 'ok'}>
-                {questionsNotice.text}
-              </Notice>
-            ) : null}
-            <Field label="Screening language" className="max-w-xs">
-              <Select
-                value={screeningLanguage}
-                onChange={(e) =>
-                  setScreeningLanguage(e.target.value === 'hi' ? 'hi' : 'en')
-                }
-                className="max-w-xs"
-              >
-                <option value="en">English</option>
-                <option value="hi">Hindi</option>
-              </Select>
-            </Field>
-            <Button
-              type="button"
-              disabled={savingScreening}
-              onClick={() => void onSaveScreening()}
-            >
-              {savingScreening ? 'Saving…' : 'Save questions'}
-            </Button>
-          </Surface>
+            }
+          >
+            What you see is from the last time it loaded.
+          </Alert>
         ) : null}
 
-        <Surface className="space-y-4">
-          <div>
-            <h2 className="m-0 font-display text-base font-semibold tracking-tight">
-              3. Hiring voice
-            </h2>
-            <p className="mt-1 mb-0 text-sm text-[var(--foreground-tertiary)]">
-              The hiring voice that runs screens for this role.
-            </p>
-          </div>
-          {job.agentId ? (
-            <div className="space-y-3">
-              <p className="m-0 text-sm">
-                Hiring voice for this role:{' '}
-                <strong>{linkedAgent?.name ?? 'Linked'}</strong>
-                {agentPublished ? ' · ready' : ' · publish before screens'}
-              </p>
-              <Link
-                href={`/agents/${toPublicId(job.agentId)}`}
-                className="text-sm font-semibold text-[var(--accent)] no-underline hover:underline"
-              >
-                {agentPublished
-                  ? 'Hiring voice settings →'
-                  : 'Publish hiring voice →'}
-              </Link>
-              {can('jobs.update') && agents.length > 0 ? (
-                <div className="flex flex-wrap gap-2">
-                  <Select
-                    value={linkAgentId}
-                    onChange={(e) => setLinkAgentId(e.target.value)}
-                    aria-label="Change hiring voice for this role"
-                    className="min-w-[11rem] flex-1"
-                  >
-                    {agents.map((a) => (
-                      <option key={a.id} value={a.id}>
-                        {a.name}
-                        {a.status === 'published' ? '' : ' (not published)'}
-                      </option>
+        <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_19rem] lg:items-start xl:grid-cols-[minmax(0,1fr)_21rem]">
+          <div className="min-w-0 space-y-6">
+            <SetupCard
+              id="job-description"
+              step={canEdit ? 1 : undefined}
+              title="Job description"
+              description="The agent uses it on every call for this job."
+              badge={
+                canEdit && jdDirty ? (
+                  <UnsavedBadge />
+                ) : readiness.description === 'saved' ? (
+                  <StatusBadge tone="success" icon={CircleCheck}>
+                    Saved
+                  </StatusBadge>
+                ) : readiness.description === 'preparing' ? (
+                  <StatusBadge tone="info" icon={Hourglass}>
+                    Reading your file
+                  </StatusBadge>
+                ) : (
+                  <StatusBadge tone="neutral" icon={Circle}>
+                    Not added yet
+                  </StatusBadge>
+                )
+              }
+            >
+              {canEdit ? (
+                <>
+                  <Segmented
+                    label="How to add the description"
+                    options={[
+                      { value: 'paste', label: 'Paste text' },
+                      { value: 'file', label: 'Upload a file' },
+                    ]}
+                    value={jdMode}
+                    onValueChange={setJdMode}
+                  />
+                  {jdMode === 'paste' ? (
+                    <div className="mt-4 grid gap-3">
+                      <Textarea
+                        value={jdText}
+                        onChange={(e) => setJdText(e.target.value)}
+                        rows={12}
+                        maxLength={40000}
+                        aria-labelledby="job-description-title"
+                        placeholder="Paste the job description here. Or write a few lines about the job and choose Draft from notes."
+                      />
+                      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          size="sm"
+                          loading={assisting === 'generate'}
+                          disabled={assisting !== null || savingJdText}
+                          onClick={() => void onAssistJd('generate')}
+                        >
+                          <Sparkles aria-hidden strokeWidth={1.5} />
+                          Draft from notes
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          size="sm"
+                          loading={assisting === 'format'}
+                          disabled={assisting !== null || savingJdText}
+                          onClick={() => void onAssistJd('format')}
+                        >
+                          Clean up formatting
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant={jdDirty ? 'primary' : 'secondary'}
+                          className="sm:ml-auto"
+                          loading={savingJdText}
+                          disabled={assisting !== null}
+                          onClick={() => void onSaveJdText()}
+                        >
+                          Save description
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="mt-4 grid gap-3">
+                      <FileInput
+                        accept={ACCEPT_DOCUMENT}
+                        maxBytes={MAX_FILE_BYTES}
+                        multiple
+                        variant="dropzone"
+                        onFilesChange={setJdFiles}
+                        emptyLabel="Drop a PDF, Word or PowerPoint file here, up to 10 MB"
+                        aria-label="Job description files"
+                      />
+                      {jdFiles.length > 1 ? (
+                        <ul role="list" className="m-0 list-none space-y-1 p-0 text-meta text-text-2">
+                          {jdFiles.map((f) => (
+                            <li key={`${f.name}-${f.size}`} className="flex gap-2">
+                              <span className="min-w-0 truncate">{f.name}</span>
+                              <span className="shrink-0 tabular-nums text-text-3">{formatBytes(f.size)}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : null}
+                      <Button
+                        type="button"
+                        className="justify-self-start"
+                        variant={jdFiles.length > 0 ? 'primary' : 'secondary'}
+                        loading={uploadingJd}
+                        disabled={jdFiles.length === 0}
+                        onClick={() => void onUploadJd()}
+                      >
+                        <Upload aria-hidden strokeWidth={1.5} />
+                        Upload to this job
+                      </Button>
+                    </div>
+                  )}
+                  {jdError ? (
+                    <Alert kind="error" className="mt-4">
+                      {jdError}
+                    </Alert>
+                  ) : null}
+                </>
+              ) : savedDescription ? (
+                <p className="m-0 max-w-[75ch] whitespace-pre-wrap text-text">{savedDescription}</p>
+              ) : (
+                <p className="m-0 text-text-2">
+                  {readiness.description === 'missing'
+                    ? 'No description yet. Ask someone who can edit this job to add it.'
+                    : 'The description is in the documents below.'}
+                </p>
+              )}
+              {readiness.description === 'preparing' ? (
+                <Alert kind="info" className="mt-4">
+                  Reading your file. Calls can use it once it shows Ready.
+                </Alert>
+              ) : null}
+              {jobKnowledge.length > 0 ? <Documents sources={jobKnowledge} /> : null}
+            </SetupCard>
+
+            <SetupCard
+              id="questions"
+              step={canEdit ? 2 : undefined}
+              title="Must-ask questions"
+              description="The agent asks each of these on every call. Leave the list empty and it asks the questions set on the agent."
+              badge={
+                canEdit && questionsDirty ? (
+                  <UnsavedBadge />
+                ) : savedQuestions.length > 0 ? (
+                  <StatusBadge tone="success" icon={CircleCheck}>
+                    {savedQuestions.length} saved
+                  </StatusBadge>
+                ) : (
+                  <StatusBadge tone="neutral" icon={CircleDashed}>
+                    Optional
+                  </StatusBadge>
+                )
+              }
+            >
+              {canEdit ? (
+                <>
+                  {questions.length > 0 ? (
+                    <ol role="list" className="m-0 grid list-none gap-2 p-0">
+                      {questions.map((q, i) => (
+                        <li key={i} className="flex items-start gap-2">
+                          <span aria-hidden className="w-5 shrink-0 pt-3 text-right text-label tabular-nums text-text-3">
+                            {i + 1}
+                          </span>
+                          <Textarea
+                            ref={(el) => {
+                              questionInputs.current[i] = el;
+                            }}
+                            rows={1}
+                            value={q}
+                            // One question per box: a pasted line break becomes a space.
+                            onChange={(e) => {
+                              const text = e.target.value.replace(/\s*\n\s*/g, ' ');
+                              setQuestions((qs) => qs.map((x, j) => (j === i ? text : x)));
+                            }}
+                            // Enter moves to the next question, or starts one after the last.
+                            onKeyDown={(e) => {
+                              if (e.key !== 'Enter' || e.shiftKey || e.nativeEvent.isComposing) return;
+                              e.preventDefault();
+                              if (i < questions.length - 1) focusQuestion(i + 1);
+                              else if (q.trim() && questions.length < MAX_QUESTIONS) addQuestion();
+                            }}
+                            aria-label={`Question ${i + 1}`}
+                            maxLength={300}
+                            placeholder="For example, what is your notice period?"
+                            className="min-h-11 resize-none overflow-hidden [field-sizing:content]"
+                          />
+                          <IconButton
+                            label={`Remove question ${i + 1}`}
+                            variant="quiet"
+                            onClick={() => removeQuestion(i)}
+                          >
+                            <X aria-hidden strokeWidth={1.5} />
+                          </IconButton>
+                        </li>
+                      ))}
+                    </ol>
+                  ) : (
+                    <p className="m-0 rounded-card-sm border border-dashed border-border-input px-4 py-5 text-center text-text-2">
+                      No must-ask questions yet. Add your own, or let the description suggest some.
+                    </p>
+                  )}
+                  <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+                    <Button
+                      ref={addQuestionButton}
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      disabled={questions.length >= MAX_QUESTIONS}
+                      onClick={addQuestion}
+                    >
+                      <Plus aria-hidden strokeWidth={1.5} />
+                      Add question
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      loading={assisting === 'questions'}
+                      disabled={assisting !== null || savingScreening}
+                      onClick={() => void onAssistJd('questions')}
+                    >
+                      <Sparkles aria-hidden strokeWidth={1.5} />
+                      Suggest from the description
+                    </Button>
+                    {questions.length > 1 ? (
+                      <Button
+                        type="button"
+                        variant="tertiary"
+                        size="sm"
+                        onClick={() => {
+                          setQuestions([]);
+                          focusQuestion(null);
+                        }}
+                      >
+                        Remove all
+                      </Button>
+                    ) : null}
+                  </div>
+                  {questionsError ? (
+                    <Alert kind="error" className="mt-4">
+                      {questionsError}
+                    </Alert>
+                  ) : null}
+                  <div className="mt-5 flex flex-col gap-4 border-t border-border pt-5 sm:flex-row sm:items-end sm:justify-between">
+                    <Field
+                      label="Call language"
+                      hint="The agent speaks this on calls for this job."
+                      className="sm:w-64"
+                    >
+                      <Select
+                        value={screeningLanguage}
+                        onChange={(e) => setScreeningLanguage(e.target.value === 'hi' ? 'hi' : 'en')}
+                      >
+                        <option value="en">English</option>
+                        <option value="hi">Hindi</option>
+                      </Select>
+                    </Field>
+                    <Button
+                      type="button"
+                      variant={questionsDirty ? 'primary' : 'secondary'}
+                      className="sm:mb-6"
+                      loading={savingScreening}
+                      onClick={() => void onSaveScreening()}
+                    >
+                      Save questions
+                    </Button>
+                  </div>
+                </>
+              ) : savedQuestions.length > 0 ? (
+                <>
+                  <ol className="m-0 list-decimal space-y-2 pl-5 text-text marker:tabular-nums marker:text-text-3">
+                    {savedQuestions.map((q, i) => (
+                      <li key={i}>{q}</li>
                     ))}
-                  </Select>
+                  </ol>
+                  <p className="mb-0 mt-4 text-meta text-text-3">
+                    Calls are in {savedLanguage === 'hi' ? 'Hindi' : 'English'}.
+                  </p>
+                </>
+              ) : (
+                <p className="m-0 text-text-2">
+                  No must-ask questions. The agent asks the questions set on the agent.
+                </p>
+              )}
+            </SetupCard>
+
+            <SetupCard
+              id="agent"
+              step={canEdit ? 3 : undefined}
+              title="AI hiring agent"
+              description="Makes the calls for this job, in its own voice."
+              badge={
+                job.agentId && agentLive !== null ? (
+                  <StatusTag domain="agent" value={agentStatus} />
+                ) : !job.agentId ? (
+                  <StatusBadge tone="neutral" icon={Circle}>
+                    Not chosen
+                  </StatusBadge>
+                ) : null
+              }
+            >
+              <div className="flex flex-wrap items-center gap-4 rounded-card-sm border border-border bg-subtle p-4">
+                <Agent size={48} colour="glass" onLight />
+                <div className="min-w-0 flex-1 basis-40">
+                  <p className="m-0 truncate font-medium text-text">
+                    {job.agentId ? (linkedAgent?.name ?? 'The agent on this job') : 'No agent chosen yet'}
+                  </p>
+                  <p className="m-0 mt-0.5 text-meta text-text-3">
+                    {!job.agentId
+                      ? agents === null || agents.length > 0
+                        ? 'Choose which agent calls for this job.'
+                        : `Set one up once. It calls ${contacts} for every job you give it.`
+                      : agentStatus === 'unknown'
+                        ? 'Couldn’t check this agent. Reload the page to try again.'
+                        : agentLive === null
+                          ? 'Checking the agent…'
+                          : agentLive
+                            ? 'Live and ready to call.'
+                            : 'Not live yet. Publish it before calling.'}
+                  </p>
+                </div>
+                {job.agentId ? (
+                  <Button asChild variant="secondary" size="sm">
+                    <Link href={`/agents/${toPublicId(job.agentId)}`}>
+                      {agentLive === false ? 'Publish agent' : 'Agent settings'}
+                    </Link>
+                  </Button>
+                ) : agents?.length === 0 ? (
+                  <Button asChild size="sm">
+                    <Link href="/agents/new">Set up agent</Link>
+                  </Button>
+                ) : null}
+              </div>
+              {canEdit && agents && (job.agentId ? otherAgents.length > 0 : agents.length > 0) ? (
+                <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-end">
+                  <Field label={job.agentId ? 'Change the agent' : 'Agent for this job'} className="min-w-0 flex-1">
+                    <Select value={linkAgentId} onChange={(e) => setLinkAgentId(e.target.value)}>
+                      {agents.map((a) => (
+                        <option key={a.id} value={a.id}>
+                          {a.name}
+                          {a.status === 'published' ? '' : ' (not live)'}
+                        </option>
+                      ))}
+                    </Select>
+                  </Field>
                   <Button
                     type="button"
-                    variant="outline"
+                    variant={job.agentId ? 'secondary' : 'primary'}
+                    loading={linking}
                     disabled={!linkAgentId || linkAgentId === job.agentId}
                     onClick={() => void onLinkAgent()}
                   >
-                    Change hiring voice
+                    Use this agent
                   </Button>
                 </div>
               ) : null}
-            </div>
-          ) : can('jobs.update') ? (
-            <div className="space-y-3">
-              <p className="m-0 text-sm text-[var(--foreground-tertiary)]">
-                Choose a hiring voice so you can run browser screens and Call
-                phone.
-              </p>
-              {agents.length === 0 ? (
-                <Link
-                  href="/agents/new"
-                  className="text-sm text-[var(--accent)] hover:underline"
-                >
-                  Create a hiring voice
-                </Link>
-              ) : (
-                <div className="flex flex-wrap gap-2">
-                  <Select
-                    value={linkAgentId}
-                    onChange={(e) => setLinkAgentId(e.target.value)}
-                    aria-label="Hiring voice for this role"
-                    className="min-w-[11rem] flex-1"
-                  >
-                    {agents.map((a) => (
-                      <option key={a.id} value={a.id}>
-                        {a.name}
-                      </option>
-                    ))}
-                  </Select>
-                  <Button type="button" onClick={() => void onLinkAgent()}>
-                    Use this hiring voice
-                  </Button>
-                </div>
-              )}
-            </div>
-          ) : (
-            <p className="m-0 text-sm text-[var(--foreground-tertiary)]">
-              No hiring voice linked to this job yet.
-            </p>
-          )}
-          {can('jobs.update') ? (
-            <div className="flex flex-wrap gap-2 border-t border-[var(--separator-subtle)] pt-4">
-              <p className="m-0 w-full text-[11px] font-medium uppercase tracking-wide text-[var(--foreground-muted)]">
-                Job status
-              </p>
-              {JOB_STATUSES.map((s) => (
-                <Button
-                  key={s}
-                  type="button"
-                  size="sm"
-                  variant={job.status === s ? 'secondary' : 'outline'}
-                  disabled={job.status === s}
-                  onClick={() => void onJobStatusChange(s)}
-                >
-                  {JOB_STATUS_ACTION[s]}
-                </Button>
-              ))}
-            </div>
-          ) : null}
-        </Surface>
+            </SetupCard>
+            {me.data?.isPlatformAdmin && job ? <EngineCard job={job} onChange={setJob} /> : null}
+          </div>
+
+          <ReadyPanel
+            readiness={readiness}
+            agentName={linkedAgent?.name}
+            peopleTotal={peopleTotal}
+            contact={labels.contact}
+            boardHref={`/jobs/${toPublicId(jobId)}/candidates`}
+            canEdit={canEdit}
+            changingStatus={changingStatus}
+            onStatus={(s) => void onJobStatusChange(s)}
+          />
+        </div>
       </PageMain>
     </AppShell>
+  );
+}
+
+function SetupCard({
+  id,
+  step,
+  title,
+  description,
+  badge,
+  children,
+}: {
+  id: string;
+  /** The step's number, for people who can edit the job. */
+  step?: number;
+  title: string;
+  description: string;
+  badge?: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <section
+      id={id}
+      aria-labelledby={`${id}-title`}
+      className="scroll-mt-6 rounded-card border border-border bg-canvas p-5 sm:p-6"
+    >
+      <div className="flex items-start gap-3">
+        {step ? (
+          // Home's first-run step marker.
+          <span
+            aria-hidden
+            className="grid size-8 shrink-0 place-items-center rounded-pill border border-border bg-subtle text-label font-semibold tabular-nums text-text-2"
+          >
+            {step}
+          </span>
+        ) : null}
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+            <h2 id={`${id}-title`} className="m-0 text-section text-text">
+              {title}
+            </h2>
+            {badge}
+          </div>
+          <p className="mb-0 mt-1 max-w-[65ch] text-text-2">{description}</p>
+        </div>
+      </div>
+      <div className="mt-5">{children}</div>
+    </section>
+  );
+}
+
+/** Platform admin only: which voice engine phones this job's candidates (the A/B arms). */
+function EngineCard({ job, onChange }: { job: Job; onChange: (job: Job) => void }) {
+  const [saving, setSaving] = useState(false);
+  const current = job.voiceEngine ?? 'elevenlabs_agent';
+  async function pick(engine: VoiceEngine) {
+    setSaving(true);
+    try {
+      await setJobEngine(job.id, engine);
+      onChange({ ...job, voiceEngine: engine });
+      toast.success(`Calls for this job now use: ${ENGINE_LABEL[engine]}`);
+    } catch (err) {
+      toast.error(toUserMessage(err).detail);
+    } finally {
+      setSaving(false);
+    }
+  }
+  return (
+    <section aria-labelledby="engine-title" className="rounded-card border border-border bg-canvas p-5 sm:p-6">
+      <h2 id="engine-title" className="m-0 text-section text-text">
+        Voice engine
+      </h2>
+      <p className="m-0 mt-1 text-meta text-text-3">Only platform admins see this. New calls use the engine picked here.</p>
+      <Field label="Engine" htmlFor="voice-engine" className="mt-4">
+        <Select id="voice-engine" value={current} disabled={saving} onChange={(e) => void pick(e.target.value as VoiceEngine)}>
+          {(Object.keys(ENGINE_LABEL) as VoiceEngine[]).map((e) => (
+            <option key={e} value={e}>
+              {ENGINE_LABEL[e]}
+            </option>
+          ))}
+        </Select>
+      </Field>
+    </section>
+  );
+}
+
+function UnsavedBadge() {
+  return (
+    <StatusBadge tone="warning" icon={PenLine}>
+      Not saved yet
+    </StatusBadge>
+  );
+}
+
+/** The job's documents: pasted text is kept as one too. */
+function Documents({ sources }: { sources: JobKnowledgeSource[] }) {
+  return (
+    <div className="mt-5 border-t border-border pt-4">
+      <h3 className="m-0 text-label font-medium text-text">Documents on this job</h3>
+      <ul role="list" className="m-0 mt-2 list-none space-y-2 p-0">
+        {sources.map((s) => (
+          <li key={s.id} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+            <span className="flex min-w-0 items-center gap-2 text-text-2">
+              <FileText aria-hidden strokeWidth={1.5} className="size-4 shrink-0 text-text-3" />
+              <span className="min-w-0 truncate">{s.name}</span>
+            </span>
+            {s.pendingDocs > 0 ? (
+              <StatusBadge tone="info" icon={Hourglass}>
+                Reading
+              </StatusBadge>
+            ) : s.readyDocs > 0 ? (
+              <StatusBadge tone="success">Ready</StatusBadge>
+            ) : s.failedDocs > 0 ? (
+              <StatusBadge tone="danger">Couldn’t read the file</StatusBadge>
+            ) : (
+              <StatusBadge tone="neutral">No files yet</StatusBadge>
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function ReadyPanel({
+  readiness: r,
+  agentName,
+  peopleTotal,
+  contact,
+  boardHref,
+  canEdit,
+  changingStatus,
+  onStatus,
+}: {
+  readiness: ReturnType<typeof jobReadiness>;
+  agentName?: string;
+  peopleTotal: number | null;
+  contact: { one: string; many: string };
+  boardHref: string;
+  canEdit: boolean;
+  changingStatus: JobStatus | null;
+  onStatus: (status: JobStatus) => void;
+}) {
+  const steps: { anchor: string; label: string; done: boolean; optional?: boolean; detail: string }[] = [
+    {
+      anchor: 'job-description',
+      label: 'Job description',
+      done: r.description === 'saved',
+      detail: { saved: 'Saved', preparing: 'Reading your file', missing: 'Not added yet' }[r.description],
+    },
+    {
+      anchor: 'questions',
+      label: 'Must-ask questions',
+      done: r.questions > 0,
+      optional: true,
+      detail: r.questions > 0 ? `${r.questions} saved` : 'Optional',
+    },
+    {
+      anchor: 'agent',
+      label: 'AI hiring agent',
+      done: r.agent === 'live',
+      detail: {
+        live: agentName ? `${agentName}, live` : 'Live',
+        'not-live': 'Not live yet',
+        missing: 'Not chosen yet',
+        checking: 'Checking…',
+      }[r.agent],
+    },
+    {
+      anchor: 'job-status',
+      label: 'Open for calls',
+      done: r.status === 'open',
+      detail: r.status === 'open' ? 'Open' : r.status === 'closed' ? 'Closed' : 'Still a draft',
+    },
+  ];
+  const required = steps.filter((s) => !s.optional);
+  const others = (['open', 'draft', 'closed'] as const).filter((s) => s !== r.status);
+
+  return (
+    <aside
+      aria-labelledby="ready-title"
+      className="rounded-card border border-border bg-canvas p-5 sm:p-6 lg:sticky lg:top-6"
+    >
+      <div className="flex items-baseline justify-between gap-3">
+        <h2 id="ready-title" className="m-0 text-section text-text">
+          Before you call
+        </h2>
+        <p className="m-0 text-label tabular-nums text-text-2">
+          {required.filter((s) => s.done).length} of {required.length} done
+        </p>
+      </div>
+      <ul role="list" className="m-0 mt-3 list-none p-0">
+        {steps.map((step) => {
+          const Icon = step.done ? CircleCheck : step.optional ? CircleDashed : Circle;
+          return (
+            <li key={step.anchor}>
+              <a
+                href={`#${step.anchor}`}
+                className="-mx-2 flex min-h-12 items-center gap-3 rounded-input px-2 py-1.5 text-text no-underline transition-colors duration-fast hover:bg-subtle"
+              >
+                <Icon
+                  aria-hidden
+                  strokeWidth={1.75}
+                  className={cn('size-5 shrink-0', step.done ? 'text-status-success-text' : 'text-text-3')}
+                />
+                <span className="min-w-0 flex-1">
+                  <span className="block text-label font-medium">{step.label}</span>
+                  <span className="block truncate text-meta text-text-3">{step.detail}</span>
+                </span>
+              </a>
+            </li>
+          );
+        })}
+      </ul>
+
+      {/* The handoff: calls start from the job's candidates. */}
+      <div className="mt-4 border-t border-border pt-4">
+        {peopleTotal !== null ? (
+          <p className="m-0 text-meta text-text-3">
+            {peopleTotal === 0
+              ? `No ${contact.many.toLowerCase()} on this job yet. Add them, then call them from the list.`
+              : `${peopleTotal} ${(peopleTotal === 1 ? contact.one : contact.many).toLowerCase()} on this job.${r.ready ? ' Call them from the list.' : ''}`}
+          </p>
+        ) : null}
+        <Button asChild variant={r.ready ? 'primary' : 'secondary'} className={cn('w-full', peopleTotal !== null && 'mt-3')}>
+          <Link href={boardHref}>
+            {peopleTotal === 0 ? `Add ${contact.many.toLowerCase()}` : `Go to ${contact.many.toLowerCase()}`}
+            <ArrowRight aria-hidden strokeWidth={1.5} />
+          </Link>
+        </Button>
+      </div>
+
+      <div id="job-status" className="mt-4 scroll-mt-6 border-t border-border pt-4">
+        <div className="flex items-center justify-between gap-3">
+          <h3 className="m-0 text-label font-medium text-text">Job status</h3>
+          <StatusTag domain="job" value={r.status} />
+        </div>
+        {canEdit ? (
+          <div className="mt-3 flex flex-wrap gap-2">
+            {others.map((s) => (
+              <Button
+                key={s}
+                type="button"
+                size="sm"
+                variant={s === 'open' ? (r.ready ? 'primary' : 'secondary') : 'tertiary'}
+                loading={changingStatus === s}
+                disabled={changingStatus !== null && changingStatus !== s}
+                onClick={() => onStatus(s)}
+              >
+                {s === 'open' && r.status === 'closed' ? 'Reopen for calls' : JOB_STATUS_ACTION[s]}
+              </Button>
+            ))}
+          </div>
+        ) : null}
+      </div>
+    </aside>
+  );
+}
+
+/** Header, tabs and the cards, as the page draws them. */
+function SetupSkeleton() {
+  return (
+    <SkeletonRecord>
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_19rem] xl:grid-cols-[minmax(0,1fr)_21rem]">
+        <div className="space-y-6">
+          {['h-[26rem]', 'h-72'].map((h) => (
+            <div key={h} className={cn('rounded-card border border-border p-6', h)}>
+              <div className="flex items-center gap-3">
+                <Skeleton className="size-8 rounded-pill" />
+                <Skeleton className="h-4 w-48 rounded-pill" />
+              </div>
+              <Skeleton className="mt-6 h-40 w-full" />
+            </div>
+          ))}
+        </div>
+        <div className="h-80 rounded-card border border-border p-6">
+          <Skeleton className="h-4 w-40 rounded-pill" />
+          <div className="mt-6 space-y-5">
+            {[0, 1, 2, 3].map((i) => (
+              <Skeleton key={i} className="h-3 w-3/4 rounded-pill" />
+            ))}
+          </div>
+        </div>
+      </div>
+    </SkeletonRecord>
   );
 }

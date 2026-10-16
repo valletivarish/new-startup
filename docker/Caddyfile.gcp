@@ -1,0 +1,8 @@
+# GCP VM: API + own voice loop behind one TLS host (web is on Vercel).
+{$API_HOST} {
+	# Nest's voice-service routes are for apps/voice on the Docker network only.
+	respond /internal/* 404
+	# Exotel Voicebot media streams (WebSocket) → apps/voice.
+	reverse_proxy /voice/* voice:8765
+	reverse_proxy api:3001
+}

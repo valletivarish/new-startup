@@ -3,61 +3,123 @@
  * backend), so the httpOnly session cookie travels automatically. The client
  * never sees or stores a token — sessions are opaque and server-side
  * (ADR-002).
+ *
+ * Every failure is an ApiClientError whose `message` is already a plain sentence
+ * (lib/errors.ts); use `toUserMessage(error, context)` for title, detail and action.
  */
 
-export interface ApiFailure {
-  readonly code: string;
-  readonly message: string;
-  readonly request_id?: string;
-  readonly errors?: readonly { field: string; message: string }[];
-}
+import { loginPathForReturn } from './auth-redirect';
+import { ApiClientError, NotAvailableError, type ApiFailure } from './errors';
 
-export class ApiClientError extends Error {
-  readonly code: string;
-  readonly status: number;
-  readonly requestId: string | null;
-  constructor(status: number, failure: ApiFailure) {
-    const fieldMessage = failure.errors?.[0]?.message?.trim();
-    const top = failure.message?.trim() || 'Request failed';
-    const message =
-      fieldMessage &&
-      (top === 'Validation failed' || top === 'Request failed' || !failure.message)
-        ? fieldMessage
-        : top;
-    super(message);
-    this.status = status;
-    this.code = failure.code;
-    this.requestId = failure.request_id ?? null;
-  }
-}
+export { ApiClientError, NotAvailableError };
+export type { ApiFailure };
 
-/** User-facing notice; includes Support ID on server errors for ops correlation. */
+/** User-facing notice; server errors carry their support ref. */
 export function formatApiError(error: unknown, fallback: string): string {
-  if (!(error instanceof ApiClientError)) return fallback;
-  if (error.status >= 500 && error.requestId) {
-    return `${error.message} (Support ID: ${error.requestId})`;
-  }
-  return error.message || fallback;
+  return error instanceof ApiClientError ? error.message : fallback;
 }
 
-async function call<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(path, {
+// --- Session end ----------------------------------------------------------------
+
+const SESSION_ENDED_KEY = 'session-ended';
+export const SESSION_ENDED_MESSAGE = 'Your session ended. Sign in to continue.';
+
+/** Sign-in and public invite routes answer 401 as part of their job: never redirect for them. */
+const AUTH_ENDPOINT = /^\/(?:api\/auth\/|backend\/invitations\/|backend\/auth\/password-reset\/)/;
+/** Pages that work signed out (a 401 there must not bounce to sign-in). */
+const PUBLIC_PAGE = /^\/(?:$|login|reset-password|invitations)(?:[/?#]|$)/;
+
+let redirecting = false;
+
+/** True once a 401 has sent this page to sign-in (unsaved-changes guards stand down). */
+export function isRedirectingToLogin(): boolean {
+  return redirecting;
+}
+
+/** For the sign-in page: true once after a forced sign-out, then cleared. Show SESSION_ENDED_MESSAGE. */
+export function takeSessionEndedNotice(): boolean {
+  try {
+    const ended = window.sessionStorage.getItem(SESSION_ENDED_KEY) === '1';
+    window.sessionStorage.removeItem(SESSION_ENDED_KEY);
+    return ended;
+  } catch {
+    return false;
+  }
+}
+
+function redirectToLogin(path: string) {
+  if (typeof window === 'undefined' || redirecting) return;
+  if (AUTH_ENDPOINT.test(path) || PUBLIC_PAGE.test(window.location.pathname)) return;
+  redirecting = true;
+  try {
+    window.sessionStorage.setItem(SESSION_ENDED_KEY, '1');
+  } catch {
+    // Storage blocked: the sign-in page just won't explain why.
+  }
+  window.location.assign(loginPathForReturn());
+}
+
+// --- Request --------------------------------------------------------------------
+
+interface CallOptions {
+  /** A route newer backends add. 404 "Not found" or 405 throws NotAvailableError so the UI can fall back. */
+  optional?: boolean;
+}
+const OPTIONAL: CallOptions = { optional: true };
+
+/** fetch with the session cookie; a dropped connection becomes ApiClientError status 0. */
+async function send(path: string, init?: RequestInit): Promise<Response> {
+  try {
+    return await fetch(path, { ...init, credentials: 'same-origin' });
+  } catch (error) {
+    if ((error as Error | null)?.name === 'AbortError') throw error;
+    throw new ApiClientError(0, { code: 'network', message: '' });
+  }
+}
+
+function safeJson(text: string): unknown {
+  try {
+    return text ? (JSON.parse(text) as unknown) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The error for a non-2xx response. Never throws from parsing; a 401 also starts the sign-in redirect. */
+async function failureOf(response: Response, path: string, options?: CallOptions): Promise<ApiClientError> {
+  const body = safeJson(await response.text().catch(() => ''));
+  const envelope = body && typeof body === 'object' ? (body as Partial<ApiFailure>) : {};
+  const message = typeof envelope.message === 'string' ? envelope.message.trim() : '';
+  const failure: ApiFailure = {
+    ...envelope,
+    code: typeof envelope.code === 'string' ? envelope.code : 'http_error',
+    message,
+  };
+  if (response.status === 401) redirectToLogin(path);
+  // Both backends answer an unknown route with a bare "Not found"; real misses name the thing.
+  const routeMissing =
+    response.status === 405 || (response.status === 404 && (!message || /^not found\.?$/i.test(message)));
+  if (options?.optional && routeMissing) return new NotAvailableError(response.status, failure);
+  return new ApiClientError(response.status, failure);
+}
+
+async function call<T>(path: string, init?: RequestInit, options?: CallOptions): Promise<T> {
+  const response = await send(path, {
     ...init,
     headers: {
       ...(init?.body ? { 'content-type': 'application/json' } : {}),
       ...init?.headers,
     },
-    credentials: 'same-origin',
   });
+  if (!response.ok) throw await failureOf(response, path, options);
   const text = await response.text();
-  const body = text ? (JSON.parse(text) as unknown) : null;
-  if (!response.ok) {
-    throw new ApiClientError(
-      response.status,
-      (body ?? { code: 'internal', message: 'Request failed' }) as ApiFailure,
-    );
+  if (!text) return null as T;
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    // A 2xx that isn't JSON (proxy page, truncated body) is a server-side failure.
+    throw new ApiClientError(502, { code: 'invalid_response', message: '' });
   }
-  return body as T;
 }
 
 // Better Auth surface
@@ -66,21 +128,17 @@ export const signUp = (input: { email: string; password: string; name: string })
 export const signIn = (input: { email: string; password: string }) =>
   call('/api/auth/sign-in/email', { method: 'POST', body: JSON.stringify(input) });
 export const signOut = () => call('/api/auth/sign-out', { method: 'POST', body: '{}' });
+/** Who is signed in, or null. Answers 200 either way, so a signed-out page logs no 401. */
+export const getSession = () =>
+  call<{ user: { id: string; email: string; name: string } } | null>('/api/auth/get-session');
 
+/** Same answer for known and unknown emails. Reset links travel only by email (audit A1). */
 export const requestPasswordReset = async (email: string, redirectTo: string) => {
   await call<{ status: boolean; message: string }>('/api/auth/request-password-reset', {
     method: 'POST',
     body: JSON.stringify({ email, redirectTo }),
   });
-  try {
-    const link = await call<{ url: string }>('/backend/auth/password-reset/console-link', {
-      method: 'POST',
-      body: JSON.stringify({ email }),
-    });
-    return { status: true as const, consoleResetUrl: link.url };
-  } catch {
-    return { status: true as const, consoleResetUrl: null as string | null };
-  }
+  return { status: true as const };
 };
 
 export const resetPassword = (newPassword: string, token: string) =>
@@ -89,12 +147,103 @@ export const resetPassword = (newPassword: string, token: string) =>
     body: JSON.stringify({ newPassword, token }),
   });
 
+/** The signed-in person's display name. Email can't change here. */
+export const updateUser = (input: { name: string }) =>
+  call<{ status: boolean }>('/api/auth/update-user', { method: 'POST', body: JSON.stringify(input) });
+
+/** 400 INVALID_PASSWORD when the current password is wrong. Other sessions stay signed in. */
+export const changePassword = (input: { currentPassword: string; newPassword: string }) =>
+  call<unknown>('/api/auth/change-password', { method: 'POST', body: JSON.stringify(input) });
+
 // Platform surface
 export interface Me {
   user: { id: string; name: string; email: string; emailVerified: boolean };
   activeOrganization: { id: string; role: string; permissions: string[] } | null;
+  /** Platform owner (PLATFORM_ADMIN_EMAILS): sees the cross-company cost dashboard. */
+  isPlatformAdmin?: boolean;
 }
 export const me = () => call<Me>('/backend/auth/me');
+
+// Platform admin: costs
+export type VoiceEngine = 'elevenlabs_agent' | 'own_loop_elevenlabs_voice' | 'own_loop_sarvam_voice';
+export const ENGINE_LABEL: Record<VoiceEngine, string> = {
+  elevenlabs_agent: 'ElevenLabs agent (baseline)',
+  own_loop_elevenlabs_voice: 'Our loop + ElevenLabs voice',
+  own_loop_sarvam_voice: 'Our loop + Sarvam voice',
+};
+export interface CostServiceRow {
+  key: string;
+  name: string;
+  vendor: string;
+  usedFor: string;
+  billing: 'per_minute' | 'per_1k_chars' | 'per_1m_tokens_in' | 'per_1m_tokens_out' | 'per_credit' | 'monthly_fixed';
+  rateInr: number;
+  status: 'in_use' | 'testing' | 'off';
+  notes: string | null;
+  updatedAt: string;
+}
+export interface CostArm {
+  engine: VoiceEngine;
+  calls: number;
+  completedScreens: number;
+  minutes: number;
+  totalInr: number;
+  costPerMinute: number | null;
+  costPerCompletedScreen: number | null;
+  medianResponseMs: number | null;
+  completionRate: number | null;
+  avgRating: number | null;
+  ratedCalls: number;
+}
+export interface CostSummary {
+  monthStart: string;
+  services: { key: string; name: string; vendor: string; status: string; billing: string; spendInr: number }[];
+  usageTotalInr: number;
+  fixedTotalInr: number;
+  arms: CostArm[];
+}
+export interface CostCall {
+  voiceSessionId: string;
+  organizationName: string;
+  engine: VoiceEngine | null;
+  outcome: string;
+  connectedSeconds: number | null;
+  telephonyCost: number | null;
+  sttCost: number | null;
+  llmCost: number | null;
+  ttsCost: number | null;
+  agentCost: number | null;
+  totalCost: number | null;
+  telephonyBilled: boolean;
+  responseP50Ms: number | null;
+  interruptions: number | null;
+  qualityRating: number | null;
+  qualityNote: string | null;
+  createdAt: string;
+}
+export const getCostSummary = (month?: string) =>
+  call<{ summary: CostSummary }>(`/backend/admin/costs/summary${month ? `?month=${month}` : ''}`);
+export const listCostServices = () => call<{ services: CostServiceRow[] }>('/backend/admin/costs/services');
+export const updateCostService = (
+  key: string,
+  patch: { rateInr?: number; status?: CostServiceRow['status']; notes?: string | null },
+) =>
+  call<{ service: CostServiceRow }>(`/backend/admin/costs/services/${encodeURIComponent(key)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(patch),
+  });
+/** Platform admin only: which voice engine phones this job's candidates. */
+export const setJobEngine = (jobId: string, engine: VoiceEngine) =>
+  call<{ ok: true; engine: VoiceEngine }>(`/backend/admin/costs/jobs/${jobId}/engine`, {
+    method: 'POST',
+    body: JSON.stringify({ engine }),
+  });
+export const listCostCalls = () => call<{ calls: CostCall[] }>('/backend/admin/costs/calls');
+export const rateCostCall = (voiceSessionId: string, rating: number, note: string | null) =>
+  call<{ ok: true }>(`/backend/admin/costs/calls/${voiceSessionId}/rating`, {
+    method: 'POST',
+    body: JSON.stringify({ rating, note }),
+  });
 
 export interface OrganizationSummary {
   id: string;
@@ -118,12 +267,20 @@ export const createOrganization = (name: string) =>
     body: JSON.stringify({ name }),
   });
 
+/** PATCH /organization: rename the active workspace (organization.update). */
+export const updateOrganization = (input: { name: string }) =>
+  call<{ updated: true }>('/backend/organization', { method: 'PATCH', body: JSON.stringify(input) });
+
 /** Idempotent: create a company if the user has none, else activate the existing one. */
 export const ensureOrganization = (name: string) =>
   call<{ id: string; slug: string; created: boolean }>('/backend/organizations/ensure', {
     method: 'POST',
     body: JSON.stringify({ name }),
   });
+
+// Team routes follow apps/api-java/MIGRATION_STATUS.md "Frontend contract additions", which
+// supersedes spec §8: the workspace comes from the session (`/organization/...`, `/roles`), and
+// members are addressed by membershipId. Fields marked "newer backends" may be absent.
 
 export interface Member {
   membershipId: string;
@@ -132,6 +289,11 @@ export interface Member {
   email: string;
   roleKey: string;
   status: string;
+  /** Newer backends. */
+  roleId?: string;
+  roleName?: string;
+  roleIsSystem?: boolean;
+  joinedAt?: string;
 }
 export const members = () =>
   call<{ members: Member[] }>('/backend/organization/members');
@@ -143,25 +305,175 @@ export const changeMemberRole = (membershipId: string, roleKey: string) =>
     body: JSON.stringify({ roleKey }),
   });
 
+/** DELETE /organization/members/:membershipId → `{ removed: true }`. 409 for the last owner. */
+export const removeMember = (membershipId: string) =>
+  call<{ removed: true }>(`/backend/organization/members/${membershipId}`, { method: 'DELETE' });
+
+/**
+ * POST /organization/members/:membershipId/password-reset → `{ sent: true }`.
+ * Emails the member a reset link; never returns the link. Optional: NotAvailableError on older backends.
+ */
+export const sendMemberPasswordReset = (membershipId: string) =>
+  call<{ sent: true }>(
+    `/backend/organization/members/${membershipId}/password-reset`,
+    { method: 'POST', body: '{}' },
+    OPTIONAL,
+  );
+
+export type InvitationStatus = 'pending' | 'expired' | 'revoked' | 'accepted';
+
 export interface Invitation {
   id: string;
   email: string;
   roleKey: string;
+  /** InvitationStatus; older backends list pending invites only. */
   status: string;
   expiresAt: string;
+  /** Newer backends. */
+  roleId?: string;
+  roleName?: string;
+  invitedByName?: string;
+  createdAt?: string;
+  acceptedAt?: string | null;
 }
 export const invitations = () =>
   call<{ invitations: Invitation[] }>('/backend/organization/invitations');
+
+/** Create and resend answer the same shape. Say "We emailed them" only when emailDelivery is 'sent'. */
+export interface InviteResult {
+  id: string;
+  acceptUrl: string;
+  /** Newer backends: the stored invite, the copyable link (same as acceptUrl) and email outcome. */
+  invitation?: Invitation;
+  inviteUrl?: string;
+  emailDelivery?: 'sent' | 'not_configured';
+}
+/** `roleKey` may be a custom role key (`custom_<slug>`). */
 export const invite = (email: string, roleKey: string) =>
-  call<{ id: string; acceptUrl: string }>('/backend/organization/invitations', {
+  call<InviteResult>('/backend/organization/invitations', {
     method: 'POST',
     body: JSON.stringify({ email, roleKey }),
   });
+
+/**
+ * POST /organization/invitations/:id/resend → InviteResult. Rotates the link (the old one stops
+ * working) with a new expiry; 409 if accepted or revoked. Optional: NotAvailableError on older backends.
+ */
+export const resendInvitation = (invitationId: string) =>
+  call<InviteResult>(
+    `/backend/organization/invitations/${invitationId}/resend`,
+    { method: 'POST', body: '{}' },
+    OPTIONAL,
+  );
+
+/** DELETE /organization/invitations/:id → `{ revoked: true }`; 404 unless still pending. */
+export const revokeInvitation = (invitationId: string) =>
+  call<{ revoked: true }>(`/backend/organization/invitations/${invitationId}`, { method: 'DELETE' });
+
 export const acceptInvitation = (token: string) =>
   call<{ organizationId: string }>('/backend/invitations/accept', {
     method: 'POST',
     body: JSON.stringify({ token }),
   });
+
+export interface InvitationPreview {
+  organizationName: string;
+  inviterName: string;
+  roleName: string;
+  email: string;
+  status: InvitationStatus;
+  accountExists: boolean;
+}
+
+/**
+ * Public. GET /invitations/:token → InvitationPreview; 404 ApiClientError for an unknown token.
+ * (The spec's `/invitations/preview?token=` became this route in MIGRATION_STATUS.md.)
+ * Optional: NotAvailableError on older backends, then fall back to sign-in-to-accept.
+ */
+export const previewInvitation = (token: string) =>
+  call<InvitationPreview>(`/backend/invitations/${encodeURIComponent(token)}`, undefined, OPTIONAL);
+
+/**
+ * Public. POST /invitations/accept-new `{ token, name, password }` → `{ organizationId, userId }`
+ * and signs the person in. 422 field errors (name, password), 409 when the account already
+ * exists (sign in instead), 410 expired or revoked. Optional: NotAvailableError on older backends.
+ */
+export const acceptInvitationAsNewUser = (input: { token: string; name: string; password: string }) =>
+  call<{ organizationId: string; userId: string }>(
+    '/backend/invitations/accept-new',
+    { method: 'POST', body: JSON.stringify(input) },
+    OPTIONAL,
+  );
+
+export interface Role {
+  id: string;
+  /** Custom roles are `custom_<slug>`. */
+  key: string;
+  name: string;
+  description: string;
+  isSystem: boolean;
+  /** Newer backends; absent means unknown, not "none". */
+  permissions?: string[];
+  memberCount?: number;
+}
+
+/** GET /roles → system and this workspace's custom roles. */
+export const listRoles = async () => {
+  const { roles } = await call<{ roles: (Omit<Role, 'isSystem'> & { isSystem?: boolean })[] }>(
+    '/backend/roles',
+  );
+  return { roles: roles.map((r): Role => ({ ...r, isSystem: r.isSystem ?? !r.key.startsWith('custom_') })) };
+};
+
+/** POST /roles → Role. You can only grant permissions you hold. Optional: NotAvailableError on older backends. */
+export const createRole = (input: { name: string; description?: string; permissions: string[] }) =>
+  call<Role>('/backend/roles', { method: 'POST', body: JSON.stringify(input) }, OPTIONAL);
+
+/** PATCH /roles/:roleId → Role; 403 for system roles. Optional: NotAvailableError on older backends. */
+export const updateRole = (
+  roleId: string,
+  input: { name?: string; description?: string; permissions?: string[] },
+) => call<Role>(`/backend/roles/${roleId}`, { method: 'PATCH', body: JSON.stringify(input) }, OPTIONAL);
+
+/** DELETE /roles/:roleId → `{ deleted: true }`; 409 while members or pending invites use it. Optional. */
+export const deleteRole = (roleId: string) =>
+  call<{ deleted: true }>(`/backend/roles/${roleId}`, { method: 'DELETE' }, OPTIONAL);
+
+export interface PermissionInfo {
+  key: string;
+  label: string;
+  /** Area for the matrix (People, Jobs, Calls, ...). */
+  group: string;
+  description: string;
+  /** Personal data: every read is logged. */
+  isSensitive: boolean;
+}
+
+/** GET /permissions, normalised: older backends send `resource`/`is_sensitive` and no label or group. */
+export const listPermissions = async () => {
+  const { permissions } = await call<{
+    permissions: {
+      key: string;
+      label?: string;
+      group?: string;
+      resource?: string;
+      description?: string;
+      isSensitive?: boolean;
+      is_sensitive?: boolean;
+    }[];
+  }>('/backend/permissions');
+  return {
+    permissions: permissions.map(
+      (p): PermissionInfo => ({
+        key: p.key,
+        label: p.label || p.description || p.key,
+        group: p.group || p.resource || 'Other',
+        description: p.description ?? '',
+        isSensitive: p.isSensitive ?? p.is_sensitive ?? false,
+      }),
+    ),
+  };
+};
 
 // --- Agents (Phase 2) -------------------------------------------------------
 
@@ -301,6 +613,13 @@ export interface RetrievedChunk {
   similarity: number;
   section: string | null;
 }
+
+/**
+ * The description that marks a job's own document set: the job page creates it with this, and so
+ * does the server (HiringController.saveJdText). Knowledge leaves these sets out of company facts.
+ * ponytail: matched by text until sources carry a job id; change it here and on the server together.
+ */
+export const JOB_SOURCE_DESCRIPTION = 'Job description and role docs for screening';
 
 export const listKnowledgeSources = () =>
   call<{ sources: KnowledgeSource[] }>('/backend/knowledge/sources');
@@ -457,6 +776,12 @@ export interface VoiceSession {
   jobTitle?: string | null;
   candidateName?: string | null;
   channel?: string | null;
+  /**
+   * Why a call didn't connect, when known (newer backends): 'no_answer' | 'busy' | 'voicemail' |
+   * 'line_not_connected' | 'invalid_number' | 'carrier_blocked' | 'network' | 'unknown' | null
+   * (backend contract; never provider text). Words via callStateKey + STATE_MAP.call.
+   */
+  failureReason?: string | null;
 }
 
 /** Provision / re-sync the voice provider agent for the current published version. */
@@ -506,11 +831,18 @@ export const endVoiceSession = (agentId: string, voiceSessionId: string) =>
     { method: 'POST', body: '{}' },
   );
 
-export const listVoiceSessions = (opts?: { candidateId?: string }) => {
-  const q =
-    opts?.candidateId != null && opts.candidateId.trim()
-      ? `?candidateId=${encodeURIComponent(opts.candidateId.trim())}`
-      : '';
+export const listVoiceSessions = (opts?: {
+  candidateId?: string;
+  jobId?: string;
+}) => {
+  const params = new URLSearchParams();
+  if (opts?.candidateId?.trim()) {
+    params.set('candidateId', opts.candidateId.trim());
+  }
+  if (opts?.jobId?.trim()) {
+    params.set('jobId', opts.jobId.trim());
+  }
+  const q = params.toString() ? `?${params.toString()}` : '';
   return call<{ sessions: VoiceSession[] }>(`/backend/voice-sessions${q}`);
 };
 
@@ -544,8 +876,9 @@ export interface Job {
   screeningLanguage: 'en' | 'hi';
   createdAt: string;
   updatedAt: string;
-  /** Attached JD knowledge docs (file upload or saved text). */
-  hasJdDocs?: boolean;
+  /** Attached JD knowledge docs (file upload or saved text). Both backends always send it. */
+  hasJdDocs: boolean;
+  voiceEngine?: VoiceEngine;
 }
 
 export interface JobKnowledgeSource {
@@ -555,6 +888,9 @@ export interface JobKnowledgeSource {
   pendingDocs: number;
   failedDocs: number;
 }
+
+/** Candidate stage on a job. `declined` = "Not moving forward" (newer backends). */
+export type CandidateStage = 'new' | 'screening' | 'reviewed' | 'declined';
 
 export interface Candidate {
   id: string;
@@ -576,6 +912,8 @@ export interface JobCandidateAssignment {
   status: string;
   /** Derived from latest phone voice session: not_called | calling | completed | failed */
   callStatus?: 'not_called' | 'calling' | 'completed' | 'failed';
+  /** Why that call didn't connect, when the backend says (see VoiceSession.failureReason). */
+  failureReason?: string | null;
   callReceived?: boolean;
   candidate: {
     id: string;
@@ -600,6 +938,8 @@ export interface CandidateScreeningResults {
   fitPercent?: number | null;
   startedAt?: string | null;
   durationSeconds?: number | null;
+  /** Why the call didn't connect, when the backend says (see VoiceSession.failureReason). */
+  failureReason?: string | null;
 }
 
 export const listJobs = () => call<{ jobs: Job[] }>('/backend/jobs');
@@ -673,7 +1013,7 @@ export const listJobCandidates = (
   opts?: {
     limit?: number;
     cursor?: string;
-    status?: 'new' | 'screening' | 'reviewed';
+    status?: CandidateStage;
     q?: string;
   },
 ) => {
@@ -691,9 +1031,60 @@ export const listJobCandidates = (
       new: number;
       screening: number;
       reviewed: number;
+      /** Newer backends. */
+      declined?: number;
     };
   }>(`/backend/jobs/${jobId}/candidates${qs ? `?${qs}` : ''}`);
 };
+
+/**
+ * GET /jobs/:jobId/candidates/:candidateId → one row, same shape as a listJobCandidates row,
+ * so `?c=` deep links work past the first page. 404 ApiClientError when the person isn't on
+ * this job. Optional: NotAvailableError on older backends.
+ */
+export const getJobCandidate = (jobId: string, candidateId: string) =>
+  call<JobCandidateAssignment>(`/backend/jobs/${jobId}/candidates/${candidateId}`, undefined, OPTIONAL);
+
+export interface HiringQueueItem {
+  jobId: string;
+  jobTitle: string;
+  candidateId: string;
+  fullName: string;
+  stage: CandidateStage;
+  callStatus: NonNullable<JobCandidateAssignment['callStatus']>;
+  /** For didn't-connect rows; see VoiceSession.failureReason. */
+  failureReason?: string | null;
+  lastCallAt?: string | null;
+}
+
+/** Home queues: `total` is the true count, `items` the first few rows. */
+export interface HiringSummary {
+  counts: { agents: number; openJobs: number; candidates: number };
+  queues: Record<
+    'readyForReview' | 'notConnected' | 'notCalled' | 'onHold',
+    { total: number; items: HiringQueueItem[] }
+  >;
+}
+
+/**
+ * GET /hiring/summary → HiringSummary, in one request instead of one per job (audit H8).
+ * Proposed shape: no backend serves it yet and spec §8 doesn't define it, so the backend owner
+ * must confirm it in MIGRATION_STATUS.md. Optional: NotAvailableError until then; load per job.
+ */
+export const getHiringSummary = () => call<HiringSummary>('/backend/hiring/summary', undefined, OPTIONAL);
+
+/** A use case as the backend lists it (GET /use-cases); lib/use-cases.ts merges it over the bundled one. */
+export interface UseCaseSummary {
+  id: string;
+  displayName?: string;
+  workUnit?: { label: string; pluralLabel: string };
+  contact?: { label: string; pluralLabel: string };
+  stages?: { key: string; label: string }[];
+}
+
+/** GET /use-cases → `{ useCases }`. Optional: NotAvailableError on older backends. */
+export const listUseCases = () =>
+  call<{ useCases: UseCaseSummary[] }>('/backend/use-cases', undefined, OPTIONAL);
 
 export type CandidateImportIssue =
   | 'missing_full_name'
@@ -754,7 +1145,7 @@ export const assignCandidateToJob = (_jobId: string, _candidateId: string) =>
 export const updateJobCandidateStatus = (
   jobId: string,
   candidateId: string,
-  status: 'new' | 'screening' | 'reviewed',
+  status: CandidateStage,
 ) =>
   call<{ updated: true; previous: string; status: string }>(
     `/backend/jobs/${jobId}/candidates/${candidateId}`,
@@ -768,7 +1159,7 @@ export const bulkUpdateJobCandidateStatus = (
   jobId: string,
   updates: readonly {
     candidateId: string;
-    status: 'new' | 'screening' | 'reviewed';
+    status: CandidateStage;
   }[],
   reason?: string,
 ) =>
@@ -836,34 +1227,16 @@ export async function askJobCandidateReviewStream(
   onEvent: (event: ReviewChatStreamEvent) => void,
   signal?: AbortSignal,
 ): Promise<{ reply: string; voiceSessionId: string | null }> {
-  const response = await fetch(
-    `/backend/jobs/${jobId}/candidates/${candidateId}/review-chat/stream`,
-    {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      credentials: 'same-origin',
-      body: JSON.stringify(input),
-      signal,
-    },
-  );
-  if (!response.ok) {
-    const text = await response.text();
-    let body: unknown = null;
-    try {
-      body = text ? JSON.parse(text) : null;
-    } catch {
-      body = null;
-    }
-    throw new ApiClientError(
-      response.status,
-      (body ?? { code: 'internal', message: 'Request failed' }) as ApiFailure,
-    );
-  }
+  const path = `/backend/jobs/${jobId}/candidates/${candidateId}/review-chat/stream`;
+  const response = await send(path, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(input),
+    signal,
+  });
+  if (!response.ok) throw await failureOf(response, path);
   if (!response.body) {
-    throw new ApiClientError(502, {
-      code: 'internal',
-      message: 'Empty stream from review chat.',
-    });
+    throw new ApiClientError(502, { code: 'empty_stream', message: '' });
   }
 
   const reader = response.body.getReader();
@@ -966,9 +1339,9 @@ export async function downloadAuditExportCsv(opts: {
   from?: string;
   to?: string;
 }): Promise<{ blob: Blob; truncated: boolean; count: number }> {
-  const res = await fetch('/backend/audit/export.csv', {
+  const path = '/backend/audit/export.csv';
+  const res = await send(path, {
     method: 'POST',
-    credentials: 'same-origin',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       kind: opts.kind,
@@ -976,13 +1349,7 @@ export async function downloadAuditExportCsv(opts: {
       ...(opts.to ? { to: opts.to } : {}),
     }),
   });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new ApiClientError(res.status, {
-      code: 'export_failed',
-      message: text.slice(0, 200) || `Export failed (${res.status})`,
-    });
-  }
+  if (!res.ok) throw await failureOf(res, path);
   const text = await res.text();
   const metaMatch = text.match(
     /# export_meta count=(\d+) truncated=(true|false)\s*$/,

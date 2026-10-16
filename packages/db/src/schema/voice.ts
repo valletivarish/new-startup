@@ -77,7 +77,9 @@ export const voiceSessions = pgTable(
     /** The local AgentSession this voice session is attached to. */
     sessionId: uuid('session_id').notNull(),
     /** The deployment that was used. */
-    deploymentId: uuid('deployment_id').notNull(),
+    deploymentId: uuid('deployment_id'),
+    /** Which arm ran the call (migration 0031). */
+    engine: text('engine').notNull().default('elevenlabs_agent'),
     /** Optional hiring-desk link for screening result review. */
     jobId: uuid('job_id').references(() => jobs.id, { onDelete: 'set null' }),
     candidateId: uuid('candidate_id').references(() => candidates.id, {

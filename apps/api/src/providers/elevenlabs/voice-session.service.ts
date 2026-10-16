@@ -20,7 +20,12 @@
  *   - Daily total minutes limit.
  */
 
-import { sql, withTenantContext, type Database } from '@platform/db';
+import {
+  sql,
+  withConversationLookupContext,
+  withTenantContext,
+  type Database,
+} from '@platform/db';
 import type { Env } from '../../config.js';
 import { ApiError } from '../../errors.js';
 import type { AuditService } from '../../audit/audit.service.js';
@@ -37,6 +42,9 @@ import type {
 import { toE164Phone } from './phone-e164.js';
 import { buildVoiceProvisionConfig } from './provision-config.js';
 import { buildVoiceProvisionSnapshot } from './provision-snapshot.js';
+import type { CostService } from '../../costs/costs.service.js';
+import type { ExotelClient } from '../exotel/exotel.js';
+import type { VoiceEngine } from '../../costs/pricing.js';
 
 // ---------------------------------------------------------------------------
 // DB record shapes (raw SQL rows)
@@ -193,7 +201,7 @@ export interface VoiceSessionService {
   /** Recent voice sessions for the company desk (Calls page). */
   listVoiceSessions(
     actor: Actor,
-    options?: { limit?: number; candidateId?: string },
+    options?: { limit?: number; candidateId?: string; jobId?: string },
   ): Promise<readonly VoiceSessionResult[]>;
 
   /**
@@ -236,12 +244,26 @@ export interface WebhookEvent {
 // Implementation
 // ---------------------------------------------------------------------------
 
+/** Nil uuid: the actor for provider-driven writes that have no human user. */
+const SYSTEM_ACTOR_ID = '00000000-0000-0000-0000-000000000000';
+
 export function createVoiceSessionService(
   database: Database,
   env: Env,
   audit: AuditService,
   adapter: VoiceSessionAdapter,
+  costs?: Pick<CostService, 'recordCallCost'>,
+  exotel?: ExotelClient,
 ): VoiceSessionService {
+  /** Ledger writes never break a call flow; the dashboard can be re-derived. */
+  async function recordCost(organizationId: string, voiceSessionId: string): Promise<void> {
+    try {
+      await costs?.recordCallCost(organizationId, voiceSessionId);
+    } catch {
+      /* cost ledger is best-effort */
+    }
+  }
+
   function guardEnabled(): void {
     if (!env.ELEVENLABS_ENABLED) {
       throw ApiError.forbidden(
@@ -267,6 +289,40 @@ export function createVoiceSessionService(
         and environment = ${environment}
     `);
     return rows[0] ?? null;
+  }
+
+  async function loadKnowledgeContent(
+    tx: Parameters<Parameters<typeof withTenantContext>[2]>[0],
+    actor: Actor,
+    sourceIds: readonly string[],
+    maxChars: number,
+  ): Promise<string> {
+    if (sourceIds.length === 0) return '';
+    const chunkRows = await tx.execute<{ content: string; document_name: string }>(sql`
+      select c.content, d.name as document_name
+      from knowledge_chunks c
+      join knowledge_documents d
+        on d.id = c.document_id
+       and d.organization_id = c.organization_id
+      where c.organization_id = ${actor.organizationId}
+        and d.status = 'ready'
+        and d.indexed_version = c.document_version
+        and c.source_id in (${sql.join(
+          sourceIds.map((id) => sql`${id}::uuid`),
+          sql`, `,
+        )})
+      order by d.name, c.chunk_index
+      limit 80
+    `);
+    const parts: string[] = [];
+    let total = 0;
+    for (const row of chunkRows) {
+      const block = `## ${row.document_name}\n${row.content.trim()}`;
+      if (total + block.length > maxChars) break;
+      parts.push(block);
+      total += block.length;
+    }
+    return parts.join('\n\n');
   }
 
   async function loadVoiceSession(
@@ -378,9 +434,16 @@ export function createVoiceSessionService(
     };
   }
 
-  const service: VoiceSessionService = {
-    async provisionDeployment(actor, agentId, options = {}) {
-      guardEnabled();
+  /**
+   * Everything a screening call says and asks, resolved from the published
+   * agent + job (JD, must-ask questions, language, knowledge). Shared by the
+   * ElevenLabs agent and our own loop so every arm runs the same script.
+   */
+  async function resolveScreeningPlan(
+    actor: Actor,
+    agentId: string,
+    options: { knowledgeSnapshot?: KnowledgeSnapshot; jobId?: string } = {},
+  ) {
 
       // Resolve the published agent version + its evaluation criteria.
       const agentRows = await withTenantContext(
@@ -478,9 +541,31 @@ export function createVoiceSessionService(
         ]),
       ];
 
+      const companySourceRows = await withTenantContext(
+        database.db,
+        { organizationId: actor.organizationId, userId: actor.userId },
+        async (tx) =>
+          tx.execute<{ source_id: string }>(sql`
+            select s.id as source_id
+            from knowledge_sources s
+            where s.organization_id = ${actor.organizationId}
+              and s.status <> 'archived'
+              and not exists (
+                select 1
+                from job_knowledge_sources j
+                where j.source_id = s.id
+                  and j.organization_id = s.organization_id
+              )
+          `),
+      );
+      const companySourceIds = companySourceRows.map((r) => r.source_id);
+
       let evaluationCriteria = agentCriteria;
-      let knowledgeSourceIds = agentKnowledgeSourceIds;
+      let knowledgeSourceIds = [
+        ...new Set([...companySourceIds, ...agentKnowledgeSourceIds]),
+      ];
       let usedJobScreening = false;
+      let savedJobDescription = '';
 
       // Job owns JD + must-ask. Call/provision auto-resolves from jobId —
       // never ask HR to pick JD again at call time.
@@ -493,8 +578,9 @@ export function createVoiceSessionService(
             const jobs = await tx.execute<{
               screening_questions: unknown;
               screening_language: string;
+              description: string | null;
             }>(sql`
-              select screening_questions, screening_language
+              select screening_questions, screening_language, description
               from jobs
               where id = ${jobId} and organization_id = ${actor.organizationId}
             `);
@@ -531,6 +617,7 @@ export function createVoiceSessionService(
             return {
               questions,
               language: job.screening_language,
+              description: (job.description ?? '').trim(),
               knowledgeSourceIds: jobKnowledge.map((r) => r.source_id),
             };
           },
@@ -539,13 +626,20 @@ export function createVoiceSessionService(
         if (jobCtx) {
           const hasJobQuestions = jobCtx.questions.length > 0;
           const hasJobKnowledge = jobCtx.knowledgeSourceIds.length > 0;
-          if (hasJobQuestions || hasJobKnowledge) {
+          savedJobDescription = jobCtx.description;
+          const hasSavedDescription = savedJobDescription.length >= 20;
+          if (hasJobQuestions || hasJobKnowledge || hasSavedDescription) {
             usedJobScreening = true;
             if (hasJobQuestions) {
               evaluationCriteria = jobCtx.questions;
             }
             if (hasJobKnowledge) {
-              knowledgeSourceIds = jobCtx.knowledgeSourceIds;
+              knowledgeSourceIds = [
+                ...new Set([
+                  ...companySourceIds,
+                  ...jobCtx.knowledgeSourceIds,
+                ]),
+              ];
             }
             if (jobCtx.language === 'hi') {
               primaryLanguage = 'hi';
@@ -572,47 +666,94 @@ export function createVoiceSessionService(
       // from Job (or agent) knowledge so JD/docs reach the phone agent.
       let knowledgeSnapshot = options.knowledgeSnapshot;
       if (!knowledgeSnapshot && knowledgeSourceIds.length > 0) {
-        const chunkRows = await withTenantContext(
+        const content = await withTenantContext(
           database.db,
           { organizationId: actor.organizationId, userId: actor.userId },
           async (tx) =>
-            tx.execute<{ content: string; document_name: string }>(sql`
-              select c.content, d.name as document_name
-              from knowledge_chunks c
-              join knowledge_documents d
-                on d.id = c.document_id
-               and d.organization_id = c.organization_id
-              where c.organization_id = ${actor.organizationId}
-                and d.status = 'ready'
-                and d.indexed_version = c.document_version
-                and c.source_id in (${sql.join(
-                  knowledgeSourceIds.map((id) => sql`${id}::uuid`),
-                  sql`, `,
-                )})
-              order by d.name, c.chunk_index
-              limit 80
-            `),
+            loadKnowledgeContent(tx, actor, knowledgeSourceIds, 40_000),
         );
-        if (chunkRows.length > 0) {
-          const parts: string[] = [];
-          let total = 0;
-          const maxChars = 40_000;
-          for (const row of chunkRows) {
-            const block = `## ${row.document_name}\n${row.content.trim()}`;
-            if (total + block.length > maxChars) break;
-            parts.push(block);
-            total += block.length;
-          }
-          if (parts.length > 0) {
-            knowledgeSnapshot = {
-              name: usedJobScreening
-                ? 'Job screening docs'
-                : `${agent.name} screening docs`,
-              content: parts.join('\n\n'),
-            };
-          }
+        if (content) {
+          knowledgeSnapshot = {
+            name: usedJobScreening
+              ? 'Job and company docs'
+              : `${agent.name} screening docs`,
+            content,
+          };
         }
       }
+
+      const companyFacts = await withTenantContext(
+        database.db,
+        { organizationId: actor.organizationId, userId: actor.userId },
+        async (tx) => loadKnowledgeContent(tx, actor, companySourceIds, 12_000),
+      );
+
+      // Saved description is what HR wrote. Screens use it while the
+      // searchable copy is still being filed.
+      if (savedJobDescription.length >= 20) {
+        const block = `## Role description\n${savedJobDescription.slice(0, 12_000)}`;
+        knowledgeSnapshot = knowledgeSnapshot
+          ? {
+              ...knowledgeSnapshot,
+              content: `${block}\n\n${knowledgeSnapshot.content}`.slice(0, 40_000),
+            }
+          : { name: 'Role description', content: block };
+      }
+
+      const provisionFields = buildVoiceProvisionConfig({
+        agentPurpose: agent.purpose,
+        criteria: evaluationCriteria,
+        agentType,
+        transferPhones,
+        displayName,
+        organizationName,
+        greeting,
+        primaryLanguage,
+        companyFacts,
+      });
+      const screeningLanguage: 'en' | 'hi' =
+        primaryLanguage.toLowerCase().startsWith('hi') ? 'hi' : 'en';
+      return {
+        agent,
+        versionId,
+        jobId,
+        evaluationCriteria,
+        agentType,
+        transferPhones,
+        displayName,
+        organizationName,
+        greeting,
+        primaryLanguage,
+        companyFacts,
+        knowledgeSnapshot,
+        knowledgeSourceIds,
+        usedJobScreening,
+        provisionFields,
+        screeningLanguage,
+      };
+  }
+
+  const service: VoiceSessionService = {
+    async provisionDeployment(actor, agentId, options = {}) {
+      guardEnabled();
+      const {
+        agent,
+        versionId,
+        jobId,
+        evaluationCriteria,
+        agentType,
+        transferPhones,
+        displayName,
+        organizationName,
+        greeting,
+        primaryLanguage,
+        companyFacts,
+        knowledgeSnapshot,
+        knowledgeSourceIds,
+        usedJobScreening,
+        provisionFields,
+        screeningLanguage,
+      } = await resolveScreeningPlan(actor, agentId, options);
 
       // Check for an existing deployment.
       const existing = await withTenantContext(
@@ -623,16 +764,6 @@ export function createVoiceSessionService(
 
       const voiceId =
         (options.voiceId ?? env.ELEVENLABS_DEFAULT_VOICE_ID)?.trim() || null;
-      const provisionFields = buildVoiceProvisionConfig({
-        agentPurpose: agent.purpose,
-        criteria: evaluationCriteria,
-        agentType,
-        transferPhones,
-        displayName,
-        organizationName,
-        greeting,
-        primaryLanguage,
-      });
       const snapshotTransferPhones =
         provisionFields.builtInTools.transferToNumber?.params.transfers.map(
           (t) => t.transferDestination.phoneNumber,
@@ -656,6 +787,7 @@ export function createVoiceSessionService(
           organizationName,
           greeting,
           primaryLanguage,
+          companyFacts,
         });
 
       // Upsert the deployment row.
@@ -684,9 +816,6 @@ export function createVoiceSessionService(
       );
       const dep = rows[0];
       if (!dep) throw new Error('Deployment upsert returned no row');
-
-      const screeningLanguage =
-        primaryLanguage.toLowerCase().startsWith('hi') ? 'hi' : 'en';
 
       const provisionSnapshot = buildVoiceProvisionSnapshot({
         jobId: jobId ?? null,
@@ -927,13 +1056,29 @@ export function createVoiceSessionService(
 
     async startOutboundPhoneCall(actor, agentId, options) {
       guardEnabled();
-      if (!adapter.isOutboundConfigured()) {
+      const { jobId, candidateId } = options;
+
+      // Which engine runs this job's calls (admin-set per job; kill switch → baseline).
+      const engineRows = await withTenantContext(
+        database.db,
+        { organizationId: actor.organizationId, userId: actor.userId },
+        async (tx) =>
+          tx.execute<{ voice_engine: VoiceEngine }>(sql`
+            select voice_engine from jobs
+            where id = ${jobId} and organization_id = ${actor.organizationId}
+          `),
+      );
+      const engine: VoiceEngine =
+        env.VOICE_OWN_LOOP_ENABLED && engineRows[0]?.voice_engine
+          ? engineRows[0].voice_engine
+          : 'elevenlabs_agent';
+      const ownLoop = engine !== 'elevenlabs_agent';
+
+      if (ownLoop ? !exotel?.isConfigured() : !adapter.isOutboundConfigured()) {
         throw ApiError.conflict(
           'Live phone calling is not connected for this company yet. Use a browser screen for now, or ask us to connect a phone line.',
         );
       }
-
-      const { jobId, candidateId } = options;
 
       const agentRows = await withTenantContext(
         database.db,
@@ -957,30 +1102,59 @@ export function createVoiceSessionService(
       }
       const versionId = agent.current_version_id;
 
-      // Always re-sync so data_collection matches job (or agent) must-ask questions.
-      let provisioned;
       let provisionSnapshot: VoiceProvisionSnapshot;
-      try {
-        const result = await this.provisionDeployment(actor, agentId, { jobId });
-        provisioned = result.deployment;
-        provisionSnapshot = result.provisionSnapshot;
-      } catch (err) {
-        if (err instanceof ApiError) throw err;
-        throw ApiError.conflict(
-          'Could not prepare the phone line for this agent. Publish again, wait a moment, then retry Call phone.',
+      let deploymentId: string | null = null;
+      let externalAgentId: string | null = null;
+      if (ownLoop) {
+        // Same script as the baseline, no provider agent: apps/voice runs it.
+        const plan = await resolveScreeningPlan(actor, agentId, { jobId });
+        const voiceId =
+          engine === 'own_loop_sarvam_voice'
+            ? env.OWN_LOOP_SARVAM_VOICE
+            : env.OWN_LOOP_ELEVENLABS_VOICE_ID.trim() || env.ELEVENLABS_DEFAULT_VOICE_ID?.trim() || null;
+        provisionSnapshot = buildVoiceProvisionSnapshot({
+          jobId: plan.jobId ?? null,
+          agentId,
+          agentVersionId: plan.versionId,
+          usedJobScreening: plan.usedJobScreening,
+          evaluationCriteria: plan.evaluationCriteria,
+          screeningLanguage: plan.screeningLanguage,
+          knowledgeSourceIds: plan.knowledgeSourceIds,
+          knowledgeSnapshot: plan.knowledgeSnapshot ?? null,
+          // No provider knowledge base here: the reference text rides in the prompt.
+          agentPrompt: plan.knowledgeSnapshot
+            ? `${plan.provisionFields.agentPrompt}\n\n## Reference documents\n${plan.knowledgeSnapshot.content.slice(0, 20_000)}`
+            : plan.provisionFields.agentPrompt,
+          firstMessage: plan.provisionFields.firstMessage,
+          transferPhones: [],
+          voiceId,
+        });
+      } else {
+        // Always re-sync so data_collection matches job (or agent) must-ask questions.
+        let provisioned;
+        try {
+          const result = await this.provisionDeployment(actor, agentId, { jobId });
+          provisioned = result.deployment;
+          provisionSnapshot = result.provisionSnapshot;
+        } catch (err) {
+          if (err instanceof ApiError) throw err;
+          throw ApiError.conflict(
+            'Could not prepare the phone line for this agent. Publish again, wait a moment, then retry Call phone.',
+          );
+        }
+        const deployment = await withTenantContext(
+          database.db,
+          { organizationId: actor.organizationId, userId: actor.userId },
+          async (tx) => loadDeployment(tx, actor, versionId),
         );
+        if (!deployment) {
+          throw ApiError.conflict(
+            'Phone line is not ready for this agent yet. Publish the agent, then try Call phone again.',
+          );
+        }
+        deploymentId = provisioned.id || deployment.id;
+        externalAgentId = deployment.external_agent_id;
       }
-      const deployment = await withTenantContext(
-        database.db,
-        { organizationId: actor.organizationId, userId: actor.userId },
-        async (tx) => loadDeployment(tx, actor, versionId),
-      );
-      if (!deployment) {
-        throw ApiError.conflict(
-          'Phone line is not ready for this agent yet. Publish the agent, then try Call phone again.',
-        );
-      }
-      const deploymentId = provisioned.id || deployment.id;
       const snapshotJson = JSON.stringify(provisionSnapshot);
 
       const prepared = await withTenantContext(
@@ -1065,10 +1239,11 @@ export function createVoiceSessionService(
 
           const vsRows = await tx.execute<VoiceSessionRecord>(sql`
             insert into voice_sessions
-              (organization_id, session_id, deployment_id, provider, status,
+              (organization_id, session_id, deployment_id, provider, engine, status,
                job_id, candidate_id, provision_snapshot)
             values (
-              ${actor.organizationId}, ${localSessionId}, ${deploymentId}, 'elevenlabs', 'pending',
+              ${actor.organizationId}, ${localSessionId}, ${deploymentId},
+              ${ownLoop ? 'own_loop' : 'elevenlabs'}, ${engine}, 'pending',
               ${jobId}, ${candidateId}, ${snapshotJson}::jsonb
             )
             returning id, organization_id, session_id, deployment_id, provider,
@@ -1084,12 +1259,21 @@ export function createVoiceSessionService(
         },
       );
 
-      let dial;
+      let dial: { accepted: boolean; externalConversationId: string | null; message?: string };
       try {
-        dial = await adapter.startOutboundPhoneCall({
-          externalAgentId: deployment.external_agent_id,
-          toNumber: prepared.e164,
-        });
+        if (ownLoop) {
+          const call = await exotel!.connectCall({
+            to: prepared.e164,
+            statusCallbackUrl: `${env.API_URL.replace(/\/$/, '')}/webhooks/exotel`,
+            timeLimitSeconds: env.VOICE_MAX_CALL_SECONDS + 60,
+          });
+          dial = { accepted: true, externalConversationId: call.sid };
+        } else {
+          dial = await adapter.startOutboundPhoneCall({
+            externalAgentId: externalAgentId!,
+            toNumber: prepared.e164,
+          });
+        }
       } catch (err) {
         await withTenantContext(
           database.db,
@@ -1191,6 +1375,7 @@ export function createVoiceSessionService(
     async listVoiceSessions(actor, options = {}) {
       const limit = Math.min(Math.max(options.limit ?? 50, 1), 100);
       const candidateId = options.candidateId;
+      const jobId = options.jobId;
       const rows = await withTenantContext(
         database.db,
         { organizationId: actor.organizationId, userId: actor.userId },
@@ -1216,6 +1401,11 @@ export function createVoiceSessionService(
               ${
                 candidateId
                   ? sql`and vs.candidate_id = ${candidateId}`
+                  : sql``
+              }
+              ${
+                jobId
+                  ? sql`and vs.job_id = ${jobId}`
                   : sql``
               }
             order by vs.started_at desc
@@ -1290,6 +1480,8 @@ export function createVoiceSessionService(
           `);
         },
       );
+
+      if (nowEnded) await recordCost(actor.organizationId, voiceSessionId);
 
       await audit.record({
         organizationId: actor.organizationId,
@@ -1379,21 +1571,29 @@ export function createVoiceSessionService(
       // the webhook does not know which org it belongs to — we look it up).
       if (!event.conversationId) return;
 
-      const rows = await database.db.execute<{
-        id: string;
-        organization_id: string;
-        status: string;
-      }>(sql`
-        select id, organization_id, status
-        from voice_sessions
-        where external_conversation_id = ${event.conversationId}
-        limit 1
-      `);
+      // The webhook knows no organization: look the session up under the
+      // conversation-id policy (0022), then write under that session's org.
+      const conversationId = event.conversationId;
+      const rows = await withConversationLookupContext(database.db, conversationId, (tx) =>
+        tx.execute<{ id: string; organization_id: string; status: string }>(sql`
+          select id, organization_id, status
+          from voice_sessions
+          where external_conversation_id = ${conversationId}
+          limit 1
+        `),
+      );
       const vs = rows[0];
       if (!vs) return; // Unknown conversation — ignore.
 
       const targetOrgId = organizationId ?? vs.organization_id;
       if (vs.organization_id !== targetOrgId) return; // Org mismatch — ignore.
+
+      const asOrg = <T>(fn: Parameters<typeof withTenantContext<T>>[2]) =>
+        withTenantContext(
+          database.db,
+          { organizationId: vs.organization_id, userId: SYSTEM_ACTOR_ID },
+          fn,
+        );
 
       const endedTypes = new Set([
         'post_call_transcription',
@@ -1410,7 +1610,7 @@ export function createVoiceSessionService(
 
       if (endedTypes.has(event.type)) {
         const details = extractWebhookConversationDetails(event.data);
-        await database.db.execute(sql`
+        await asOrg((tx) => tx.execute(sql`
           update voice_sessions set
             status              = 'ended',
             ended_at            = coalesce(ended_at, now()),
@@ -1431,7 +1631,9 @@ export function createVoiceSessionService(
             duration_seconds    = coalesce(${details.durationSeconds}, duration_seconds),
             cost_credits        = coalesce(${details.costCredits}, cost_credits)
           where id = ${vs.id}
-        `);
+            and organization_id = ${vs.organization_id}
+        `));
+        await recordCost(vs.organization_id, vs.id);
         await audit.record({
           organizationId: vs.organization_id,
           actorUserId: null,
@@ -1452,14 +1654,15 @@ export function createVoiceSessionService(
           event.data && typeof event.data === 'object'
             ? (event.data as Record<string, unknown>)
             : {};
-        await database.db.execute(sql`
+        await asOrg((tx) => tx.execute(sql`
           update voice_sessions set
             status              = 'failed',
             ended_at            = coalesce(ended_at, now()),
             webhook_received_at = now()
           where id = ${vs.id}
+            and organization_id = ${vs.organization_id}
             and status <> 'ended'
-        `);
+        `));
         await audit.record({
           organizationId: vs.organization_id,
           actorUserId: null,
@@ -1475,13 +1678,14 @@ export function createVoiceSessionService(
       }
 
       if (startedTypes.has(event.type)) {
-        await database.db.execute(sql`
+        await asOrg((tx) => tx.execute(sql`
           update voice_sessions set
             status              = 'active',
             webhook_received_at = now()
           where id = ${vs.id}
+            and organization_id = ${vs.organization_id}
             and status = 'pending'
-        `);
+        `));
         return;
       }
 

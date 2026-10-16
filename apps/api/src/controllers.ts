@@ -43,8 +43,8 @@ import type { MembersService } from './organizations/members.service.js';
 import type { InvitationsService } from './organizations/invitations.service.js';
 import type { AuditService } from './audit/audit.service.js';
 import type { SessionService } from './auth/session.service.js';
-import { SESSION_SERVICE } from './tokens.more.js';
-import { takeConsoleResetLink } from './auth/console-reset-links.js';
+import { COST_SERVICE, SESSION_SERVICE } from './tokens.more.js';
+import type { CostService } from './costs/costs.service.js';
 
 /** Recruiter-facing audit event labels for CSV (and UI-adjacent exports). */
 function auditEventLabel(eventType: string): string {
@@ -74,9 +74,10 @@ function auditEventLabel(eventType: string): string {
 
 function pipelineStageLabel(raw: string): string {
   const labels: Record<string, string> = {
-    new: 'In queue',
+    new: 'Waiting to screen',
     screening: 'On hold',
     reviewed: 'Moved forward',
+    declined: 'Not moving forward',
   };
   return labels[raw] ?? raw;
 }
@@ -151,29 +152,23 @@ export class HealthController {
 @Controller('auth')
 export class AuthController {
   constructor(
-    @Inject(ENV) private readonly env: Env,
     @Inject(ORGANIZATIONS_SERVICE) private readonly orgs: OrganizationsService,
     @Inject(SESSION_SERVICE) private readonly sessions: SessionService,
     @Inject(AUDIT_SERVICE) private readonly audit: AuditService,
+    @Inject(COST_SERVICE) private readonly costs: CostService,
   ) {}
 
   /**
-   * Staging only (console mail). Returns the one-shot reset URL after
-   * request-password-reset, mirroring invite acceptUrl when SMTP is off.
+   * SECURITY: a password-reset link must never travel in an HTTP response —
+   * returning it here let anyone who knew an email take over the account.
+   * Kept as a route so older web builds fall back gracefully, but it answers
+   * the same 404 for every input and every mail transport. With the console
+   * transport the link is still logged server-side for local development.
    */
   @Public()
   @Post('password-reset/console-link')
-  consoleResetLink(@Body() body: unknown) {
-    if (this.env.NOTIFICATION_TRANSPORT !== 'console') {
-      throw ApiError.notFound('Reset link');
-    }
-    const input = parse(
-      z.object({ email: z.string().email() }),
-      body,
-    );
-    const url = takeConsoleResetLink(input.email);
-    if (!url) throw ApiError.notFound('Reset link');
-    return { url };
+  consoleResetLink() {
+    throw ApiError.notFound('Reset link');
   }
 
   @Authenticated()
@@ -187,6 +182,7 @@ export class AuthController {
         email: ctx.userEmail,
         emailVerified: ctx.emailVerified,
       },
+      isPlatformAdmin: this.costs.isPlatformAdmin(ctx.userEmail),
       activeOrganization: ctx.organization
         ? {
             id: ctx.organization.organizationId,

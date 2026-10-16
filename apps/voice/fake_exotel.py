@@ -1,0 +1,151 @@
+"""Fake Exotel: run a whole screening call against apps/voice without a phone.
+
+Speaks Exotel's stream protocol (connected → start → media… → stop), plays the
+candidate's lines (synthesised once with Sarvam) in real time, and reports how
+long the agent took to start replying after each line.
+
+    python fake_exotel.py --url ws://localhost:8765/voice/exotel --call-id <CallSid> \
+        --lang en "Thirty days." "Twelve lakhs per annum." "Yes, I can join in November."
+"""
+
+from __future__ import annotations
+
+import argparse
+import asyncio
+import base64
+import io
+import json
+import os
+import time
+import wave
+
+import httpx
+import websockets
+
+RATE = 8000
+FRAME_MS = 20
+FRAME_BYTES = RATE * 2 * FRAME_MS // 1000  # pcm16 mono
+SILENCE = b"\x00" * FRAME_BYTES
+
+
+def synth(text: str, lang: str) -> bytes:
+    res = httpx.post(
+        "https://api.sarvam.ai/text-to-speech",
+        headers={"api-subscription-key": os.environ["SARVAM_API_KEY"]},
+        json={
+            "text": text,
+            "target_language_code": "hi-IN" if lang == "hi" else "en-IN",
+            "model": "bulbul:v3",
+            "speaker": "priya",
+            "speech_sample_rate": RATE,
+        },
+        timeout=30,
+    )
+    res.raise_for_status()
+    wav = base64.b64decode(res.json()["audios"][0])
+    with wave.open(io.BytesIO(wav)) as w:
+        return w.readframes(w.getnframes())
+
+
+async def run(url: str, call_id: str, lines: list[str], lang: str, max_seconds: float) -> dict:
+    clips = [synth(line, lang) for line in lines]
+    stream_sid = f"fake-stream-{call_id}"
+    last_agent_audio = 0.0
+    agent_audio_frames = 0
+    replies_ms: list[float] = []
+    waiting_since: float | None = None
+
+    async with websockets.connect(url, max_size=None) as ws:
+        await ws.send(json.dumps({"event": "connected"}))
+        await ws.send(
+            json.dumps(
+                {
+                    "event": "start",
+                    "sequence_number": 1,
+                    "stream_sid": stream_sid,
+                    "start": {
+                        "stream_sid": stream_sid,
+                        "call_sid": call_id,
+                        "account_sid": "fake-account",
+                        "from": "+910000000000",
+                        "to": "+910000000001",
+                        "media_format": {"encoding": "base64", "sample_rate": str(RATE), "bit_rate": "128kbps"},
+                    },
+                }
+            )
+        )
+
+        async def receive():
+            nonlocal last_agent_audio, agent_audio_frames, waiting_since
+            async for raw in ws:
+                msg = json.loads(raw)
+                if msg.get("event") == "media":
+                    now = time.monotonic()
+                    if waiting_since is not None:
+                        replies_ms.append((now - waiting_since) * 1000)
+                        waiting_since = None
+                    last_agent_audio = now
+                    agent_audio_frames += 1
+
+        receiver = asyncio.create_task(receive())
+        seq = 2
+        start = time.monotonic()
+
+        async def send_frame(chunk: bytes):
+            nonlocal seq
+            await ws.send(
+                json.dumps(
+                    {
+                        "event": "media",
+                        "sequence_number": seq,
+                        "stream_sid": stream_sid,
+                        "media": {"chunk": seq, "timestamp": str(int((time.monotonic() - start) * 1000)), "payload": base64.b64encode(chunk).decode()},
+                    }
+                )
+            )
+            seq += 1
+            await asyncio.sleep(FRAME_MS / 1000)
+
+        async def agent_finished_turn() -> bool:
+            # The agent spoke, then went quiet for 1.5 s.
+            return agent_audio_frames > 0 and time.monotonic() - last_agent_audio > 1.5
+
+        try:
+            queue = list(clips)
+            while time.monotonic() - start < max_seconds and not receiver.done():
+                if queue and await agent_finished_turn() and waiting_since is None:
+                    clip = queue.pop(0)
+                    for i in range(0, len(clip), FRAME_BYTES):
+                        await send_frame(clip[i : i + FRAME_BYTES].ljust(FRAME_BYTES, b"\x00"))
+                    waiting_since = time.monotonic()
+                    last_agent_audio = time.monotonic()  # wait for a fresh reply
+                else:
+                    await send_frame(SILENCE)
+                if not queue and waiting_since is None and await agent_finished_turn() and time.monotonic() - last_agent_audio > 6:
+                    break
+        except websockets.ConnectionClosed:
+            pass  # the agent hung up: the normal end of a screen
+        finally:
+            try:
+                await ws.send(json.dumps({"event": "stop", "stream_sid": stream_sid}))
+                await ws.close()
+            except Exception:  # noqa: BLE001
+                pass
+            receiver.cancel()
+
+    return {
+        "agentAudioSeconds": round(agent_audio_frames * FRAME_MS / 1000, 1),
+        "replyMs": [round(x) for x in replies_ms],
+        "linesSent": len(lines),
+    }
+
+
+if __name__ == "__main__":
+    p = argparse.ArgumentParser()
+    p.add_argument("--url", required=True)
+    p.add_argument("--call-id", required=True)
+    p.add_argument("--lang", default="en")
+    p.add_argument("--max-seconds", type=float, default=150)
+    p.add_argument("lines", nargs="+")
+    a = p.parse_args()
+    print(json.dumps(asyncio.run(run(a.url, a.call_id, a.lines, a.lang, a.max_seconds)), indent=2))

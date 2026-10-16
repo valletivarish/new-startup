@@ -197,6 +197,31 @@ const EnvSchema = z.object({
     .default('false')
     .transform((v) => v === 'true'),
 
+  /** Comma-separated emails allowed into the cross-company cost dashboard. */
+  PLATFORM_ADMIN_EMAILS: z.string().default(''),
+
+  /** Own voice loop (apps/voice). Off = every job uses the ElevenLabs agent. */
+  VOICE_OWN_LOOP_ENABLED: z
+    .string()
+    .default('false')
+    .transform((v) => v === 'true'),
+  /** Shared secret between apps/voice and the internal routes. */
+  VOICE_INTERNAL_TOKEN: z.string().default(''),
+  /** Hard cap on one own-loop call. */
+  VOICE_MAX_CALL_SECONDS: z.coerce.number().int().min(60).max(1800).default(480),
+  /** Voices for the own-loop arms. */
+  OWN_LOOP_ELEVENLABS_VOICE_ID: z.string().default(''),
+  OWN_LOOP_SARVAM_VOICE: z.string().default('shubh'),
+
+  /** Exotel (own loop dials directly; baseline dials through ElevenLabs). */
+  EXOTEL_ACCOUNT_SID: z.string().default(''),
+  EXOTEL_API_KEY: z.string().default(''),
+  EXOTEL_API_TOKEN: z.string().default(''),
+  EXOTEL_API_SUBDOMAIN: z.string().default(''),
+  EXOTEL_PHONE_NUMBER: z.string().default(''),
+  /** Voicebot app whose stream URL points at wss://<api host>/voice/exotel. */
+  EXOTEL_OWN_LOOP_APP_ID: z.string().default(''),
+
   /** Maximum agents per organization until billing tables exist. */
   ORG_AGENT_LIMIT: z.coerce.number().int().min(1).max(1000).default(5),
 
@@ -205,6 +230,12 @@ const EnvSchema = z.object({
    * Optional — empty disables assist; HR can still type and save a JD.
    */
   GEMINI_API_KEY: z.string().default(''),
+
+  /**
+   * Gemini REST base. Empty = Gemini Developer API. For Vertex AI set
+   * https://aiplatform.googleapis.com/v1/projects/{project}/locations/global/publishers/google
+   */
+  GEMINI_BASE_URL: z.string().default(''),
 
   /** Model id for JD assist generateContent calls. */
   GEMINI_MODEL: z.string().default('gemini-3.5-flash-lite'),

@@ -1,79 +1,129 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState, Suspense } from 'react';
+/**
+ * A job's candidates (D2): the job header with its readiness line and the Candidates and
+ * Setup tabs, then everyone on the job as one list card. Filter by decision, search, and
+ * select to decide in bulk. A row opens the candidate sheet: results, calling, details.
+ * Keyboard: J and K move, Enter opens, X selects, Cmd/Ctrl A selects the page.
+ */
+
+import {
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from 'react';
 import Link from 'next/link';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
-import { AppShell } from '../../../../components/AppShell';
-import { Badge, statusTone } from '../../../../components/ui/badge';
-import { Button } from '../../../../components/ui/button';
+import { useQueryClient } from '@tanstack/react-query';
+import { CircleAlert, CircleCheck, Lock, SearchX, Unplug, Upload, UserPlus, type LucideIcon } from 'lucide-react';
+import { toast } from 'sonner';
+import { AppShell } from '@/components/AppShell';
+import { AddCandidateDialog, ImportCandidatesDialog } from '@/components/candidates/add-candidates';
+import {
+  CandidateDetailSheet,
+  sourceLabel,
+  type CandidateLiveOutbound,
+  type CandidateSheetTab,
+} from '@/components/candidates/CandidateDetailSheet';
+import {
+  decisionDone,
+  decisionLabel,
+  isStage,
+  moveTotals,
+  STAGES,
+  type StageTotals,
+} from '@/components/candidates/decisions';
+import { PersonStateTag } from '@/components/candidates/person-state';
+import { JobHeader } from '@/components/shared/job-header';
+import { UserInitials } from '@/components/shared/user-initials';
+import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
+import { cn } from '@/components/ui/cn';
 import {
   Dialog,
   DialogContent,
-  DialogClose,
-} from '../../../../components/ui/dialog';
-import { Field, FileInput, Input, Select, Textarea } from '../../../../components/ui/input';
-import { EmptyState, Notice, PageHeader, PageMain, Surface } from '../../../../components/ui/page';
-import { SkeletonPage } from '../../../../components/ui/skeleton';
-import {
-  DataList,
-  DataListBody,
-  DataListHeader,
-  DataListMeta,
-  DataListRow,
-  DataListTitle,
-} from '../../../../components/ui/list';
-import { UserPlus, Upload } from 'lucide-react';
-import { toast } from 'sonner';
-import { PhoneField } from '../../../../components/PhoneField';
-import {
-  CandidateDetailSheet,
-  type CandidateSheetTab,
-} from '../../../../components/candidates';
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { EmptyState } from '@/components/ui/empty-state';
+import { ErrorState } from '@/components/ui/error-state';
+import { Field, Input, SearchInput, Select } from '@/components/ui/input';
+import { Kbd } from '@/components/ui/kbd';
+import { Alert } from '@/components/ui/notice';
+import { PageMain } from '@/components/ui/page-header';
+import { Segmented } from '@/components/ui/segmented';
+import { SkeletonRecord, useHeldLoading } from '@/components/ui/skeleton';
+import { ListCell, ListRow, ListRowPrimary, ListRows } from '@/components/ui/strip';
+import { SHEET_TOASTER, toastUndo } from '@/components/ui/toaster';
 import {
   ApiClientError,
-  confirmCandidateImport,
-  createCandidate,
+  bulkUpdateJobCandidateStatus,
   formatApiError,
   getAgent,
   getJob,
   getTelephonyStatus,
+  listCandidateStageHistory,
   listJobCandidates,
   listJobKnowledge,
-  listCandidateStageHistory,
   me,
-  previewCandidateImport,
   reconcileVoiceSession,
   startOutboundCall,
   updateCandidate,
-  bulkUpdateJobCandidateStatus,
-  type CandidateImportRow,
+  type CandidateStage,
   type CandidateStageHistoryEvent,
   type Job,
   type JobCandidateAssignment,
   type Me,
-} from '../../../../lib/api';
-import { loginPathForReturn } from '../../../../lib/auth-redirect';
-import { fromPublicId, toPublicId } from '../../../../lib/public-id';
-import {
-  CALL_STATUS_LABEL,
-  JOB_STATUS_LABEL,
-  PIPELINE_STATUS_LABEL,
-  labelImportIssues,
-} from '../../../../lib/status-labels';
-import {
-  ACCEPT_DOCUMENT,
-  fileToBase64,
-  resolveUploadContentType,
-} from '../../../../lib/upload';
+} from '@/lib/api';
+import { loginPathForReturn } from '@/lib/auth-redirect';
+import { toUserMessage } from '@/lib/errors';
+import { formatPhone } from '@/lib/format';
+import { hiringPeopleQueryKey, homeQueryKey } from '@/lib/hiring-people';
+import { fromPublicId, toPublicId } from '@/lib/public-id';
+import { useOnline } from '@/lib/use-online';
+import { useUseCase } from '@/lib/use-cases';
 
-const ASSIGNMENT_STATUSES = ['new', 'screening', 'reviewed'] as const;
 const PEOPLE_PAGE_SIZE = 40;
+// From this many people at once, a bulk decision asks to be typed out first.
+const BULK_CONFIRM_AT = 24;
 
-type LiveOutbound = {
-  voiceSessionId: string;
-  agentId: string;
-  status: string;
+type StageFilter = 'all' | CandidateStage;
+type CallFilter = 'all' | 'not_called' | 'calling' | 'completed' | 'failed';
+type Decision = { candidateId: string; status: CandidateStage; previous: CandidateStage; name: string };
+
+const CALL_FILTERS: { value: CallFilter; label: string }[] = [
+  { value: 'all', label: 'Any call status' },
+  { value: 'not_called', label: 'Not called yet' },
+  { value: 'calling', label: 'Calling now' },
+  { value: 'completed', label: 'Call ended' },
+  { value: 'failed', label: 'Call didn’t connect' },
+];
+
+// The words a bulk decision of 24 or more is typed out with.
+const CONFIRM_PHRASE: Record<CandidateStage, string> = {
+  reviewed: 'move forward',
+  screening: 'put on hold',
+  declined: 'not moving forward',
+  new: 'clear decision',
 };
+
+// "No one is on hold": a stage filter with nobody in it.
+const NOBODY: Record<CandidateStage, string> = {
+  new: 'Everyone here has a decision',
+  screening: 'No one is on hold',
+  reviewed: 'No one has moved forward yet',
+  declined: 'No one is marked as not moving forward',
+};
+
+const noSubscribe = () => () => {};
+const isApple = () => /Mac|iPhone|iPad|iPod/.test(navigator.platform);
 
 export default function JobCandidatesPage() {
   return (
@@ -81,7 +131,7 @@ export default function JobCandidatesPage() {
       fallback={
         <AppShell profile={null}>
           <PageMain>
-            <SkeletonPage rows={6} />
+            <SkeletonRecord rows={6} />
           </PageMain>
         </AppShell>
       }
@@ -91,98 +141,95 @@ export default function JobCandidatesPage() {
   );
 }
 
+/** One line under the job's title: an icon in the state's colour and the words. */
+function Readiness({ icon: Icon, tone, children }: { icon: LucideIcon; tone: string; children: ReactNode }) {
+  return (
+    <span className="inline-flex items-start gap-2">
+      <Icon aria-hidden strokeWidth={1.75} className={cn('mt-0.5 size-4 shrink-0', tone)} />
+      <span>{children}</span>
+    </span>
+  );
+}
+
+const INLINE_LINK = 'font-medium text-text underline underline-offset-4 hover:decoration-2';
+
 function JobCandidatesPageInner() {
   const router = useRouter();
   const params = useParams<{ id: string }>();
   const searchParams = useSearchParams();
+  const queryClient = useQueryClient();
+  const online = useOnline();
+  const apple = useSyncExternalStore(noSubscribe, isApple, () => true);
+  const { labels, stages } = useUseCase();
   const jobId = fromPublicId(params.id) ?? params.id;
   const jobPublicId = toPublicId(jobId);
-  const selectedCandidateParam = searchParams.get('c');
-  const selectedCandidateId = fromPublicId(selectedCandidateParam);
+  const selectedCandidateId = fromPublicId(searchParams.get('c'));
+  const contactOne = labels.contact.one.toLowerCase();
+  const contactMany = labels.contact.many.toLowerCase();
+  const people = (n: number) => `${n} ${n === 1 ? contactOne : contactMany}`;
 
   const [profile, setProfile] = useState<Me | null>(null);
   const [job, setJob] = useState<Job | null>(null);
-  const [assignments, setAssignments] = useState<JobCandidateAssignment[]>([]);
-  const [addFullName, setAddFullName] = useState('');
-  const [addPhone, setAddPhone] = useState('');
-  const [addResumeText, setAddResumeText] = useState('');
-  const [addResumeFile, setAddResumeFile] = useState<File | null>(null);
-  const [addingCandidate, setAddingCandidate] = useState(false);
-  const [importText, setImportText] = useState('');
-  const [importRows, setImportRows] = useState<CandidateImportRow[] | null>(null);
-  const [importSummary, setImportSummary] = useState<{
-    total: number;
-    valid: number;
-    invalid: number;
-  } | null>(null);
-  const [importBusy, setImportBusy] = useState(false);
-  const [notice, setNotice] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [agentPublished, setAgentPublished] = useState(false);
+  const [loadError, setLoadError] = useState<unknown>(null);
+  const [assignments, setAssignments] = useState<JobCandidateAssignment[]>([]);
+  const [listLoaded, setListLoaded] = useState(false);
+  const [listError, setListError] = useState<unknown>(null);
+  const [listBusy, setListBusy] = useState(false);
+  // null until the agent's status is in, 'unknown' when it couldn't be read: never a guessed state.
+  const [agentPublished, setAgentPublished] = useState<boolean | 'unknown' | null>(null);
   const [docsPreparing, setDocsPreparing] = useState(false);
+  const [outboundPhone, setOutboundPhone] = useState(false);
+  const [openOutbound, setOpenOutbound] = useState(false);
+  const [telephonyFailed, setTelephonyFailed] = useState(false);
   const [callNoticeByCandidate, setCallNoticeByCandidate] = useState<
     Record<string, { kind: 'ok' | 'err'; text: string }>
   >({});
-  const [screenCandidate, setScreenCandidate] = useState<{
-    id: string;
-    fullName: string;
-  } | null>(null);
-  const [outboundPhone, setOutboundPhone] = useState(false);
-  const [openOutbound, setOpenOutbound] = useState(false);
-  const [telephonyMessage, setTelephonyMessage] = useState<string | null>(null);
+  const [screenCandidate, setScreenCandidate] = useState<{ id: string; fullName: string } | null>(null);
   const [phoneDrafts, setPhoneDrafts] = useState<Record<string, string>>({});
   const [savingPhoneId, setSavingPhoneId] = useState<string | null>(null);
   const [callingCandidateId, setCallingCandidateId] = useState<string | null>(null);
-  const [openAskCandidateId, setOpenAskCandidateId] = useState<string | null>(
-    null,
-  );
   const [showAddForm, setShowAddForm] = useState(false);
   const [showImportForm, setShowImportForm] = useState(false);
   const [listCursor, setListCursor] = useState(0);
   const [peoplePage, setPeoplePage] = useState(0);
-  const [peoplePageCursors, setPeoplePageCursors] = useState<
-    (string | undefined)[]
-  >([undefined]);
-  const [nextPeopleCursor, setNextPeopleCursor] = useState<string | null>(
-    null,
-  );
-  const [pipelineTotals, setPipelineTotals] = useState({
-    all: 0,
-    new: 0,
-    screening: 0,
-    reviewed: 0,
-  });
+  const [peoplePageCursors, setPeoplePageCursors] = useState<(string | undefined)[]>([undefined]);
+  const [nextPeopleCursor, setNextPeopleCursor] = useState<string | null>(null);
+  const [pipelineTotals, setPipelineTotals] = useState<StageTotals>({ all: 0, new: 0, screening: 0, reviewed: 0 });
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [pendingBulkStatus, setPendingBulkStatus] = useState<
-    (typeof ASSIGNMENT_STATUSES)[number] | null
-  >(null);
+  const [pendingBulkStatus, setPendingBulkStatus] = useState<CandidateStage | null>(null);
   const [bulkConfirmText, setBulkConfirmText] = useState('');
   const [sheetStageReason, setSheetStageReason] = useState('');
   const [bulkStageReason, setBulkStageReason] = useState('');
   const [bulkBusy, setBulkBusy] = useState(false);
-  const [stageHistory, setStageHistory] = useState<
-    CandidateStageHistoryEvent[]
-  >([]);
+  const [stageHistory, setStageHistory] = useState<CandidateStageHistoryEvent[]>([]);
   const [stageHistoryLoading, setStageHistoryLoading] = useState(false);
   const [peopleQuery, setPeopleQuery] = useState('');
   const [peopleQueryDraft, setPeopleQueryDraft] = useState('');
-  const [callFilter, setCallFilter] = useState<
-    'all' | 'not_called' | 'calling' | 'completed' | 'failed'
-  >('all');
+  const [callFilter, setCallFilter] = useState<CallFilter>('all');
   const stageParam = searchParams.get('stage');
-  const pipelineFilter: 'all' | (typeof ASSIGNMENT_STATUSES)[number] =
-    stageParam === 'new' ||
-    stageParam === 'screening' ||
-    stageParam === 'reviewed'
-      ? stageParam
-      : 'all';
-  const [sheetTab, setSheetTab] = useState<CandidateSheetTab>('overview');
-  const [liveOutboundByCandidate, setLiveOutboundByCandidate] = useState<
-    Record<string, LiveOutbound>
-  >({});
+  const pipelineFilter: StageFilter = isStage(stageParam) ? stageParam : 'all';
+  const tabParam = searchParams.get('tab');
+  // null: the tab follows the candidate (results once called, else calling).
+  const [sheetTab, setSheetTab] = useState<CandidateSheetTab | null>(
+    tabParam === 'results' || tabParam === 'screen' || tabParam === 'overview' ? tabParam : null,
+  );
+  const [liveOutboundByCandidate, setLiveOutboundByCandidate] = useState<Record<string, CandidateLiveOutbound>>({});
   const outboundInFlight = useRef<Set<string>>(new Set());
+  const listRef = useRef<HTMLDivElement>(null);
+  const listSeq = useRef(0);
 
-  function setPipelineFilter(key: 'all' | (typeof ASSIGNMENT_STATUSES)[number]) {
+  const can = (p: string) => profile?.activeOrganization?.permissions.includes(p) ?? false;
+  const canScreen = can('calls.initiate') || can('agents.test');
+  const canReadCandidates = can('candidates.read');
+
+  // Changes made here also change Home's queues and the candidates list.
+  const touchElsewhere = useCallback(() => {
+    void queryClient.invalidateQueries({ queryKey: homeQueryKey });
+    void queryClient.invalidateQueries({ queryKey: hiringPeopleQueryKey });
+  }, [queryClient]);
+
+  function setPipelineFilter(key: StageFilter) {
     setPeoplePage(0);
     setPeoplePageCursors([undefined]);
     setNextPeopleCursor(null);
@@ -192,68 +239,54 @@ function JobCandidatesPageInner() {
     if (key === 'all') q.delete('stage');
     else q.set('stage', key);
     const qs = q.toString();
-    router.replace(
-      `/jobs/${jobPublicId}/candidates${qs ? `?${qs}` : ''}`,
-      { scroll: false },
-    );
+    router.replace(`/jobs/${jobPublicId}/candidates${qs ? `?${qs}` : ''}`, { scroll: false });
   }
 
-  function openCandidate(
-    candidateId: string,
-    opts?: { tab?: CandidateSheetTab },
-  ) {
-    const row = assignments.find((a) => a.candidateId === candidateId);
-    const tab =
-      opts?.tab ??
-      (row?.callStatus === 'completed' || row?.callStatus === 'failed'
-        ? 'results'
-        : 'overview');
-    setSheetTab(tab);
+  function defaultTab(row: JobCandidateAssignment | undefined): CandidateSheetTab {
+    const called = row?.callStatus === 'completed' || row?.callStatus === 'failed' || row?.callStatus === 'calling';
+    return called ? 'results' : canScreen ? 'screen' : 'overview';
+  }
+
+  function openCandidate(candidateId: string, opts?: { tab?: CandidateSheetTab }) {
+    setSheetTab(opts?.tab ?? defaultTab(assignments.find((a) => a.candidateId === candidateId)));
     const q = new URLSearchParams(searchParams.toString());
     q.set('c', toPublicId(candidateId));
-    router.replace(`/jobs/${jobPublicId}/candidates?${q.toString()}`, {
-      scroll: false,
-    });
+    // The tab is state from here on; a stale ?tab= would override the next candidate's.
+    q.delete('tab');
+    router.replace(`/jobs/${jobPublicId}/candidates?${q.toString()}`, { scroll: false });
   }
 
   function closeCandidate() {
     const q = new URLSearchParams(searchParams.toString());
     q.delete('c');
+    q.delete('tab');
     const qs = q.toString();
-    router.replace(
-      `/jobs/${jobPublicId}/candidates${qs ? `?${qs}` : ''}`,
-      { scroll: false },
-    );
+    router.replace(`/jobs/${jobPublicId}/candidates${qs ? `?${qs}` : ''}`, { scroll: false });
   }
 
   const pagedAssignments = useMemo(() => {
     if (callFilter === 'all') return assignments;
-    return assignments.filter(
-      (row) => (row.callStatus ?? 'not_called') === callFilter,
-    );
+    return assignments.filter((row) => (row.callStatus ?? 'not_called') === callFilter);
   }, [assignments, callFilter]);
 
   useEffect(() => {
-    setListCursor((c) =>
-      Math.min(c, Math.max(0, pagedAssignments.length - 1)),
-    );
+    setListCursor((c) => Math.min(c, Math.max(0, pagedAssignments.length - 1)));
   }, [pagedAssignments.length]);
 
   const selectedVisibleIndex = useMemo(() => {
     if (!selectedCandidateId) return -1;
-    return pagedAssignments.findIndex(
-      (a) => a.candidateId === selectedCandidateId,
-    );
+    return pagedAssignments.findIndex((a) => a.candidateId === selectedCandidateId);
   }, [pagedAssignments, selectedCandidateId]);
 
+  // A test call or a dial in flight holds the sheet on this candidate.
+  const sheetBusy =
+    Boolean(selectedCandidateId) &&
+    (callingCandidateId === selectedCandidateId || screenCandidate?.id === selectedCandidateId);
+
   function goRelativeCandidate(delta: number) {
-    if (pagedAssignments.length === 0) return;
-    const from =
-      selectedVisibleIndex >= 0 ? selectedVisibleIndex : listCursor;
-    const nextIdx = Math.min(
-      Math.max(from + delta, 0),
-      pagedAssignments.length - 1,
-    );
+    if (pagedAssignments.length === 0 || sheetBusy) return;
+    const from = selectedVisibleIndex >= 0 ? selectedVisibleIndex : listCursor;
+    const nextIdx = Math.min(Math.max(from + delta, 0), pagedAssignments.length - 1);
     const next = pagedAssignments[nextIdx];
     if (next) {
       setListCursor(nextIdx);
@@ -270,159 +303,178 @@ function JobCandidatesPageInner() {
     });
   }
 
-  async function requestBulkStatus(
-    status: (typeof ASSIGNMENT_STATUSES)[number],
-  ) {
-    if (selectedIds.size >= 24) {
-      setPendingBulkStatus(status);
-      setBulkConfirmText('');
-      return;
-    }
-    await bulkStatus(status);
+  const rowTitles = () => Array.from(listRef.current?.querySelectorAll<HTMLElement>('[data-strip-open]') ?? []);
+
+  function focusRow(index: number) {
+    const el = rowTitles()[index];
+    if (!el) return;
+    el.focus();
+    setListCursor(index);
   }
 
-  async function bulkStatus(status: (typeof ASSIGNMENT_STATUSES)[number]) {
-    const ids = [...selectedIds];
-    if (ids.length === 0 || !can('jobs.update') || bulkBusy) return;
-    const updates = ids
-      .map((candidateId) => {
-        const row = assignments.find((a) => a.candidateId === candidateId);
-        if (!row) return null;
-        const previous = row.status as (typeof ASSIGNMENT_STATUSES)[number];
-        if (
-          previous !== 'new' &&
-          previous !== 'screening' &&
-          previous !== 'reviewed'
-        ) {
-          return null;
-        }
-        if (previous === status) return null;
-        return { candidateId, status, previous, name: row.candidate.fullName };
-      })
-      .filter((u): u is NonNullable<typeof u> => u != null);
-    if (updates.length === 0) {
-      setSelectedIds(new Set());
-      setPendingBulkStatus(null);
-      return;
-    }
-    setBulkBusy(true);
-    try {
-      await applyCandidateStatuses(
-        updates,
-        `${updates.length} ${updates.length === 1 ? 'person' : 'people'} → ${PIPELINE_STATUS_LABEL[status]}`,
-        bulkStageReason,
-      );
-      setSelectedIds(new Set());
-      setPendingBulkStatus(null);
-      setBulkConfirmText('');
-      setBulkStageReason('');
-    } finally {
-      setBulkBusy(false);
-    }
-  }
-
+  // No dependency list: the handler always reads this render's rows, selection and sheet.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement | null;
-      if (
-        target &&
-        (target.tagName === 'INPUT' ||
-          target.tagName === 'TEXTAREA' ||
-          target.tagName === 'SELECT' ||
-          target.isContentEditable)
-      ) {
-        return;
-      }
+      if (e.defaultPrevented || e.altKey) return;
+      const target = e.target instanceof HTMLElement ? e.target : null;
+      if (target?.closest('input, textarea, select, [contenteditable="true"]')) return;
+      const key = e.key.toLowerCase();
       if (selectedCandidateId) {
-        if (e.key === 'j' || e.key === 'J' || e.key === 'ArrowDown') {
+        // The sheet is open: J and K walk the list, unless a confirmation is up.
+        if (document.querySelector('[role="alertdialog"]')) return;
+        if (key === 'j' || key === 'k') {
           e.preventDefault();
-          goRelativeCandidate(1);
-        } else if (e.key === 'k' || e.key === 'K' || e.key === 'ArrowUp') {
-          e.preventDefault();
-          goRelativeCandidate(-1);
-        } else if (e.key === 'Escape') {
-          e.preventDefault();
-          closeCandidate();
+          goRelativeCandidate(key === 'j' ? 1 : -1);
         }
         return;
       }
+      if (document.querySelector('[role="dialog"], [role="alertdialog"]')) return;
       if (pagedAssignments.length === 0) return;
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'a') {
+      const inList = Boolean(target && listRef.current?.contains(target));
+      if ((e.metaKey || e.ctrlKey) && key === 'a') {
         e.preventDefault();
         setSelectedIds(new Set(pagedAssignments.map((a) => a.candidateId)));
         return;
       }
-      if (e.key === 'x' || e.key === 'X') {
-        e.preventDefault();
+      if (e.metaKey || e.ctrlKey) return;
+      if (key === 'x' && inList) {
         const row = pagedAssignments[listCursor];
-        if (row) toggleSelected(row.candidateId);
+        if (row) {
+          e.preventDefault();
+          toggleSelected(row.candidateId);
+        }
         return;
       }
-      if (e.key === 'Escape' && selectedIds.size > 0) {
+      if (key === 'escape' && selectedIds.size > 0) {
         e.preventDefault();
         setSelectedIds(new Set());
         return;
       }
-      if (e.key === 'j' || e.key === 'J' || e.key === 'ArrowDown') {
-        e.preventDefault();
-        setListCursor((i) =>
-          Math.min(i + 1, pagedAssignments.length - 1),
-        );
-      } else if (e.key === 'k' || e.key === 'K' || e.key === 'ArrowUp') {
-        e.preventDefault();
-        setListCursor((i) => Math.max(i - 1, 0));
-      } else if (e.key === 'Enter') {
-        e.preventDefault();
-        const row = pagedAssignments[listCursor];
-        if (row) openCandidate(row.candidateId);
+      const down = key === 'j' || (inList && key === 'arrowdown');
+      const up = key === 'k' || (inList && key === 'arrowup');
+      if (!down && !up) return;
+      e.preventDefault();
+      const titles = rowTitles();
+      const at = titles.findIndex((el) => el === document.activeElement);
+      if (at < 0) {
+        focusRow(Math.min(listCursor, titles.length - 1));
+        return;
       }
+      focusRow(Math.min(Math.max(at + (down ? 1 : -1), 0), titles.length - 1));
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    selectedCandidateId,
-    selectedVisibleIndex,
-    pagedAssignments,
-    listCursor,
-    selectedIds.size,
-  ]);
+  });
+
+  async function refreshStageHistory(candidateId: string) {
+    setStageHistoryLoading(true);
+    try {
+      const { events } = await listCandidateStageHistory(jobId, candidateId);
+      setStageHistory(events);
+    } catch {
+      setStageHistory([]);
+    } finally {
+      setStageHistoryLoading(false);
+    }
+  }
 
   useEffect(() => {
+    // A reason typed for one candidate never rides along to the next.
+    setSheetStageReason('');
     if (!selectedCandidateId) {
       setStageHistory([]);
       return;
     }
     void refreshStageHistory(selectedCandidateId);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Runs per candidate only; refreshStageHistory reads nothing else that changes.
   }, [selectedCandidateId, jobId]);
 
   const reloadJobKnowledge = useCallback(async () => {
     try {
       const { sources } = await listJobKnowledge(jobId);
-      const pending = sources.reduce((n, s) => n + s.pendingDocs, 0);
-      setDocsPreparing(pending > 0);
+      setDocsPreparing(sources.reduce((n, s) => n + s.pendingDocs, 0) > 0);
     } catch {
       setDocsPreparing(false);
     }
   }, [jobId]);
 
+  const loadJob = useCallback(async () => {
+    setLoading(true);
+    setLoadError(null);
+    try {
+      const p = await me();
+      setProfile(p);
+      const j = await getJob(jobId);
+      setJob(j);
+      void reloadJobKnowledge();
+      const perms = new Set(p.activeOrganization?.permissions ?? []);
+      if (perms.has('agents.test') || perms.has('calls.initiate')) {
+        try {
+          const tel = await getTelephonyStatus();
+          setOutboundPhone(tel.outboundPhone);
+          setOpenOutbound(Boolean(tel.openOutbound));
+          setTelephonyFailed(false);
+        } catch {
+          setTelephonyFailed(true);
+        }
+      }
+    } catch (e) {
+      if (e instanceof ApiClientError && e.status === 401) {
+        router.push(loginPathForReturn());
+        return;
+      }
+      setLoadError(e);
+    } finally {
+      setLoading(false);
+    }
+  }, [jobId, router, reloadJobKnowledge]);
+
+  useEffect(() => {
+    void loadJob();
+  }, [loadJob]);
+
   const fetchPeoplePage = useCallback(
     async (cursor?: string) => {
-      const status =
-        pipelineFilter === 'all' ? undefined : pipelineFilter;
+      // Only the latest request lands, so a slow answer for an old filter never wins.
+      const seq = ++listSeq.current;
       const res = await listJobCandidates(jobId, {
         limit: PEOPLE_PAGE_SIZE,
         cursor,
-        status,
+        status: pipelineFilter === 'all' ? undefined : pipelineFilter,
         q: peopleQuery.trim() || undefined,
       });
+      if (seq !== listSeq.current) return;
       setAssignments(res.candidates);
       setPipelineTotals(res.totals);
       setNextPeopleCursor(res.nextCursor);
     },
     [jobId, pipelineFilter, peopleQuery],
   );
+
+  const loadList = useCallback(
+    async (cursor?: string) => {
+      setListBusy(true);
+      try {
+        await fetchPeoplePage(cursor);
+        setListError(null);
+      } catch (e) {
+        setListError(e);
+      } finally {
+        setListBusy(false);
+        setListLoaded(true);
+      }
+    },
+    [fetchPeoplePage],
+  );
+
+  const jobReady = job !== null;
+  // The first page, and again whenever the decision filter or the search changes.
+  useEffect(() => {
+    if (!canReadCandidates || !jobReady) return;
+    void loadList(undefined);
+  }, [canReadCandidates, jobReady, loadList]);
+
+  const refreshList = () => loadList(peoplePageCursors[peoplePage]);
 
   useEffect(() => {
     const handle = window.setTimeout(() => {
@@ -439,77 +491,9 @@ function JobCandidatesPageInner() {
   }, [peopleQueryDraft, peopleQuery]);
 
   useEffect(() => {
-    if (!profile) return;
-    void fetchPeoplePage(undefined).catch(() => {
-      setAssignments([]);
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [peopleQuery]);
-
-  const reload = useCallback(async () => {
-    setLoading(true);
-    try {
-      const p = await me();
-      setProfile(p);
-      try {
-        const j = await getJob(jobId);
-        setJob(j);
-        void reloadJobKnowledge();
-
-        const perms = new Set(p.activeOrganization?.permissions ?? []);
-        if (perms.has('agents.test') || perms.has('calls.initiate')) {
-          try {
-            const tel = await getTelephonyStatus();
-            setOutboundPhone(tel.outboundPhone);
-            setOpenOutbound(Boolean(tel.openOutbound));
-            setTelephonyMessage(tel.message);
-          } catch {
-            setTelephonyMessage(
-              (prev) =>
-                prev ??
-                'Could not check phone line status. Refresh the page, or try again in a moment.',
-            );
-          }
-        }
-        if (perms.has('candidates.read')) {
-          try {
-            await fetchPeoplePage(peoplePageCursors[peoplePage]);
-          } catch {
-            setAssignments([]);
-            setNotice('Could not load candidates for this job.');
-          }
-        } else {
-          setAssignments([]);
-        }
-      } catch (e) {
-        setJob(null);
-        setAssignments([]);
-        if (e instanceof ApiClientError && e.status === 404) {
-          setNotice('Job not found.');
-        } else if (e instanceof ApiClientError && e.status === 403) {
-          setNotice('You do not have access to this job.');
-        } else setNotice('Could not load job.');
-      }
-    } catch (e) {
-      if (e instanceof ApiClientError && e.status === 401) router.push(loginPathForReturn());
-      else setNotice('Could not load profile.');
-    } finally {
-      setLoading(false);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [jobId, router, reloadJobKnowledge, fetchPeoplePage, peoplePage]);
-
-  useEffect(() => {
-    void reload();
-  }, [reload]);
-
-  useEffect(() => {
-    if (!profile) return;
-    void fetchPeoplePage(peoplePageCursors[0]).catch(() => {
-      setAssignments([]);
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pipelineFilter]);
+    const tab = searchParams.get('tab');
+    if (tab === 'results' || tab === 'screen' || tab === 'overview') setSheetTab(tab);
+  }, [searchParams, selectedCandidateId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -522,7 +506,7 @@ function JobCandidatesPageInner() {
         const agent = await getAgent(job.agentId);
         if (!cancelled) setAgentPublished(agent.status === 'published');
       } catch {
-        if (!cancelled) setAgentPublished(false);
+        if (!cancelled) setAgentPublished('unknown');
       }
     }
     void loadAgent();
@@ -533,19 +517,19 @@ function JobCandidatesPageInner() {
 
   useEffect(() => {
     if (!docsPreparing) return;
-    const id = window.setInterval(() => {
-      void reloadJobKnowledge();
-    }, 3000);
+    const id = window.setInterval(() => void reloadJobKnowledge(), 3000);
     return () => window.clearInterval(id);
   }, [docsPreparing, reloadJobKnowledge]);
 
-  const liveOutboundEntries = Object.entries(liveOutboundByCandidate);
-  const hasLiveOutbound = liveOutboundEntries.some(
-    ([, s]) => s.status === 'pending' || s.status === 'active',
+  const hasLiveOutbound = Object.values(liveOutboundByCandidate).some(
+    (s) => s.status === 'pending' || s.status === 'active',
   );
   const liveOutboundRef = useRef(liveOutboundByCandidate);
   liveOutboundRef.current = liveOutboundByCandidate;
+  const refreshListRef = useRef(refreshList);
+  refreshListRef.current = refreshList;
 
+  // Calls placed from here: poll each until it ends, then refresh the rows' tags.
   useEffect(() => {
     if (!hasLiveOutbound) return;
     let cancelled = false;
@@ -555,75 +539,49 @@ function JobCandidatesPageInner() {
         ([, s]) => s.status === 'pending' || s.status === 'active',
       );
       if (entries.length === 0) return;
-
       let anyTerminal = false;
       for (const [candidateId, live] of entries) {
         try {
-          const { voiceSession } = await reconcileVoiceSession(
-            live.agentId,
-            live.voiceSessionId,
-          );
+          const { voiceSession } = await reconcileVoiceSession(live.agentId, live.voiceSessionId);
           if (cancelled) return;
           setLiveOutboundByCandidate((prev) => {
             const cur = prev[candidateId];
             if (!cur || cur.voiceSessionId !== live.voiceSessionId) return prev;
             return {
               ...prev,
-              [candidateId]: { ...cur, status: voiceSession.status },
+              [candidateId]: {
+                ...cur,
+                status: voiceSession.status,
+                startedAt: voiceSession.startedAt ?? cur.startedAt,
+                failureReason: voiceSession.failureReason ?? null,
+              },
             };
           });
-          if (
-            voiceSession.status === 'ended' ||
-            voiceSession.status === 'failed'
-          ) {
-            anyTerminal = true;
-            setCallNoticeByCandidate((prev) => ({
-              ...prev,
-              [candidateId]: {
-                kind: voiceSession.status === 'failed' ? 'err' : 'ok',
-                text:
-                  voiceSession.status === 'failed'
-                    ? 'Call failed. You can try again.'
-                    : 'Call ended. Open screening results below.',
-              },
-            }));
-          }
+          if (voiceSession.status === 'ended' || voiceSession.status === 'failed') anyTerminal = true;
         } catch {
-          // Keep last known status; next tick retries.
+          // Keep the last known status; the next tick retries.
         }
       }
       if (!cancelled && anyTerminal) {
-        try {
-          await fetchPeoplePage(peoplePageCursors[peoplePage]);
-        } catch {
-          /* ignore — badge refresh is best-effort */
-        }
+        touchElsewhere();
+        await refreshListRef.current();
       }
     }
 
     void pollLive();
-    const id = window.setInterval(() => {
-      void pollLive();
-    }, 4000);
+    const id = window.setInterval(() => void pollLive(), 4000);
     return () => {
       cancelled = true;
       window.clearInterval(id);
     };
-  }, [hasLiveOutbound, jobId]);
-
-  const can = (p: string) =>
-    profile?.activeOrganization?.permissions.includes(p) ?? false;
-  const canScreen = can('calls.initiate') || can('agents.test');
+  }, [hasLiveOutbound, jobId, touchElsewhere]);
 
   async function onOutbound(candidateId: string) {
     if (outboundInFlight.current.has(candidateId)) return;
     if (!job?.agentId) {
       setCallNoticeByCandidate((prev) => ({
         ...prev,
-        [candidateId]: {
-          kind: 'err',
-          text: 'This job has no hiring voice yet. Attach one before calling.',
-        },
+        [candidateId]: { kind: 'err', text: 'This job has no AI hiring agent yet. Add one in Setup, then call.' },
       }));
       return;
     }
@@ -647,23 +605,16 @@ function JobCandidatesPageInner() {
           voiceSessionId: result.voiceSessionId,
           agentId: job.agentId!,
           status: result.voiceSession?.status ?? 'pending',
+          // Until the first poll brings the call's own start time.
+          startedAt: new Date().toISOString(),
         },
       }));
-      setCallNoticeByCandidate((prev) => ({
-        ...prev,
-        [candidateId]: {
-          kind: 'ok',
-          text: 'Call started. Status updates here as the call progresses.',
-        },
-      }));
-      await reload();
+      touchElsewhere();
+      await refreshList();
     } catch (e) {
       setCallNoticeByCandidate((prev) => ({
         ...prev,
-        [candidateId]: {
-          kind: 'err',
-          text: formatApiError(e, 'Could not start phone call.'),
-        },
+        [candidateId]: { kind: 'err', text: formatApiError(e, 'Couldn’t start the call. Try again in a moment.') },
       }));
     } finally {
       outboundInFlight.current.delete(candidateId);
@@ -672,1198 +623,735 @@ function JobCandidatesPageInner() {
   }
 
   async function onSavePhone(candidateId: string) {
-    const raw = phoneDrafts[candidateId] ?? '';
-    const phone = raw.trim() || null;
+    const phone = (phoneDrafts[candidateId] ?? '').trim() || null;
     setSavingPhoneId(candidateId);
     try {
       await updateCandidate(candidateId, { phone });
-      setNotice(phone ? 'Mobile saved.' : 'Mobile cleared.');
+      await refreshList();
       setPhoneDrafts((prev) => {
         const next = { ...prev };
         delete next[candidateId];
         return next;
       });
-      await reload();
+      toast.success(phone ? 'Mobile number saved' : 'Mobile number removed', { toasterId: SHEET_TOASTER });
     } catch (e) {
-      setNotice(e instanceof ApiClientError ? e.message : 'Could not save mobile.');
+      const m = toUserMessage(e, 'save the mobile number');
+      toast.error(m.title, { description: m.detail, toasterId: SHEET_TOASTER });
     } finally {
       setSavingPhoneId(null);
     }
   }
 
-  async function onAddCandidate() {
-    const fullName = addFullName.trim();
-    if (!fullName) {
-      setNotice('Enter the candidate name.');
-      return;
-    }
-    const phone = addPhone.trim();
-    if (!phone && !addResumeText.trim() && !addResumeFile) {
-      setNotice('Add a mobile number (required for new candidates).');
-      return;
-    }
-    setAddingCandidate(true);
-    try {
-      let resumeFile:
-        | {
-            name: string;
-            contentType: string;
-            content: string;
-            contentEncoding: 'base64';
-          }
-        | undefined;
-      if (addResumeFile) {
-        resumeFile = {
-          name: addResumeFile.name,
-          contentType: resolveUploadContentType(addResumeFile),
-          content: await fileToBase64(addResumeFile),
-          contentEncoding: 'base64',
-        };
-      }
-      await createCandidate({
-        jobId,
-        fullName,
-        phone: phone || undefined,
-        countryCode: '+91',
-        resumeText: addResumeText.trim() || undefined,
-        resumeFile,
-      });
-      setAddFullName('');
-      setAddPhone('');
-      setAddResumeText('');
-      setAddResumeFile(null);
-      setShowAddForm(false);
-      setNotice('Candidate added to this job.');
-      await reload();
-    } catch (e) {
-      setNotice(formatApiError(e, 'Could not add candidate.'));
-    } finally {
-      setAddingCandidate(false);
-    }
-  }
-
-  async function onImportPreview() {
-    const csvText = importText.trim();
-    if (!csvText) {
-      setNotice('Paste CSV rows or choose a CSV file first.');
-      return;
-    }
-    setImportBusy(true);
-    setNotice(null);
-    try {
-      const result = await previewCandidateImport(jobId, csvText);
-      setImportRows(result.rows.map((r) => ({ ...r, issues: [...r.issues] })));
-      setImportSummary(result.summary);
-      setNotice(
-        result.summary.valid === 0
-          ? 'No valid rows yet. Fix highlighted fields, then preview again.'
-          : `Ready to import ${result.summary.valid} of ${result.summary.total} rows.`,
-      );
-    } catch (e) {
-      setNotice(formatApiError(e, 'Could not preview import.'));
-    } finally {
-      setImportBusy(false);
-    }
-  }
-
-  async function onImportFile(file: File | null) {
-    if (!file) return;
-    try {
-      const text = await file.text();
-      setImportText(text);
-      setImportRows(null);
-      setImportSummary(null);
-    } catch {
-      setNotice('Could not read that file.');
-    }
-  }
-
-  function patchImportRow(
-    rowIndex: number,
-    patch: Partial<Pick<CandidateImportRow, 'fullName' | 'countryCode' | 'phone' | 'email'>>,
-  ) {
-    setImportRows((prev) => {
-      if (!prev) return prev;
-      return prev.map((row) => {
-        if (row.rowIndex !== rowIndex) return row;
-        const next = { ...row, ...patch };
-        const issues: CandidateImportRow['issues'] = [];
-        if (!next.fullName?.trim()) issues.push('missing_full_name');
-        if (!next.countryCode?.trim()) issues.push('missing_country_code');
-        if (!next.phone?.trim()) issues.push('missing_phone');
-        for (const issue of row.issues) {
-          if (
-            issue === 'duplicate_in_batch' ||
-            issue === 'duplicate_on_job' ||
-            issue === 'invalid_phone' ||
-            issue === 'invalid_email'
-          ) {
-            issues.push(issue);
-          }
-        }
-        return { ...next, issues, valid: issues.length === 0 };
-      });
-    });
-  }
-
-  async function onImportConfirm() {
-    if (!importRows) return;
-    const validRows = importRows.filter((r) => r.valid && r.fullName && r.countryCode && r.phone);
-    if (validRows.length === 0) {
-      setNotice('No valid rows to import. Fix highlighted cells or preview again.');
-      return;
-    }
-    setImportBusy(true);
-    setNotice(null);
-    try {
-      const result = await confirmCandidateImport(
-        jobId,
-        validRows.map((r) => ({
-          fullName: r.fullName!,
-          countryCode: r.countryCode!,
-          phone: r.phone!,
-          ...(r.email ? { email: r.email } : {}),
-        })),
-      );
-      const created = result.created.length;
-      const skipped = result.skipped;
-      setNotice(
-        skipped > 0
-          ? `Imported ${created} candidate${created === 1 ? '' : 's'}; skipped ${skipped} invalid or duplicate.`
-          : `Imported ${created} candidate${created === 1 ? '' : 's'}.`,
-      );
-      const createdPhones = new Set(result.created.map((c) => c.phone));
-      setImportRows((prev) => {
-        if (!prev) return prev;
-        const remaining = prev.filter(
-          (r) => !(r.valid && r.phone && createdPhones.has(r.phone)),
-        );
-        setImportSummary({
-          total: remaining.length,
-          valid: remaining.filter((r) => r.valid).length,
-          invalid: remaining.filter((r) => !r.valid).length,
-        });
-        return remaining.length > 0 ? remaining : null;
-      });
-      if (created > 0 && skipped === 0) {
-        setImportText('');
-        setShowImportForm(false);
-      }
-      await reload();
-    } catch (e) {
-      setNotice(formatApiError(e, 'Could not confirm import.'));
-    } finally {
-      setImportBusy(false);
-    }
-  }
-
+  /** Saves decisions with an Undo toast. False when they didn't save (the rows go back). */
   async function applyCandidateStatuses(
-    updates: {
-      candidateId: string;
-      status: (typeof ASSIGNMENT_STATUSES)[number];
-      previous: (typeof ASSIGNMENT_STATUSES)[number];
-      name?: string;
-    }[],
+    updates: Decision[],
     message: string,
     reason?: string,
-  ) {
-    if (updates.length === 0) return;
-    const snapshot = assignments;
-    setAssignments((prev) =>
-      prev.map((row) => {
-        const hit = updates.find((u) => u.candidateId === row.candidateId);
-        return hit ? { ...row, status: hit.status } : row;
-      }),
-    );
+    toasterId?: string,
+  ): Promise<boolean> {
+    if (updates.length === 0) return true;
+    const moves = updates.map((u) => ({ from: u.previous, to: u.status }));
+    const back = updates.map((u) => ({ from: u.status, to: u.previous }));
+    const setStatuses = (statuses: { candidateId: string; status: CandidateStage }[]) =>
+      setAssignments((prev) =>
+        prev.map((row) => {
+          const hit = statuses.find((u) => u.candidateId === row.candidateId);
+          return hit ? { ...row, status: hit.status } : row;
+        }),
+      );
+    setStatuses(updates);
+    setPipelineTotals((t) => moveTotals(t, moves));
+    const touchesOpen = Boolean(selectedCandidateId && updates.some((u) => u.candidateId === selectedCandidateId));
     try {
       await bulkUpdateJobCandidateStatus(
         jobId,
-        updates.map((u) => ({
-          candidateId: u.candidateId,
-          status: u.status,
-        })),
+        updates.map((u) => ({ candidateId: u.candidateId, status: u.status })),
         reason,
       );
-      toast.success(message, {
-        duration: 8_000,
-        action: {
-          label: 'Undo',
-          onClick: () => {
-            void (async () => {
-              const reverse = updates.map((u) => ({
-                candidateId: u.candidateId,
-                status: u.previous,
-                previous: u.status,
-                name: u.name,
-              }));
-              setAssignments((prev) =>
-                prev.map((row) => {
-                  const hit = reverse.find(
-                    (u) => u.candidateId === row.candidateId,
-                  );
-                  return hit ? { ...row, status: hit.status } : row;
-                }),
-              );
-              try {
-                await bulkUpdateJobCandidateStatus(
-                  jobId,
-                  reverse.map((u) => ({
-                    candidateId: u.candidateId,
-                    status: u.status,
-                  })),
-                  'Undone',
-                );
-                toast.success('Change undone.');
-                if (selectedCandidateId) {
-                  void refreshStageHistory(selectedCandidateId);
-                }
-              } catch {
-                setAssignments(snapshot);
-                toast.error('Could not undo. Refresh and try again.');
-              }
-            })();
-          },
-        },
-      });
-      if (
-        selectedCandidateId &&
-        updates.some((u) => u.candidateId === selectedCandidateId)
-      ) {
-        void refreshStageHistory(selectedCandidateId);
-      }
     } catch (e) {
-      setAssignments(snapshot);
-      const err =
-        e instanceof ApiClientError ? e.message : 'Could not update status.';
-      setNotice(err);
-      toast.error(err);
+      setStatuses(updates.map((u) => ({ candidateId: u.candidateId, status: u.previous })));
+      setPipelineTotals((t) => moveTotals(t, back));
+      const m = toUserMessage(e, 'save that decision');
+      toast.error(m.title, { description: m.detail, toasterId });
+      return false;
     }
+    touchElsewhere();
+    if (touchesOpen && selectedCandidateId) void refreshStageHistory(selectedCandidateId);
+    toastUndo(
+      message,
+      () => {
+        void (async () => {
+          setStatuses(updates.map((u) => ({ candidateId: u.candidateId, status: u.previous })));
+          setPipelineTotals((t) => moveTotals(t, back));
+          try {
+            await bulkUpdateJobCandidateStatus(
+              jobId,
+              updates.map((u) => ({ candidateId: u.candidateId, status: u.previous })),
+              'Undone',
+            );
+            toast.success('Change undone', { toasterId });
+            touchElsewhere();
+            if (touchesOpen && selectedCandidateId) void refreshStageHistory(selectedCandidateId);
+          } catch {
+            // The decision still stands on the server: show it again.
+            void refreshList();
+            toast.error('Couldn’t undo that', { description: 'Refresh the page, then try again.', toasterId });
+          }
+        })();
+      },
+      { toasterId },
+    );
+    return true;
   }
 
-  async function refreshStageHistory(candidateId: string) {
-    setStageHistoryLoading(true);
-    try {
-      const { events } = await listCandidateStageHistory(jobId, candidateId);
-      setStageHistory(events);
-    } catch {
-      setStageHistory([]);
-    } finally {
-      setStageHistoryLoading(false);
-    }
-  }
-
-  async function onAssignmentStatusChange(
-    candidateId: string,
-    status: (typeof ASSIGNMENT_STATUSES)[number],
-  ) {
+  async function onAssignmentStatusChange(candidateId: string, status: CandidateStage) {
     const row = assignments.find((a) => a.candidateId === candidateId);
-    if (!row) return;
-    const previous = row.status as (typeof ASSIGNMENT_STATUSES)[number];
-    if (
-      previous !== 'new' &&
-      previous !== 'screening' &&
-      previous !== 'reviewed'
-    ) {
+    if (!row || !isStage(row.status) || row.status === status) return;
+    const name = row.candidate.fullName;
+    const saved = await applyCandidateStatuses(
+      [{ candidateId, status, previous: row.status, name }],
+      decisionDone(status, name),
+      sheetStageReason,
+      SHEET_TOASTER,
+    );
+    if (saved) setSheetStageReason('');
+  }
+
+  async function bulkStatus(status: CandidateStage) {
+    if (!can('jobs.update') || bulkBusy) return;
+    const updates = [...selectedIds].flatMap((candidateId): Decision[] => {
+      const row = assignments.find((a) => a.candidateId === candidateId);
+      if (!row || !isStage(row.status) || row.status === status) return [];
+      return [{ candidateId, status, previous: row.status, name: row.candidate.fullName }];
+    });
+    if (updates.length === 0) {
+      setSelectedIds(new Set());
+      setPendingBulkStatus(null);
       return;
     }
-    if (previous === status) return;
-    await applyCandidateStatuses(
-      [
-        {
-          candidateId,
-          status,
-          previous,
-          name: row.candidate.fullName,
-        },
-      ],
-      `${row.candidate.fullName} → ${PIPELINE_STATUS_LABEL[status]}`,
-      sheetStageReason,
-    );
-    setSheetStageReason('');
+    setBulkBusy(true);
+    try {
+      const who = updates.length === 1 ? (updates[0]?.name ?? people(1)) : people(updates.length);
+      if (await applyCandidateStatuses(updates, decisionDone(status, who), bulkStageReason)) {
+        setSelectedIds(new Set());
+        setPendingBulkStatus(null);
+        setBulkConfirmText('');
+        setBulkStageReason('');
+      }
+    } finally {
+      setBulkBusy(false);
+    }
   }
 
-  if (!profile || !job) {
+  function requestBulkStatus(status: CandidateStage) {
+    if (selectedIds.size >= BULK_CONFIRM_AT) {
+      setPendingBulkStatus(status);
+      setBulkConfirmText('');
+      return;
+    }
+    void bulkStatus(status);
+  }
+
+  // The open row, and the last one while the sheet slides away.
+  const openRow = selectedCandidateId ? (assignments.find((a) => a.candidateId === selectedCandidateId) ?? null) : null;
+  const [sheetRow, setSheetRow] = useState<JobCandidateAssignment | null>(null);
+  useEffect(() => {
+    if (openRow) setSheetRow(openRow);
+  }, [openRow]);
+  const shownRow = openRow ?? sheetRow;
+
+  const ready = Boolean(profile && job && (listLoaded || !canReadCandidates));
+  const showSkeleton = useHeldLoading(!ready && !loadError);
+
+  if (showSkeleton || !profile || !job) {
+    if (loadError && !showSkeleton) {
+      const status = loadError instanceof ApiClientError ? loadError.status : 0;
+      const m = toUserMessage(loadError, `load this ${labels.workItem.one.toLowerCase()}`);
+      const retry = status === 403 || status === 404 ? undefined : () => void loadJob();
+      // The whole page: the error names it (h1). Retry when it may help; the way out is the list.
+      const back = (
+        <Button asChild variant={retry ? 'tertiary' : 'secondary'}>
+          <Link href="/jobs">Back to {labels.workItem.many.toLowerCase()}</Link>
+        </Button>
+      );
+      return (
+        <AppShell profile={profile}>
+          <PageMain>
+            {!online ? (
+              <ErrorState
+                variant="offline"
+                headingLevel={1}
+                onRetry={() => void loadJob()}
+                retrying={loading}
+                action={back}
+              />
+            ) : (
+              <ErrorState
+                headingLevel={1}
+                title={m.title}
+                cause={m.detail}
+                supportRef={m.supportRef}
+                onRetry={retry}
+                retrying={loading}
+                action={back}
+              />
+            )}
+          </PageMain>
+        </AppShell>
+      );
+    }
     return (
       <AppShell profile={profile}>
         <PageMain>
-          {loading ? (
-            <SkeletonPage rows={6} />
-          ) : (
-            <>
-              <Link href={`/jobs/${jobPublicId}`} className="text-sm text-[var(--accent)] no-underline hover:underline">
-                Back to job
-              </Link>
-              {notice && (
-                <Notice kind="err">
-                  {notice}
-                </Notice>
-              )}
-            </>
-          )}
+          <SkeletonRecord rows={6} />
         </PageMain>
       </AppShell>
     );
   }
 
+  const questions = job.screeningQuestions?.length ?? 0;
+  const asks =
+    questions > 0
+      ? `The agent asks your ${questions} must-ask ${questions === 1 ? 'question' : 'questions'}.`
+      : 'Add must-ask questions in Setup, so every call covers them.';
+
+  let readiness: ReactNode;
+  if (job.agentId && agentPublished === null) {
+    readiness = (
+      <span aria-hidden className="inline-block h-3 w-72 max-w-full rounded-pill bg-muted align-middle motion-safe:animate-pulse" />
+    );
+  } else if (!job.agentId) {
+    readiness = (
+      <Readiness icon={CircleAlert} tone="text-status-warning-text">
+        No AI hiring agent on this job yet.{' '}
+        <Link href={`/jobs/${jobPublicId}`} className={INLINE_LINK}>
+          Add one in Setup
+        </Link>{' '}
+        before calling anyone.
+      </Readiness>
+    );
+  } else if (agentPublished === 'unknown') {
+    readiness = (
+      <Readiness icon={CircleAlert} tone="text-status-warning-text">
+        Couldn’t check whether the AI hiring agent is live. Reload the page to check again.
+      </Readiness>
+    );
+  } else if (!agentPublished) {
+    readiness = (
+      <Readiness icon={CircleAlert} tone="text-status-warning-text">
+        The AI hiring agent isn’t live yet.{' '}
+        <Link href={`/agents/${toPublicId(job.agentId)}`} className={INLINE_LINK}>
+          Publish it
+        </Link>{' '}
+        before calling anyone.
+      </Readiness>
+    );
+  } else if (!canScreen) {
+    readiness = (
+      <Readiness icon={CircleCheck} tone="text-status-success-text">
+        The AI hiring agent is live for this job.
+      </Readiness>
+    );
+  } else if (telephonyFailed) {
+    readiness = (
+      <Readiness icon={CircleAlert} tone="text-status-warning-text">
+        Couldn’t check whether phone calls are connected. Reload the page to check again.
+      </Readiness>
+    );
+  } else if (!outboundPhone) {
+    readiness = (
+      <Readiness icon={Unplug} tone="text-text-3">
+        Your workspace’s calling number isn’t connected yet. Until it is, try the agent with a test call in your
+        browser.
+      </Readiness>
+    );
+  } else {
+    readiness = (
+      <Readiness icon={CircleCheck} tone="text-status-success-text">
+        Ready to call. {asks}
+        {openOutbound ? '' : ' Until business verification is done, some calls may be refused.'}
+      </Readiness>
+    );
+  }
+
+  const canCreate = can('candidates.create');
+  const pii = can('candidates.read_pii');
+  const filtered = Boolean(peopleQuery.trim()) || callFilter !== 'all' || pipelineFilter !== 'all';
+  const nobodyYet = pipelineTotals.all === 0 && !filtered;
+  const stageTotal = pipelineFilter === 'all' ? pipelineTotals.all : (pipelineTotals[pipelineFilter] ?? 0);
+  const checkedHere = pagedAssignments.filter((a) => selectedIds.has(a.candidateId)).length;
+
+  const addActions = (
+    <>
+      <Button
+        type="button"
+        variant="secondary"
+        onClick={() => {
+          setShowImportForm(true);
+          setShowAddForm(false);
+        }}
+      >
+        <Upload aria-hidden strokeWidth={1.5} />
+        Upload CSV
+      </Button>
+      <Button
+        type="button"
+        onClick={() => {
+          setShowAddForm(true);
+          setShowImportForm(false);
+        }}
+      >
+        <UserPlus aria-hidden strokeWidth={1.5} />
+        Add {contactOne}
+      </Button>
+    </>
+  );
+
+  function clearFilters() {
+    setPeopleQueryDraft('');
+    setPeopleQuery('');
+    setCallFilter('all');
+    if (pipelineFilter !== 'all') setPipelineFilter('all');
+  }
+
   return (
-    <AppShell profile={profile}>
+    <AppShell profile={profile} breadcrumb={[{ label: labels.workItem.many, href: '/jobs' }, { label: job.title }]}>
       <PageMain className="pb-10">
-        <PageHeader
+        <JobHeader
+          jobId={jobPublicId}
           title={job.title}
-          description="People on this role — call, review, and move them forward."
-          actions={
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge tone={statusTone(job.status)}>
-                {JOB_STATUS_LABEL[job.status] ?? job.status}
-              </Badge>
-              {can('candidates.create') ? (
-                <>
-                  <Button
-                    type="button"
-                    size="sm"
-                    onClick={() => {
-                      setShowAddForm(true);
-                      setShowImportForm(false);
-                    }}
-                  >
-                    Add person
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    onClick={() => {
-                      setShowImportForm(true);
-                      setShowAddForm(false);
-                    }}
-                  >
-                    Bulk upload
-                  </Button>
-                </>
-              ) : null}
-              <Button asChild variant="outline" size="sm">
-                <Link href={`/jobs/${jobPublicId}`}>Job setup</Link>
-              </Button>
-              <Button asChild variant="ghost" size="sm">
-                <Link href="/jobs">All jobs</Link>
-              </Button>
-            </div>
-          }
+          status={job.status}
+          current="candidates"
+          readiness={readiness}
+          // An empty job carries these in its empty state: one main action on screen.
+          actions={canCreate && !(nobodyYet && canReadCandidates && !listError) ? addActions : undefined}
+          workItemLabel={labels.workItem.many}
+          contactLabel={labels.contact.many}
         />
 
-        <p className="m-0 -mt-4 mb-2 text-sm text-[var(--foreground-tertiary)]">
-          <Link
-            href="/jobs"
-            className="text-[var(--accent)] no-underline hover:underline"
-          >
-            Jobs
-          </Link>
-          <span className="mx-1.5 text-[var(--foreground-muted)]">/</span>
-          <span>{job.title}</span>
-          <span className="mx-1.5 text-[var(--foreground-muted)]">/</span>
-          <span>People</span>
-        </p>
-        {notice ? <Notice kind="ok">{notice}</Notice> : null}
-
         {docsPreparing ? (
-          <Notice kind="warn">
-            Job description documents are still preparing. You can screen now,
-            but the call may miss role context until they show Ready.
-          </Notice>
+          <Alert kind="info" title="Job description files are still being prepared">
+            Calls placed before they’re ready may miss details from them.
+          </Alert>
         ) : null}
 
-        {can('candidates.create') ? (
-          <Dialog
-            open={showAddForm}
-            onOpenChange={(open) => {
-              setShowAddForm(open);
-              if (open) setShowImportForm(false);
-            }}
-          >
-            <DialogContent
-              className="top-[10%] max-h-[min(86vh,880px)] w-[min(28rem,calc(100vw-1.5rem))] overflow-y-auto p-5"
-              aria-describedby={undefined}
-            >
-              <div className="pr-8">
-                <h2 className="m-0 font-display text-lg font-semibold tracking-tight">
-                  Add a candidate
-                </h2>
-                <p className="mt-1 mb-0 text-sm text-[var(--foreground-tertiary)]">
-                  People belong to this job only. Phone is required.
-                </p>
+        {!canReadCandidates ? (
+          <div className="rounded-card border border-border bg-canvas">
+            <EmptyState
+              icon={<Lock />}
+              title={`You don’t have access to ${contactMany}`}
+              description="Ask a workspace admin to give you access."
+            />
+          </div>
+        ) : nobodyYet && !listError ? (
+          <div className="rounded-card border border-border bg-canvas">
+            <EmptyState
+              agent="idle"
+              title={`No ${contactMany} on this job yet`}
+              description={`Add them one at a time, from a resume, or upload a CSV. The AI hiring agent then calls each one and asks your questions.`}
+              action={canCreate ? addActions : null}
+              className="py-16"
+            />
+          </div>
+        ) : (
+          <section aria-labelledby="board-heading" className="space-y-4">
+            <h2 id="board-heading" className="sr-only">
+              {labels.contact.many} on this job
+            </h2>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <Segmented
+                label="Filter by decision"
+                value={pipelineFilter}
+                onValueChange={setPipelineFilter}
+                // Five options with counts won't fit below lg: a native select there.
+                collapseBelow="lg"
+                // Counts only while they are the server's: a failed load shows none, never zeros.
+                options={[
+                  { value: 'all', label: 'All', count: listError ? null : pipelineTotals.all },
+                  ...STAGES.map((stage) => ({
+                    value: stage,
+                    label: decisionLabel(stage, stages),
+                    count: listError ? null : pipelineTotals[stage],
+                  })),
+                ]}
+              />
+              <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row">
+                <SearchInput
+                  value={peopleQueryDraft}
+                  onChange={(e) => setPeopleQueryDraft(e.target.value)}
+                  placeholder="Name or mobile"
+                  aria-label={`Find ${contactMany} by name or mobile`}
+                  className="sm:w-56"
+                />
+                <Select
+                  value={callFilter}
+                  onChange={(e) => setCallFilter(e.target.value as CallFilter)}
+                  aria-label="Filter by call"
+                  className="sm:w-44"
+                >
+                  {CALL_FILTERS.map((f) => (
+                    <option key={f.value} value={f.value}>
+                      {f.label}
+                    </option>
+                  ))}
+                </Select>
               </div>
-              <div className="mt-4 grid gap-3">
-                <Field label="Full name">
-                  <Input
-                    value={addFullName}
-                    onChange={(e) => setAddFullName(e.target.value)}
-                  />
-                </Field>
-                <Field label="Mobile">
-                  <PhoneField
-                    value={addPhone}
-                    onChange={setAddPhone}
-                    aria-label="Candidate mobile"
-                    placeholder="Mobile number"
-                  />
-                </Field>
-                <Field label="Resume file (optional)">
-                  <FileInput
-                    accept={ACCEPT_DOCUMENT}
-                    onFileChange={setAddResumeFile}
-                    emptyLabel="Optional — PDF, Word, or text"
-                  />
-                </Field>
-                <Field label="Or paste resume text (optional)">
-                  <Textarea
-                    value={addResumeText}
-                    onChange={(e) => setAddResumeText(e.target.value)}
-                    rows={4}
-                  />
-                </Field>
-                <div className="mt-1 flex justify-end gap-2">
-                  <DialogClose asChild>
-                    <Button type="button" variant="outline" size="sm">
-                      Cancel
+            </div>
+
+            {listError ? (
+              <div className="rounded-card border border-border bg-canvas">
+                {!online ? (
+                  <ErrorState variant="offline" headingLevel={3} onRetry={() => void refreshList()} retrying={listBusy} />
+                ) : (
+                  (() => {
+                    const m = toUserMessage(listError, `load the ${contactMany}`);
+                    return (
+                      <ErrorState
+                        headingLevel={3}
+                        title={m.title}
+                        cause={m.detail}
+                        supportRef={m.supportRef}
+                        onRetry={() => void refreshList()}
+                        retrying={listBusy}
+                      />
+                    );
+                  })()
+                )}
+              </div>
+            ) : pagedAssignments.length === 0 ? (
+              <div className="rounded-card border border-border bg-canvas">
+                <EmptyState
+                  headingLevel={3}
+                  icon={<SearchX />}
+                  title={
+                    peopleQuery.trim()
+                      ? `No one matches “${peopleQuery.trim()}”`
+                      : callFilter !== 'all'
+                        ? 'No one matches this call status'
+                        : pipelineFilter !== 'all'
+                          ? NOBODY[pipelineFilter]
+                          : `No ${contactMany} here`
+                  }
+                  description={
+                    peopleQuery.trim()
+                      ? 'Search looks at names and mobile numbers.'
+                      : 'Try another filter, or show everyone.'
+                  }
+                  action={
+                    <Button type="button" variant="secondary" onClick={clearFilters}>
+                      Show everyone
                     </Button>
-                  </DialogClose>
+                  }
+                />
+              </div>
+            ) : (
+              <div
+                ref={listRef}
+                onFocus={(e) => {
+                  const i = rowTitles().indexOf(e.target as HTMLElement);
+                  if (i >= 0) setListCursor(i);
+                }}
+              >
+                <ListRows
+                  aria-label={`${labels.contact.many} on ${job.title}`}
+                  aria-busy={listBusy || undefined}
+                  columns={pii ? 'auto minmax(0,1fr) auto auto' : 'auto minmax(0,1fr) auto'}
+                  header={
+                    <>
+                      <span className="flex items-center">
+                        <Checkbox
+                          aria-label="Select everyone on this page"
+                          checked={checkedHere > 0 && checkedHere === pagedAssignments.length}
+                          indeterminate={checkedHere > 0 && checkedHere < pagedAssignments.length}
+                          onChange={(e) =>
+                            setSelectedIds(
+                              e.target.checked ? new Set(pagedAssignments.map((a) => a.candidateId)) : new Set(),
+                            )
+                          }
+                        />
+                      </span>
+                      <span>Name</span>
+                      {pii ? <span>Mobile</span> : null}
+                      <span>Status</span>
+                    </>
+                  }
+                >
+                  {pagedAssignments.map((row) => (
+                    <ListRow
+                      key={row.id}
+                      selected={row.candidateId === selectedCandidateId}
+                      checkbox={
+                        <Checkbox
+                          aria-label={`Select ${row.candidate.fullName}`}
+                          checked={selectedIds.has(row.candidateId)}
+                          onChange={() => toggleSelected(row.candidateId)}
+                        />
+                      }
+                    >
+                      <ListRowPrimary
+                        avatar={<UserInitials name={row.candidate.fullName} />}
+                        title={row.candidate.fullName}
+                        meta={sourceLabel(row.candidate.source)}
+                        onOpen={() => openCandidate(row.candidateId)}
+                      />
+                      {pii ? (
+                        <ListCell className="tabular-nums max-md:hidden">
+                          {row.candidate.phone?.trim() ? (
+                            formatPhone(row.candidate.phone)
+                          ) : (
+                            <span className="text-text-3">Not added</span>
+                          )}
+                        </ListCell>
+                      ) : null}
+                      <ListCell kind="tag">
+                        <PersonStateTag stage={row.status} callStatus={row.callStatus} failureReason={row.failureReason} />
+                      </ListCell>
+                    </ListRow>
+                  ))}
+                </ListRows>
+              </div>
+            )}
+
+            {!listError && pagedAssignments.length > 0 ? (
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <p className="m-0 hidden flex-wrap items-center gap-x-3 gap-y-1 text-meta text-text-3 md:flex [@media(pointer:coarse)]:hidden">
+                  <span className="inline-flex items-center gap-1">
+                    <Kbd>J</Kbd>
+                    <Kbd>K</Kbd> move
+                  </span>
+                  <span className="inline-flex items-center gap-1">
+                    <Kbd>Enter</Kbd> open
+                  </span>
+                  <span className="inline-flex items-center gap-1">
+                    <Kbd>X</Kbd> select
+                  </span>
+                  <span className="inline-flex items-center gap-1">
+                    <Kbd>{apple ? '⌘A' : 'Ctrl A'}</Kbd> select the page
+                  </span>
+                </p>
+                {peoplePage > 0 || nextPeopleCursor ? (
+                  <div className="ml-auto flex items-center gap-3">
+                    <p className="m-0 text-meta tabular-nums text-text-3">
+                      Page {peoplePage + 1} · {people(stageTotal)}
+                    </p>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      disabled={peoplePage <= 0 || listBusy}
+                      onClick={() => {
+                        const prevPage = peoplePage - 1;
+                        setPeoplePage(prevPage);
+                        setListCursor(0);
+                        void loadList(peoplePageCursors[prevPage]);
+                      }}
+                    >
+                      Previous
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      disabled={!nextPeopleCursor || listBusy}
+                      onClick={() => {
+                        if (!nextPeopleCursor) return;
+                        const nextPage = peoplePage + 1;
+                        setPeoplePageCursors((prev) => {
+                          const copy = prev.slice(0, peoplePage + 1);
+                          copy[nextPage] = nextPeopleCursor;
+                          return copy;
+                        });
+                        setPeoplePage(nextPage);
+                        setListCursor(0);
+                        void loadList(nextPeopleCursor);
+                      }}
+                    >
+                      Next
+                    </Button>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+
+            {selectedIds.size > 0 && can('jobs.update') ? (
+              <div
+                role="region"
+                aria-label={`${labels.contact.many} you selected`}
+                className="sticky bottom-4 z-20 flex flex-col gap-3 rounded-card border border-border bg-canvas p-3 shadow-float lg:flex-row lg:items-center"
+              >
+                <div className="flex items-center justify-between gap-2 pl-1 lg:justify-start">
+                  <p className="m-0 text-label font-medium tabular-nums text-text" aria-live="polite">
+                    {selectedIds.size} selected
+                  </p>
+                  <Button type="button" variant="tertiary" size="sm" onClick={() => setSelectedIds(new Set())}>
+                    Clear
+                  </Button>
+                </div>
+                <Input
+                  value={bulkStageReason}
+                  onChange={(e) => setBulkStageReason(e.target.value)}
+                  placeholder="Reason (optional)"
+                  aria-label="Reason for this change (optional)"
+                  maxLength={500}
+                  className="h-9 lg:w-auto lg:min-w-0 lg:flex-1 [@media(pointer:coarse)]:h-11"
+                />
+                <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:justify-end">
+                  <Button
+                    type="button"
+                    variant="tertiary"
+                    size="sm"
+                    disabled={bulkBusy}
+                    onClick={() => requestBulkStatus('new')}
+                  >
+                    Clear decision
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    disabled={bulkBusy}
+                    onClick={() => requestBulkStatus('declined')}
+                  >
+                    Not moving forward
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    disabled={bulkBusy}
+                    onClick={() => requestBulkStatus('screening')}
+                  >
+                    Put on hold
+                  </Button>
                   <Button
                     type="button"
                     size="sm"
-                    disabled={addingCandidate}
-                    onClick={() => void onAddCandidate()}
+                    loading={bulkBusy}
+                    onClick={() => requestBulkStatus('reviewed')}
                   >
-                    {addingCandidate ? 'Adding…' : 'Add to this job'}
+                    Move forward
                   </Button>
                 </div>
               </div>
-            </DialogContent>
-          </Dialog>
-        ) : null}
-
-        {can('candidates.create') ? (
-          <Dialog
-            open={showImportForm}
-            onOpenChange={(open) => {
-              setShowImportForm(open);
-              if (open) setShowAddForm(false);
-            }}
-          >
-            <DialogContent
-              className="top-[6%] max-h-[min(90vh,920px)] w-[min(52rem,calc(100vw-1.5rem))] overflow-y-auto p-5"
-              aria-describedby={undefined}
-            >
-              <div className="pr-8">
-                <h2 className="m-0 font-display text-lg font-semibold tracking-tight">
-                  Bulk upload
-                </h2>
-                <p className="mt-1 mb-0 text-sm text-[var(--foreground-tertiary)]">
-                  Paste or upload a CSV for this job. Required columns: full name,
-                  country code, phone. Headers like Name, Mobile, or Dial code also
-                  work.
-                </p>
-              </div>
-              <div className="mt-4 grid gap-3">
-                <Field label="CSV file">
-                  <FileInput
-                    accept=".csv,text/csv,text/plain"
-                    onFileChange={(file) => void onImportFile(file)}
-                    buttonLabel="Choose CSV"
-                    emptyLabel="No CSV chosen"
-                  />
-                </Field>
-                <Field label="Or paste CSV">
-                  <Textarea
-                    value={importText}
-                    onChange={(e) => {
-                      setImportText(e.target.value);
-                      setImportRows(null);
-                      setImportSummary(null);
-                    }}
-                    rows={6}
-                    placeholder="Full Name,Country,Phone,Email"
-                    className="font-mono text-[12.5px]"
-                  />
-                </Field>
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    disabled={importBusy || !importText.trim()}
-                    onClick={() => void onImportPreview()}
-                  >
-                    {importBusy ? 'Working…' : 'Preview'}
-                  </Button>
-                  <Button
-                    type="button"
-                    disabled={
-                      importBusy ||
-                      !importRows ||
-                      importRows.filter((r) => r.valid).length === 0
-                    }
-                    onClick={() => void onImportConfirm()}
-                  >
-                    Confirm import
-                    {importSummary && importSummary.valid > 0
-                      ? ` (${importSummary.valid} valid)`
-                      : ''}
-                  </Button>
-                  {importRows &&
-                  importRows.some((r) => !r.countryCode?.trim()) ? (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      disabled={importBusy}
-                      onClick={() => {
-                        setImportRows((prev) => {
-                          if (!prev) return prev;
-                          return prev.map((r) => {
-                            if (r.countryCode?.trim()) return r;
-                            const next = {
-                              ...r,
-                              countryCode: '+91',
-                              issues: r.issues.filter(
-                                (i) => i !== 'missing_country_code',
-                              ),
-                            };
-                            const stillBroken =
-                              !next.fullName?.trim() ||
-                              !next.phone?.trim() ||
-                              next.issues.length > 0;
-                            return {
-                              ...next,
-                              valid: !stillBroken && Boolean(next.countryCode),
-                            };
-                          });
-                        });
-                      }}
-                    >
-                      Apply +91 to empty codes
-                    </Button>
-                  ) : null}
-                  <DialogClose asChild>
-                    <Button type="button" variant="ghost" size="sm">
-                      Close
-                    </Button>
-                  </DialogClose>
-                </div>
-                {importSummary && (
-                  <p className="m-0 text-sm text-[var(--foreground-tertiary)]">
-                    {importSummary.valid} valid · {importSummary.invalid} need
-                    fixes · confirm creates valid rows only
-                  </p>
-                )}
-                {importRows && importRows.length > 0 && (
-                  <div className="overflow-x-auto">
-                    <table className="w-full min-w-[40rem] border-collapse text-sm">
-                      <thead>
-                        <tr className="border-b border-[var(--separator-subtle)] text-left">
-                          <th className="px-2 py-1.5 font-medium">#</th>
-                          <th className="px-2 py-1.5 font-medium">Full name</th>
-                          <th className="px-2 py-1.5 font-medium">Country</th>
-                          <th className="px-2 py-1.5 font-medium">Phone</th>
-                          <th className="px-2 py-1.5 font-medium">Email</th>
-                          <th className="px-2 py-1.5 font-medium">Issues</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {importRows.map((row) => {
-                          const bad = (fieldName: string) =>
-                            row.issues.some((i) => i.includes(fieldName));
-                          const cellCls = (highlight: boolean) =>
-                            highlight
-                              ? 'border-b border-[var(--separator-subtle)] bg-[color-mix(in_srgb,var(--danger)_10%,transparent)] px-1.5 py-1'
-                              : 'border-b border-[var(--separator-subtle)] px-1.5 py-1';
-                          const inputCls = (highlight: boolean, extra = '') =>
-                            [
-                              'rounded border bg-[var(--surface)] px-2 py-1.5 text-sm text-[var(--foreground)]',
-                              highlight
-                                ? 'border-[var(--danger)]'
-                                : 'border-[var(--separator)]',
-                              extra,
-                            ].join(' ');
-                          const phoneBad =
-                            bad('phone') ||
-                            row.issues.includes('duplicate_in_batch') ||
-                            row.issues.includes('duplicate_on_job');
-                          return (
-                            <tr key={row.rowIndex}>
-                              <td className={cellCls(false)}>{row.rowIndex}</td>
-                              <td className={cellCls(bad('full_name'))}>
-                                <input
-                                  value={row.fullName ?? ''}
-                                  onChange={(e) =>
-                                    patchImportRow(row.rowIndex, {
-                                      fullName: e.target.value || null,
-                                    })
-                                  }
-                                  className={inputCls(
-                                    bad('full_name'),
-                                    'box-border w-full',
-                                  )}
-                                />
-                              </td>
-                              <td className={cellCls(bad('country_code'))}>
-                                <input
-                                  value={row.countryCode ?? ''}
-                                  onChange={(e) =>
-                                    patchImportRow(row.rowIndex, {
-                                      countryCode: e.target.value || null,
-                                    })
-                                  }
-                                  className={inputCls(
-                                    bad('country_code'),
-                                    'w-[4.5rem]',
-                                  )}
-                                />
-                              </td>
-                              <td className={cellCls(phoneBad)}>
-                                <input
-                                  value={row.phone ?? ''}
-                                  onChange={(e) =>
-                                    patchImportRow(row.rowIndex, {
-                                      phone: e.target.value || null,
-                                    })
-                                  }
-                                  className={inputCls(phoneBad, 'w-[7.5rem]')}
-                                />
-                              </td>
-                              <td className={cellCls(bad('email'))}>
-                                <input
-                                  value={row.email ?? ''}
-                                  onChange={(e) =>
-                                    patchImportRow(row.rowIndex, {
-                                      email: e.target.value || null,
-                                    })
-                                  }
-                                  className={inputCls(
-                                    bad('email'),
-                                    'box-border w-full min-w-[8.75rem]',
-                                  )}
-                                />
-                              </td>
-                              <td
-                                className={
-                                  row.valid
-                                    ? `${cellCls(false)} whitespace-nowrap text-[var(--success)]`
-                                    : `${cellCls(true)} whitespace-nowrap text-[var(--danger)]`
-                                }
-                              >
-                                {row.valid ? 'OK' : labelImportIssues(row.issues)}
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </div>
-            </DialogContent>
-          </Dialog>
-        ) : null}
-
-        {can('candidates.read') && (
-          <Surface className="space-y-4">
-            <h2 className="m-0 font-display text-base font-semibold tracking-tight">
-              People on this job
-            </h2>
-            {telephonyMessage && (
-              <p
-                role="status"
-                className={
-                  openOutbound
-                    ? 'm-0 text-sm text-[var(--foreground-tertiary)]'
-                    : 'm-0 rounded-md border border-[color-mix(in_srgb,var(--warning)_35%,transparent)] bg-[color-mix(in_srgb,var(--warning)_12%,transparent)] px-3 py-2.5 text-sm text-[var(--warning)]'
-                }
-              >
-                {telephonyMessage}
-              </p>
-            )}
-            {assignments.length === 0 &&
-            !peopleQuery.trim() &&
-            pipelineFilter === 'all' ? (
-              <EmptyState
-                icon={<UserPlus className="h-5 w-5" aria-hidden />}
-                title="No people on this job yet"
-                description="Add one person, or upload a CSV with name, country code, and phone."
-                action={
-                  can('candidates.create') ? (
-                    <div className="flex flex-wrap gap-2">
-                      <Button
-                        type="button"
-                        onClick={() => {
-                          setShowAddForm(true);
-                          setShowImportForm(false);
-                        }}
-                      >
-                        <UserPlus className="h-4 w-4" aria-hidden />
-                        Add person
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={() => {
-                          setShowImportForm(true);
-                          setShowAddForm(false);
-                        }}
-                      >
-                        <Upload className="h-4 w-4" aria-hidden />
-                        Bulk upload
-                      </Button>
-                    </div>
-                  ) : null
-                }
-              />
-            ) : (
-              <>
-                <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between">
-                  <div
-                    className="flex flex-wrap gap-1.5"
-                    role="tablist"
-                    aria-label="Filter by review stage"
-                  >
-                  {(
-                    [
-                      ['all', 'All'] as const,
-                      ...ASSIGNMENT_STATUSES.map(
-                        (s) => [s, PIPELINE_STATUS_LABEL[s]] as const,
-                      ),
-                    ]
-                  ).map(([key, label]) => {
-                    const count =
-                      key === 'all'
-                        ? pipelineTotals.all
-                        : key === 'new'
-                          ? pipelineTotals.new
-                          : key === 'screening'
-                            ? pipelineTotals.screening
-                            : pipelineTotals.reviewed;
-                    const active = pipelineFilter === key;
-                    return (
-                      <button
-                        key={key}
-                        type="button"
-                        role="tab"
-                        aria-selected={active}
-                        onClick={() => setPipelineFilter(key)}
-                        className={
-                          active
-                            ? 'rounded-md border-0 bg-[color-mix(in_srgb,var(--accent)_12%,transparent)] px-2.5 py-1.5 text-[12px] font-medium text-[var(--accent)]'
-                            : 'rounded-md border-0 bg-transparent px-2.5 py-1.5 text-[12px] font-medium text-[var(--foreground-muted)] hover:text-[var(--foreground-secondary)]'
-                        }
-                      >
-                        {label}
-                        <span className="ml-1.5 tabular-nums opacity-70">
-                          {count}
-                        </span>
-                      </button>
-                    );
-                  })}
-                  </div>
-                  <Field label="Find people" className="w-full sm:max-w-xs">
-                    <Input
-                      value={peopleQueryDraft}
-                      onChange={(e) => setPeopleQueryDraft(e.target.value)}
-                      placeholder="Name or mobile"
-                      aria-label="Find people by name or mobile"
-                    />
-                  </Field>
-                  <Field label="Call" className="w-full sm:w-auto sm:min-w-[10rem]">
-                    <Select
-                      value={callFilter}
-                      onChange={(e) =>
-                        setCallFilter(
-                          e.target.value as
-                            | 'all'
-                            | 'not_called'
-                            | 'calling'
-                            | 'completed'
-                            | 'failed',
-                        )
-                      }
-                      aria-label="Filter by call status"
-                    >
-                      <option value="all">All calls</option>
-                      <option value="not_called">Not called yet</option>
-                      <option value="calling">Call in progress</option>
-                      <option value="completed">Call finished</option>
-                      <option value="failed">Call failed</option>
-                    </Select>
-                  </Field>
-                </div>
-                {pagedAssignments.length === 0 ? (
-                  <p className="m-0 text-sm text-[var(--foreground-tertiary)]">
-                    {peopleQuery.trim()
-                      ? `No people match “${peopleQuery.trim()}”.`
-                      : callFilter !== 'all'
-                        ? 'No people match this call filter.'
-                        : 'No people in this stage.'}
-                  </p>
-                ) : (
-                  <>
-                {selectedIds.size === 0 ? (
-                  <p className="m-0 text-[12px] text-[var(--foreground-muted)]">
-                    <kbd className="rounded border border-[var(--separator-subtle)] bg-[var(--surface-secondary)] px-1 font-mono text-[10px]">
-                      J
-                    </kbd>
-                    <span className="mx-0.5">/</span>
-                    <kbd className="rounded border border-[var(--separator-subtle)] bg-[var(--surface-secondary)] px-1 font-mono text-[10px]">
-                      K
-                    </kbd>
-                    <span className="ml-1.5">move</span>
-                    <span className="mx-2 text-[var(--separator)]">·</span>
-                    <kbd className="rounded border border-[var(--separator-subtle)] bg-[var(--surface-secondary)] px-1 font-mono text-[10px]">
-                      Enter
-                    </kbd>
-                    <span className="ml-1.5">open</span>
-                    <span className="mx-2 text-[var(--separator)]">·</span>
-                    <kbd className="rounded border border-[var(--separator-subtle)] bg-[var(--surface-secondary)] px-1 font-mono text-[10px]">
-                      X
-                    </kbd>
-                    <span className="ml-1.5">select</span>
-                    <span className="mx-2 text-[var(--separator)]">·</span>
-                    <kbd className="rounded border border-[var(--separator-subtle)] bg-[var(--surface-secondary)] px-1 font-mono text-[10px]">
-                      ⌘A
-                    </kbd>
-                    <span className="ml-1.5">all</span>
-                  </p>
-                ) : null}
-                <DataList>
-                  <DataListHeader
-                    className={
-                      can('candidates.read_pii')
-                        ? 'grid-cols-[auto_minmax(0,1fr)_auto_auto_auto]'
-                        : 'grid-cols-[auto_minmax(0,1fr)_auto_auto]'
-                    }
-                  >
-                    <span className="w-8">
-                      <span className="sr-only">Select</span>
-                    </span>
-                    <span>Name</span>
-                    {can('candidates.read_pii') ? (
-                      <span className="hidden sm:inline">Mobile</span>
-                    ) : null}
-                    <span className="hidden sm:inline">Review</span>
-                    <span className="pr-1">Call</span>
-                  </DataListHeader>
-                  <DataListBody>
-                    {pagedAssignments.map((row, index) => (
-                      <DataListRow
-                        key={row.id}
-                        selected={
-                          row.candidateId === selectedCandidateId ||
-                          (!selectedCandidateId && index === listCursor) ||
-                          selectedIds.has(row.candidateId)
-                        }
-                        onClick={() => {
-                          setListCursor(index);
-                          openCandidate(row.candidateId);
-                        }}
-                        className={
-                          can('candidates.read_pii')
-                            ? 'grid-cols-[auto_minmax(0,1fr)_auto] sm:grid-cols-[auto_minmax(0,1fr)_auto_auto_auto]'
-                            : 'grid-cols-[auto_minmax(0,1fr)_auto] sm:grid-cols-[auto_minmax(0,1fr)_auto_auto]'
-                        }
-                      >
-                        <span
-                          className="flex w-8 items-center"
-                          onClick={(e) => e.stopPropagation()}
-                          onKeyDown={(e) => e.stopPropagation()}
-                        >
-                          <input
-                            type="checkbox"
-                            className="h-4 w-4 accent-[var(--accent)]"
-                            checked={selectedIds.has(row.candidateId)}
-                            onChange={() => toggleSelected(row.candidateId)}
-                            aria-label={`Select ${row.candidate.fullName}`}
-                          />
-                        </span>
-                        <div className="min-w-0">
-                          <DataListTitle>{row.candidate.fullName}</DataListTitle>
-                          <DataListMeta>
-                            {row.candidate.source || 'Added'}
-                          </DataListMeta>
-                        </div>
-                        {can('candidates.read_pii') ? (
-                          <span className="hidden text-sm text-[var(--foreground-secondary)] sm:block">
-                            {row.candidate.phone?.trim() || '—'}
-                          </span>
-                        ) : null}
-                        <Badge
-                          tone={statusTone(row.status)}
-                          className="hidden sm:inline-flex"
-                        >
-                          {PIPELINE_STATUS_LABEL[
-                            row.status as (typeof ASSIGNMENT_STATUSES)[number]
-                          ] ?? row.status}
-                        </Badge>
-                        <Badge
-                          tone={
-                            row.callStatus === 'completed'
-                              ? 'success'
-                              : row.callStatus === 'failed'
-                                ? 'danger'
-                                : row.callStatus === 'calling'
-                                  ? 'accent'
-                                  : 'neutral'
-                          }
-                        >
-                          {CALL_STATUS_LABEL[row.callStatus ?? 'not_called']}
-                        </Badge>
-                      </DataListRow>
-                    ))}
-                  </DataListBody>
-                </DataList>
-                {pipelineTotals.all > PEOPLE_PAGE_SIZE ||
-                nextPeopleCursor ||
-                peoplePage > 0 ? (
-                  <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-                    <p className="m-0 text-[13px] text-[var(--foreground-tertiary)]">
-                      Page {peoplePage + 1}
-                      {pipelineFilter === 'all'
-                        ? ` · ${pipelineTotals.all} people`
-                        : ` · ${
-                            pipelineFilter === 'new'
-                              ? pipelineTotals.new
-                              : pipelineFilter === 'screening'
-                                ? pipelineTotals.screening
-                                : pipelineTotals.reviewed
-                          } in this stage`}
-                    </p>
-                    <div className="flex gap-2">
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        disabled={peoplePage <= 0}
-                        onClick={() => {
-                          const prevPage = peoplePage - 1;
-                          setPeoplePage(prevPage);
-                          setListCursor(0);
-                          void fetchPeoplePage(peoplePageCursors[prevPage]);
-                        }}
-                      >
-                        Previous
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        disabled={!nextPeopleCursor}
-                        onClick={() => {
-                          if (!nextPeopleCursor) return;
-                          const nextPage = peoplePage + 1;
-                          setPeoplePageCursors((prev) => {
-                            const copy = prev.slice(0, peoplePage + 1);
-                            copy[nextPage] = nextPeopleCursor;
-                            return copy;
-                          });
-                          setPeoplePage(nextPage);
-                          setListCursor(0);
-                          void fetchPeoplePage(nextPeopleCursor);
-                        }}
-                      >
-                        Next
-                      </Button>
-                    </div>
-                  </div>
-                ) : null}
-                {selectedIds.size > 0 && can('jobs.update') ? (
-                  <div className="sticky bottom-3 z-20 mt-3 flex flex-col gap-2 rounded-lg border border-[var(--separator)] bg-[var(--surface)] px-4 py-3 shadow-md">
-                    <div className="flex flex-wrap items-center justify-between gap-3">
-                      <p
-                        className="m-0 text-sm text-[var(--foreground-secondary)]"
-                        aria-live="polite"
-                      >
-                        {selectedIds.size} selected
-                        <span className="ml-2 text-xs text-[var(--foreground-muted)]">
-                          Move forward · Put on hold · Back to queue · Esc clear
-                        </span>
-                      </p>
-                      <div className="flex flex-wrap gap-2">
-                        <Button
-                          type="button"
-                          size="sm"
-                          disabled={bulkBusy}
-                          onClick={() => void requestBulkStatus('reviewed')}
-                        >
-                          Move forward
-                        </Button>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          disabled={bulkBusy}
-                          onClick={() => void requestBulkStatus('screening')}
-                        >
-                          Put on hold
-                        </Button>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="ghost"
-                          disabled={bulkBusy}
-                          onClick={() => void requestBulkStatus('new')}
-                        >
-                          Back to queue
-                        </Button>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="ghost"
-                          disabled={bulkBusy}
-                          onClick={() => setSelectedIds(new Set())}
-                        >
-                          Clear
-                        </Button>
-                      </div>
-                    </div>
-                    <Field label="Reason (optional)">
-                      <Input
-                        value={bulkStageReason}
-                        onChange={(e) => setBulkStageReason(e.target.value)}
-                        placeholder="e.g. Strong screen notes · Needs another look"
-                        maxLength={500}
-                      />
-                    </Field>
-                  </div>
-                ) : null}
-                  </>
-                )}
-                <Dialog
-                  open={pendingBulkStatus != null}
-                  onOpenChange={(open) => {
-                    if (!open && !bulkBusy) {
-                      setPendingBulkStatus(null);
-                      setBulkConfirmText('');
-                      setBulkStageReason('');
-                    }
-                  }}
-                >
-                  <DialogContent hideClose={bulkBusy}>
-                    <div className="space-y-4 p-5">
-                      <div>
-                        <h2 className="m-0 font-display text-base font-semibold tracking-tight">
-                          Confirm bulk update
-                        </h2>
-                        <p className="mt-1 mb-0 text-sm text-[var(--foreground-tertiary)]">
-                          You’re changing {selectedIds.size} people. Type{' '}
-                          <span className="font-semibold text-[var(--foreground)]">
-                            {pendingBulkStatus === 'reviewed'
-                              ? 'MOVE FORWARD'
-                              : pendingBulkStatus === 'screening'
-                                ? 'ON HOLD'
-                                : 'BACK TO QUEUE'}
-                          </span>{' '}
-                          to continue. You can still Undo afterward.
-                        </p>
-                      </div>
-                      <Field label="Confirmation">
-                        <Input
-                          value={bulkConfirmText}
-                          onChange={(e) => setBulkConfirmText(e.target.value)}
-                          placeholder={
-                            pendingBulkStatus === 'reviewed'
-                              ? 'MOVE FORWARD'
-                              : pendingBulkStatus === 'screening'
-                                ? 'ON HOLD'
-                                : 'BACK TO QUEUE'
-                          }
-                          autoFocus
-                        />
-                      </Field>
-                      <Field label="Reason (optional)">
-                        <Input
-                          value={bulkStageReason}
-                          onChange={(e) => setBulkStageReason(e.target.value)}
-                          placeholder="Why you’re moving these people"
-                          maxLength={500}
-                        />
-                      </Field>
-                      <div className="flex justify-end gap-2">
-                        <DialogClose asChild>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            disabled={bulkBusy}
-                          >
-                            Cancel
-                          </Button>
-                        </DialogClose>
-                        <Button
-                          type="button"
-                          size="sm"
-                          disabled={
-                            bulkBusy ||
-                            !pendingBulkStatus ||
-                            bulkConfirmText !==
-                              (pendingBulkStatus === 'reviewed'
-                                ? 'MOVE FORWARD'
-                                : pendingBulkStatus === 'screening'
-                                  ? 'ON HOLD'
-                                  : 'BACK TO QUEUE')
-                          }
-                          onClick={() => {
-                            if (pendingBulkStatus)
-                              void bulkStatus(pendingBulkStatus);
-                          }}
-                        >
-                          {bulkBusy ? 'Updating…' : 'Perform update'}
-                        </Button>
-                      </div>
-                    </div>
-                  </DialogContent>
-                </Dialog>
-              </>
-            )}
-          </Surface>
+            ) : null}
+          </section>
         )}
 
-        {(() => {
-          const row = assignments.find(
-            (a) => a.candidateId === selectedCandidateId,
-          );
-          if (!row || !job) return null;
-          return (
-            <CandidateDetailSheet
-              open={Boolean(selectedCandidateId)}
-              row={row}
-              job={job}
+        {canCreate ? (
+          <>
+            <AddCandidateDialog
+              open={showAddForm}
+              onOpenChange={setShowAddForm}
               jobId={jobId}
-              sheetTab={sheetTab}
-              setSheetTab={setSheetTab}
-              can={can}
-              canScreen={canScreen}
-              selectedVisibleIndex={selectedVisibleIndex}
-              visibleCount={pagedAssignments.length}
-              goRelativeCandidate={goRelativeCandidate}
-              closeCandidate={closeCandidate}
-              sheetStageReason={sheetStageReason}
-              setSheetStageReason={setSheetStageReason}
-              onAssignmentStatusChange={onAssignmentStatusChange}
-              stageHistory={stageHistory}
-              stageHistoryLoading={stageHistoryLoading}
-              phoneDrafts={phoneDrafts}
-              setPhoneDrafts={setPhoneDrafts}
-              savingPhoneId={savingPhoneId}
-              onSavePhone={onSavePhone}
-              openAskCandidateId={openAskCandidateId}
-              setOpenAskCandidateId={setOpenAskCandidateId}
-              callNotice={callNoticeByCandidate[row.candidateId]}
-              callingCandidateId={callingCandidateId}
-              liveOutbound={liveOutboundByCandidate[row.candidateId]}
-              onOutbound={onOutbound}
-              agentPublished={agentPublished}
-              outboundPhone={outboundPhone}
-              screenCandidate={screenCandidate}
-              setScreenCandidate={setScreenCandidate}
-              showCallHistoryLink={searchParams.get('history') === '1'}
+              jobTitle={job.title}
+              onAdded={() => {
+                touchElsewhere();
+                void refreshList();
+              }}
             />
-          );
-        })()}
+            <ImportCandidatesDialog
+              open={showImportForm}
+              onOpenChange={setShowImportForm}
+              jobId={jobId}
+              jobTitle={job.title}
+              onImported={() => {
+                touchElsewhere();
+                void refreshList();
+              }}
+            />
+          </>
+        ) : null}
+
+        <Dialog
+          open={pendingBulkStatus != null}
+          onOpenChange={(open) => {
+            if (!open && !bulkBusy) {
+              setPendingBulkStatus(null);
+              setBulkConfirmText('');
+            }
+          }}
+        >
+          <DialogContent hideClose={bulkBusy} className="w-[min(28rem,calc(100vw-2rem))]">
+            {pendingBulkStatus ? (
+              <>
+                <DialogHeader>
+                  <DialogTitle>Update {people(selectedIds.size)} at once?</DialogTitle>
+                  <DialogDescription>
+                    Each one shows as {decisionLabel(pendingBulkStatus, stages)}. You can undo it right after.
+                  </DialogDescription>
+                </DialogHeader>
+                <Field label={`Type “${CONFIRM_PHRASE[pendingBulkStatus]}” to confirm`}>
+                  <Input value={bulkConfirmText} onChange={(e) => setBulkConfirmText(e.target.value)} autoFocus />
+                </Field>
+                <DialogFooter>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    disabled={bulkBusy}
+                    onClick={() => {
+                      setPendingBulkStatus(null);
+                      setBulkConfirmText('');
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="button"
+                    loading={bulkBusy}
+                    disabled={bulkConfirmText.trim().toLowerCase() !== CONFIRM_PHRASE[pendingBulkStatus]}
+                    onClick={() => void bulkStatus(pendingBulkStatus)}
+                  >
+                    Update {people(selectedIds.size)}
+                  </Button>
+                </DialogFooter>
+              </>
+            ) : null}
+          </DialogContent>
+        </Dialog>
+
+        {shownRow ? (
+          <CandidateDetailSheet
+            open={Boolean(openRow)}
+            row={shownRow}
+            job={job}
+            jobId={jobId}
+            sheetTab={sheetTab ?? defaultTab(shownRow)}
+            setSheetTab={setSheetTab}
+            can={can}
+            canScreen={canScreen}
+            selectedVisibleIndex={selectedVisibleIndex}
+            visibleCount={pagedAssignments.length}
+            goRelativeCandidate={goRelativeCandidate}
+            closeCandidate={closeCandidate}
+            sheetStageReason={sheetStageReason}
+            setSheetStageReason={setSheetStageReason}
+            onAssignmentStatusChange={onAssignmentStatusChange}
+            stageHistory={stageHistory}
+            stageHistoryLoading={stageHistoryLoading}
+            phoneDrafts={phoneDrafts}
+            setPhoneDrafts={setPhoneDrafts}
+            savingPhoneId={savingPhoneId}
+            onSavePhone={onSavePhone}
+            callNotice={callNoticeByCandidate[shownRow.candidateId]}
+            callingCandidateId={callingCandidateId}
+            liveOutbound={liveOutboundByCandidate[shownRow.candidateId]}
+            onOutbound={onOutbound}
+            agentPublished={agentPublished === true}
+            outboundPhone={outboundPhone}
+            screenCandidate={screenCandidate}
+            setScreenCandidate={setScreenCandidate}
+            showCallHistoryLink={searchParams.get('history') === '1'}
+            onCloseAutoFocus={(event) => {
+              // Back to this candidate's row, wherever J and K left the sheet.
+              const i = pagedAssignments.findIndex((a) => a.candidateId === shownRow.candidateId);
+              const el = rowTitles()[i];
+              if (!el) return;
+              event.preventDefault();
+              el.focus();
+              setListCursor(i);
+            }}
+          />
+        ) : null}
       </PageMain>
     </AppShell>
   );

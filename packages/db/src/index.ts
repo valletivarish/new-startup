@@ -18,6 +18,8 @@ export { createDatabase, type Database, type DbOptions } from './client.js';
 
 export {
   withActorContext,
+  withConversationLookupContext,
+  withPlatformAdminContext,
   withInvitationContext,
   withTenantContext,
   withoutTenantContext,

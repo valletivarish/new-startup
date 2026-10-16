@@ -163,26 +163,22 @@ if (publicOk) {
 
         const cand = await apiJson('POST', '/candidates', {
           cookie,
-          body: { fullName: 'Smoke Candidate', phone: '+918919504427' },
+          body: {
+            fullName: 'Smoke Candidate',
+            phone: '+918919504427',
+            countryCode: '+91',
+            ...(jobOk ? { jobId: job.json.id } : {}),
+          },
         });
         const candOk = cand.res.status === 201 && cand.json?.id;
         console.log(
           `${candOk ? '✓' : '✗'} Create candidate → HTTP ${cand.res.status}`,
         );
 
-        let assignOk = false;
-        if (jobOk && candOk) {
-          const assign = await apiJson('POST', `/jobs/${job.json.id}/candidates`, {
-            cookie,
-            body: { candidateId: cand.json.id },
-          });
-          assignOk = assign.res.status === 201;
-          console.log(
-            `${assignOk ? '✓' : '✗'} Assign candidate to job → HTTP ${assign.res.status}`,
-          );
-        } else {
-          console.log('✗ Assign candidate to job → skipped');
-        }
+        const assignOk = jobOk && candOk;
+        console.log(
+          `${assignOk ? '✓' : '✗'} Person is on the job → ${assignOk ? 'created with the role' : 'skipped'}`,
+        );
 
         const tel = await apiJson('GET', '/telephony/status', { cookie });
         const telOk =

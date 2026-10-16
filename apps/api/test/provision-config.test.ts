@@ -38,6 +38,10 @@ describe('buildVoiceProvisionConfig', () => {
     expect(result.agentPrompt).toContain('Screen for customer support.');
     expect(result.agentPrompt).toContain('Ask exactly one question at a time');
     expect(result.agentPrompt).toContain('Never bundle questions');
+    expect(result.agentPrompt).toContain('do not suggest an answer');
+    expect(result.agentPrompt).toContain('do not guess');
+    expect(result.agentPrompt).toContain('never press');
+    expect(result.agentPrompt).toContain('Never mention where an answer comes from');
     expect(result.agentPrompt).toContain('1. How many years of relevant experience?');
     expect(result.agentPrompt).toContain('2. What is your notice period?');
     expect(result.agentPrompt).toContain('Do not recommend hire or reject');
@@ -63,6 +67,20 @@ describe('buildVoiceProvisionConfig', () => {
         description: expect.stringContaining('What is your notice period?'),
       },
     });
+  });
+
+  it('puts company facts in the system prompt and keeps notice period on the job', () => {
+    const result = buildVoiceProvisionConfig({
+      agentPurpose: 'Screen backend candidates.',
+      agentType: 'hiring',
+      criteria: [{ id: 'q2', label: 'What is your notice period?' }],
+      companyFacts: '## handbook.pdf\nWe are a product studio in Hyderabad. WFH two days a week.',
+    });
+    expect(result.agentPrompt).toContain('true for every role');
+    expect(result.agentPrompt).toContain('Do not treat company facts as screening questions');
+    expect(result.agentPrompt).toContain('notice period');
+    expect(result.agentPrompt).toContain('product studio in Hyderabad');
+    expect(result.agentPrompt).toContain('1. What is your notice period?');
   });
 
   it('wires transfer phones into built-in transfer tool', () => {

@@ -40,6 +40,8 @@ export const jobs = pgTable(
       .default([]),
     /** V1: en | hi — drives call language when job screening is set. */
     screeningLanguage: text('screening_language').notNull().default('en'),
+    /** Voice engine arm for this job's calls (migration 0031). */
+    voiceEngine: text('voice_engine').notNull().default('elevenlabs_agent'),
     createdByUserId: uuid('created_by_user_id').references(() => users.id, {
       onDelete: 'set null',
     }),

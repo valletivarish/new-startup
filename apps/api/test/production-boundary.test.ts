@@ -40,7 +40,12 @@ const PRODUCTION_TREES = [
  */
 const VENDOR_ADAPTER_DIRS = [
   'apps/api/src/providers/elevenlabs',
+  'apps/api/src/providers/exotel',
   'apps/web/src/integrations/elevenlabs',
+  // Platform-owner cost registry and dashboard: naming the vendors we pay is
+  // their whole purpose, and customers never reach them (PLATFORM_ADMIN_EMAILS).
+  'apps/api/src/costs',
+  'apps/web/app/admin',
 ];
 
 /**

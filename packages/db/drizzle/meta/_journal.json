@@ -155,6 +155,76 @@
       "when": 1789600006000,
       "tag": "0021_backfill_job_screening_from_agents",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1789600007000,
+      "tag": "0022_voice_webhook_lookup",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1789600008000,
+      "tag": "0023_knowledge_hybrid_search",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1789600009000,
+      "tag": "0024_custom_role_permissions",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1789600010000,
+      "tag": "0025_call_cost_ledger",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1789600011000,
+      "tag": "0026_candidate_declined_stage",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1789600012000,
+      "tag": "0027_voice_session_failure_reason",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1789600013000,
+      "tag": "0028_administrator_manages_roles",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1789600014000,
+      "tag": "0029_embedding_switch",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1789600015000,
+      "tag": "0030_background_jobs",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1791600000000,
+      "tag": "0031_cost_registry_and_voice_engine",
+      "breakpoints": true
     }
   ]
 }

@@ -631,6 +631,62 @@ describe('ElevenLabs webhook', () => {
     expect(JSON.parse(res.body).received).toBe(true);
   });
 
+  it('records transcript, summary and answers for a known conversation (RLS lookup)', async () => {
+    const { cookie, agentId } = await setup();
+    const startRes = await api.request({
+      method: 'POST',
+      url: `/agents/${agentId}/voice-sessions`,
+      cookie,
+      payload: {},
+    });
+    const vsId = (JSON.parse(startRes.body) as { voiceSessionId: string }).voiceSessionId;
+    const conversationId = `conv-rls-${Math.floor(Math.random() * 1e9)}`;
+    const superDb = superDatabase();
+    await superDb.db.execute(
+      sql`update voice_sessions set external_conversation_id = ${conversationId} where id = ${vsId}`,
+    );
+
+    const payload = {
+      type: 'post_call_transcription',
+      data: {
+        conversation_id: conversationId,
+        transcript: [
+          { role: 'agent', message: 'What is your notice period?' },
+          { role: 'user', message: 'Thirty days.' },
+        ],
+        analysis: {
+          transcript_summary: 'Notice period is thirty days.',
+          data_collection_results: { notice_period: { value: '30 days' } },
+        },
+        metadata: { call_duration_secs: 61, cost: 480 },
+      },
+    };
+    const res = await webhookApi.request({
+      method: 'POST',
+      url: '/webhooks/elevenlabs',
+      headers: { 'elevenlabs-signature': signProduction(JSON.stringify(payload)), 'content-type': 'application/json' },
+      payload,
+    });
+    expect(res.statusCode).toBe(201);
+
+    const rows = await superDb.db.execute<{
+      status: string;
+      summary: string | null;
+      structured_answers: Record<string, unknown> | null;
+      duration_seconds: number | null;
+      webhook_received_at: string | null;
+    }>(sql`
+      select status, summary, structured_answers, duration_seconds, webhook_received_at::text
+      from voice_sessions where id = ${vsId}
+    `);
+    expect(rows[0]?.status).toBe('ended');
+    expect(rows[0]?.summary).toBe('Notice period is thirty days.');
+    expect(rows[0]?.structured_answers).toEqual({ notice_period: '30 days' });
+    expect(rows[0]?.duration_seconds).toBe(61);
+    expect(rows[0]?.webhook_received_at).not.toBeNull();
+    await superDb.close();
+  });
+
   it('unknown conversation ID is silently ignored (no 404)', async () => {
     const payload = { type: 'conversation.ended', conversation_id: 'unknown-conv-id' };
     const payloadStr = JSON.stringify(payload);
@@ -816,6 +872,50 @@ describe('voice-sessions list filter', () => {
     };
     expect(filteredBody.sessions.length).toBeGreaterThan(0);
     expect(filteredBody.sessions.every((s) => s.candidateId === candidateA)).toBe(true);
+
+    const otherJob = await api.request({
+      method: 'POST',
+      url: '/jobs',
+      cookie,
+      payload: { title: 'Other Filter Role' },
+    });
+    expect(otherJob.statusCode).toBe(201);
+    const otherJobId = (JSON.parse(otherJob.body) as { id: string }).id;
+    const otherCand = await api.request({
+      method: 'POST',
+      url: '/candidates',
+      cookie,
+      payload: {
+        jobId: otherJobId,
+        fullName: 'Filter Cara',
+        phone: '9000555666',
+        countryCode: '+91',
+      },
+    });
+    expect(otherCand.statusCode).toBe(201);
+    const otherCandidateId = (JSON.parse(otherCand.body) as { id: string }).id;
+    const otherStart = await api.request({
+      method: 'POST',
+      url: `/agents/${agentId}/voice-sessions`,
+      cookie,
+      payload: { jobId: otherJobId, candidateId: otherCandidateId },
+    });
+    expect(otherStart.statusCode).toBe(201);
+
+    const byJob = await api.request({
+      method: 'GET',
+      url: `/voice-sessions?jobId=${jobId}`,
+      cookie,
+    });
+    expect(byJob.statusCode).toBe(200);
+    const byJobBody = JSON.parse(byJob.body) as {
+      sessions: { jobId: string | null; candidateId: string | null }[];
+    };
+    expect(byJobBody.sessions.length).toBeGreaterThan(0);
+    expect(byJobBody.sessions.every((s) => s.jobId === jobId)).toBe(true);
+    expect(byJobBody.sessions.some((s) => s.candidateId === otherCandidateId)).toBe(
+      false,
+    );
     void alice;
   });
 });

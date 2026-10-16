@@ -26,6 +26,8 @@ export interface JobRow {
   readonly agentId: string | null;
   readonly screeningQuestions: readonly ScreeningQuestion[];
   readonly screeningLanguage: ScreeningLanguage;
+  /** Which voice engine runs this job's calls (set by the platform admin). */
+  readonly voiceEngine: string;
   readonly createdAt: string;
   readonly updatedAt: string;
   /** True when knowledge docs are attached (file or saved JD text). */
@@ -133,8 +135,15 @@ export interface JobsService {
       new: number;
       screening: number;
       reviewed: number;
+      declined: number;
     };
   }>;
+  /** One row of listCandidates; 404 when the candidate is not on this job. */
+  getJobCandidate(
+    actor: Actor,
+    jobId: string,
+    candidateId: string,
+  ): Promise<JobCandidateRow>;
   updateCandidateStatus(
     actor: Actor,
     jobId: string,
@@ -178,6 +187,7 @@ type JobRecord = {
   agent_id: string | null;
   screening_questions: unknown;
   screening_language: string;
+  voice_engine?: string | null;
   created_at: string;
   updated_at: string;
   has_jd_docs?: boolean | string | number | null;
@@ -186,7 +196,9 @@ type JobRecord = {
 const JOB_STATUSES = ['draft', 'open', 'closed'] as const;
 type JobStatus = (typeof JOB_STATUSES)[number];
 
-const ASSIGNMENT_STATUSES = ['new', 'screening', 'reviewed'] as const;
+/** Pipeline stages; `declined` = "Not moving forward" (migration 0026). */
+export const CANDIDATE_STAGES = ['new', 'screening', 'reviewed', 'declined'] as const;
+const ASSIGNMENT_STATUSES = CANDIDATE_STAGES;
 type AssignmentStatus = (typeof ASSIGNMENT_STATUSES)[number];
 
 const SCREENING_LANGUAGES = ['en', 'hi'] as const;
@@ -276,6 +288,7 @@ function toJob(r: JobRecord): JobRow {
     agentId: r.agent_id,
     screeningQuestions: parseScreeningQuestions(r.screening_questions),
     screeningLanguage: lang,
+    voiceEngine: r.voice_engine ?? 'elevenlabs_agent',
     createdAt: r.created_at,
     updatedAt: r.updated_at,
     hasJdDocs,
@@ -400,7 +413,7 @@ export function createJobsService(database: Database): JobsService {
   ): Promise<JobRecord> {
     const rows = await tx.execute<JobRecord>(sql`
       select id, title, description, status, agent_id,
-             screening_questions, screening_language,
+             screening_questions, screening_language, voice_engine,
              created_at::text, updated_at::text,
              exists (
                select 1
@@ -468,7 +481,7 @@ export function createJobsService(database: Database): JobsService {
         async (tx) =>
           tx.execute<JobRecord>(sql`
             select id, title, description, status, agent_id,
-                   screening_questions, screening_language,
+                   screening_questions, screening_language, voice_engine,
                    created_at::text, updated_at::text,
                    exists (
                      select 1
@@ -715,6 +728,7 @@ export function createJobsService(database: Database): JobsService {
             new: 0,
             screening: 0,
             reviewed: 0,
+            declined: 0,
           };
           for (const row of totalsRows) {
             const n = Number(row.n) || 0;
@@ -722,6 +736,7 @@ export function createJobsService(database: Database): JobsService {
             if (row.status === 'new') totals.new = n;
             else if (row.status === 'screening') totals.screening = n;
             else if (row.status === 'reviewed') totals.reviewed = n;
+            else if (row.status === 'declined') totals.declined = n;
           }
 
           const rows = await tx.execute<JobCandidateRecord>(sql`
@@ -784,6 +799,39 @@ export function createJobsService(database: Database): JobsService {
             nextCursor,
             totals,
           };
+        },
+      );
+    },
+
+    async getJobCandidate(actor, jobId, candidateId) {
+      return withTenantContext(
+        database.db,
+        { organizationId: actor.organizationId, userId: actor.userId },
+        async (tx) => {
+          await loadJob(tx, actor, jobId);
+          const rows = await tx.execute<JobCandidateRecord>(sql`
+            select c.id, c.id as candidate_id, c.screening_status as status,
+                   c.full_name, c.source, c.phone, c.created_at::text,
+                   vs.status as phone_call_status
+            from candidates c
+            left join lateral (
+              select v.status
+              from voice_sessions v
+              join agent_sessions s on s.id = v.session_id
+              where v.organization_id = c.organization_id
+                and v.job_id = c.job_id
+                and v.candidate_id = c.id
+                and s.channel = 'phone'
+              order by v.started_at desc nulls last, v.created_at desc
+              limit 1
+            ) vs on true
+            where c.id = ${candidateId}
+              and c.job_id = ${jobId}
+              and c.organization_id = ${actor.organizationId}
+          `);
+          const row = rows[0];
+          if (!row) throw ApiError.notFound('Job candidate');
+          return toJobCandidate(row);
         },
       );
     },
@@ -878,14 +926,16 @@ export function createJobsService(database: Database): JobsService {
             duration_seconds: number | null;
             provision_snapshot: unknown;
           }>(sql`
-            select id, status, transcript, summary, structured_answers,
-                   cost_credits::text, external_conversation_id,
-                   started_at::text, duration_seconds, provision_snapshot
-            from voice_sessions
-            where organization_id = ${actor.organizationId}
-              and job_id = ${jobId}
-              and candidate_id = ${candidateId}
-            order by started_at desc
+            select vs.id, vs.status, vs.transcript, vs.summary, vs.structured_answers,
+                   vs.cost_credits::text, vs.external_conversation_id,
+                   vs.started_at::text, vs.duration_seconds, vs.provision_snapshot
+            from voice_sessions vs
+            join agent_sessions s on s.id = vs.session_id
+            where vs.organization_id = ${actor.organizationId}
+              and vs.job_id = ${jobId}
+              and vs.candidate_id = ${candidateId}
+              and s.channel = 'phone'
+            order by vs.started_at desc
             limit 50
           `);
 

@@ -1,20 +1,29 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
+import { ChevronDown, Hourglass, PhoneOutgoing, RotateCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Field, Input, Select } from '@/components/ui/input';
-import { Notice } from '@/components/ui/page';
-import {
-  ApiClientError,
-  askJobCandidateReviewStream,
-  getJobCandidateResults,
-  type CandidateScreeningResults,
-} from '@/lib/api';
-import { ScreeningSessionCard } from './ScreeningSessionCard';
+import { EmptyState } from '@/components/ui/empty-state';
+import { Input } from '@/components/ui/input';
+import { Alert } from '@/components/ui/notice';
+import { SkeletonCard, useHeldLoading } from '@/components/ui/skeleton';
+import { StatusBadge, StatusTag } from '@/components/ui/state-tag';
+import { askJobCandidateReviewStream, getJobCandidateResults, type CandidateScreeningResults } from '@/lib/api';
+import { messageText, toUserMessage, type UserMessage } from '@/lib/errors';
+import { formatWhen } from '@/lib/format';
+import { firstNameOf } from '@/components/home/copy';
+import { ScreeningSessionCard, sessionHasResults } from './ScreeningSessionCard';
+import { sessionListMeta } from './screening-answers';
 
+/**
+ * Every call with this candidate, newest first and open, so the summary is the first thing
+ * read. Older calls fold away under their date. While a call is live the list refreshes.
+ */
 export function ReviewPanel({
   jobId,
   candidateId,
+  candidateName,
+  stage,
   agentId,
   screeningQuestions,
   canPlayRecording,
@@ -22,120 +31,109 @@ export function ReviewPanel({
   canCallAgain,
   calling,
   onCallAgain,
-  forceOpenAsk,
-  onAskOpened,
+  onGoToCall,
 }: {
   jobId: string;
   candidateId: string;
+  candidateName: string;
+  stage: string;
   agentId: string | null;
   screeningQuestions: readonly { id: string; label: string }[];
   canPlayRecording: boolean;
   canReadTranscript: boolean;
   canCallAgain: boolean;
   calling: boolean;
+  /** Asks to call again; the sheet confirms first. */
   onCallAgain?: () => void;
-  /** When set, expand results and focus the ask box (Chat entry point). */
-  forceOpenAsk?: boolean;
-  onAskOpened?: () => void;
+  /** Shown on the empty state: the way to the Call tab. */
+  onGoToCall?: () => void;
 }) {
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [sessions, setSessions] = useState<CandidateScreeningResults[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [expanded, setExpanded] = useState(true);
+  const [error, setError] = useState<UserMessage | null>(null);
   const [askDraft, setAskDraft] = useState('');
   const [askReply, setAskReply] = useState<string | null>(null);
   const [askError, setAskError] = useState<string | null>(null);
   const [asking, setAsking] = useState(false);
-  const [askSessionId, setAskSessionId] = useState<string | null>(null);
-  const askInputRef = useRef<HTMLInputElement | null>(null);
+  const [askStage, setAskStage] = useState<string | null>(null);
+  const [openSessionId, setOpenSessionId] = useState<string | null>(null);
+  // Once someone opens or folds a call, refreshes keep their choice.
+  const touched = useRef(false);
+  const showSkeleton = useHeldLoading(loading && sessions.length === 0);
 
-  const load = useCallback(async (opts?: { quiet?: boolean }) => {
-    if (!opts?.quiet) setLoading(true);
-    setError(null);
-    try {
-      const res = await getJobCandidateResults(jobId, candidateId);
-      const list =
-        res.sessions?.length > 0
-          ? res.sessions
-          : res.results?.voiceSessionId
-            ? [res.results]
-            : [];
-      setSessions(list);
-      setAskSessionId((prev) => {
-        if (prev && list.some((s) => s.voiceSessionId === prev)) return prev;
-        return list.find((s) => s.voiceSessionId)?.voiceSessionId ?? null;
-      });
-      setExpanded(true);
-    } catch (e) {
-      if (!opts?.quiet) {
-        setError(
-          e instanceof ApiClientError
-            ? e.message
-            : 'Could not load answers.',
+  const load = useCallback(
+    async (opts?: { quiet?: boolean }) => {
+      if (!opts?.quiet) setLoading(true);
+      setError(null);
+      try {
+        const res = await getJobCandidateResults(jobId, candidateId);
+        const list: CandidateScreeningResults[] =
+          res.sessions?.length > 0 ? res.sessions : res.results?.voiceSessionId ? [res.results] : [];
+        setSessions(list);
+        // The newest call opens by default; a choice someone made survives refreshes.
+        setOpenSessionId((prev) =>
+          touched.current && (prev === null || list.some((s) => s.voiceSessionId === prev))
+            ? prev
+            : (list.find((s) => s.voiceSessionId)?.voiceSessionId ?? null),
         );
+      } catch (e) {
+        if (!opts?.quiet) setError(toUserMessage(e, 'load the calls'));
+      } finally {
+        if (!opts?.quiet) setLoading(false);
       }
-    } finally {
-      if (!opts?.quiet) setLoading(false);
-    }
-  }, [jobId, candidateId]);
+    },
+    [jobId, candidateId],
+  );
 
   useEffect(() => {
-    void load({ quiet: false });
+    void load();
   }, [load]);
 
-  useEffect(() => {
-    if (!forceOpenAsk) return;
-    void load().then(() => {
-      onAskOpened?.();
-      window.setTimeout(() => askInputRef.current?.focus(), 50);
-    });
-  }, [forceOpenAsk, load, onAskOpened]);
-
-  const live = sessions.some(
-    (s) => s.status === 'pending' || s.status === 'active',
-  );
+  const live = sessions.some((s) => s.status === 'pending' || s.status === 'active');
 
   useEffect(() => {
-    if (!expanded || !live) return;
-    const id = window.setInterval(() => {
-      void load({ quiet: true });
-    }, 5000);
+    if (!live) return;
+    const id = window.setInterval(() => void load({ quiet: true }), 5000);
     return () => window.clearInterval(id);
-  }, [expanded, live, load]);
+  }, [live, load]);
 
-  const hasAnySession = sessions.some((s) => s.voiceSessionId);
-  const hasContent = sessions.some(
-    (s) =>
-      s.summary ||
-      s.transcript?.length ||
-      s.structuredAnswers ||
-      s.costCredits != null ||
-      s.fitPercent != null,
-  );
-  const statusOnly =
-    hasAnySession &&
-    !hasContent &&
-    sessions.some((s) => s.status);
+  const listed = sessions.filter((s) => s.voiceSessionId);
+  const openSession = listed.find((s) => s.voiceSessionId === openSessionId) ?? null;
+  const statusOnly = listed.length > 0 && !sessions.some(sessionHasResults);
 
-  const submitAsk = async (preset?: string) => {
+  async function submitAsk(preset?: string) {
     const message = (preset ?? askDraft).trim();
     if (!message || asking) return;
     setAsking(true);
     setAskError(null);
     setAskReply('');
+    setAskStage('Reading the call');
+    const started = Date.now();
+    // Long answers say so, so nobody wonders whether it stalled.
+    const timer = window.setInterval(() => {
+      const elapsed = Date.now() - started;
+      setAskStage((stageNow) =>
+        stageNow === null
+          ? null
+          : elapsed >= 10_000
+            ? 'Still working. You can keep reading the call meanwhile.'
+            : elapsed >= 3_000
+              ? 'Taking a little longer than usual'
+              : 'Reading the call',
+      );
+    }, 1000);
     if (preset) setAskDraft(preset);
     try {
       const res = await askJobCandidateReviewStream(
         jobId,
         candidateId,
-        {
-          message,
-          voiceSessionId: askSessionId ?? sessions[0]?.voiceSessionId ?? undefined,
-        },
+        { message, voiceSessionId: openSession?.voiceSessionId ?? listed[0]?.voiceSessionId ?? undefined },
         (event) => {
           if (event.type === 'delta') {
+            setAskStage(null);
             setAskReply((prev) => (prev ?? '') + event.text);
           } else if (event.type === 'done') {
+            setAskStage(null);
             setAskReply(event.reply);
           }
         },
@@ -143,187 +141,241 @@ export function ReviewPanel({
       setAskReply(res.reply);
       setAskDraft('');
     } catch (e) {
-      setAskError(
-        e instanceof ApiClientError
-          ? e.message
-          : 'Could not answer that question.',
-      );
+      const m = toUserMessage(e, 'answer that');
+      setAskError(messageText(m));
+      setAskReply(null);
     } finally {
+      window.clearInterval(timer);
       setAsking(false);
+      setAskStage(null);
     }
-  };
+  }
+
+  if (showSkeleton) return <SkeletonCard />;
+
+  if (error) {
+    return (
+      <Alert
+        kind="error"
+        title={error.title}
+        action={
+          <Button type="button" variant="secondary" size="sm" loading={loading} onClick={() => void load()}>
+            <RotateCw aria-hidden strokeWidth={1.5} />
+            Retry
+          </Button>
+        }
+      >
+        {error.detail}
+      </Alert>
+    );
+  }
+
+  if (listed.length === 0) {
+    const first = firstNameOf(candidateName) || candidateName;
+    return (
+      <EmptyState
+        agent="idle"
+        headingLevel={3}
+        title="No calls yet"
+        description={`When ${first} is called, the summary, answers, transcript and recording land here.`}
+        action={
+          onGoToCall ? (
+            <Button type="button" variant="secondary" onClick={onGoToCall}>
+              <PhoneOutgoing aria-hidden strokeWidth={1.5} />
+              Go to Call
+            </Button>
+          ) : null
+        }
+        className="py-10"
+      />
+    );
+  }
 
   return (
-    <div className="mt-2.5 text-sm">
-      {!expanded && (
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={() => void load()}
-          disabled={loading}
-        >
-          {loading ? 'Loading…' : 'Show answers'}
+    <div className="grid gap-3">
+      <div className="flex min-h-9 items-center justify-between gap-3">
+        <p className="m-0 text-meta text-text-3" aria-live="polite">
+          {live
+            ? 'Updating while the call is in progress'
+            : listed.length === 1
+              ? '1 call'
+              : `${listed.length} calls, newest first`}
+        </p>
+        <Button type="button" variant="tertiary" size="sm" loading={loading} onClick={() => void load()}>
+          <RotateCw aria-hidden strokeWidth={1.5} />
+          Refresh
         </Button>
-      )}
-      {error && (
-        <Notice kind="err">
-          {error}
-        </Notice>
-      )}
-      {expanded && (
-        <div className="mt-2 rounded-lg border border-[var(--separator-subtle)] bg-[var(--surface-secondary)] p-3">
-          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-            <span className="text-[var(--foreground-tertiary)]">
-              {live
-                ? 'Updating while a screen is in progress…'
-                : sessions.length > 1
-                  ? `${sessions.length} calls (newest first)`
-                  : 'Answers from the call'}
-            </span>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => void load()}
-              disabled={loading}
-            >
-              {loading ? 'Refreshing…' : 'Refresh'}
-            </Button>
-          </div>
-          {!hasAnySession && (
-            <p className="m-0 text-[var(--foreground-tertiary)]">
-              No answers yet for this person.
-            </p>
-          )}
-          {statusOnly && (
-            <p className="m-0 text-[var(--foreground-tertiary)]">
-              {canReadTranscript
-                ? live
-                  ? 'Call in progress. Transcript and answers show here when ready. Refresh after the call ends.'
-                  : 'Answers are still landing. Click Refresh in a moment.'
-                : 'Call status is available. Full transcript and answers need a role that can read screening content.'}
-            </p>
-          )}
-          {sessions.map((session, index) =>
-            session.voiceSessionId ? (
-              <ScreeningSessionCard
-                key={session.voiceSessionId}
-                session={session}
-                agentId={agentId}
-                screeningQuestions={screeningQuestions}
-                canPlayRecording={canPlayRecording}
-                canCallAgain={canCallAgain && index === 0 && !live}
-                calling={calling}
-                onCallAgain={onCallAgain}
-              />
-            ) : null,
-          )}
-          {hasAnySession && hasContent && canReadTranscript && (
-            <div className="mt-3.5 border-t border-[var(--separator-subtle)] pt-3">
-              <strong className="mb-1.5 block">Ask about this call</strong>
-              <p className="mb-2 mt-0 text-xs text-[var(--foreground-tertiary)]">
-                Answers use the full call transcript and collected facts. Pick a
-                screen when there are several calls.
-              </p>
-              {sessions.filter((s) => s.voiceSessionId).length > 1 && (
-                <Field
-                  label="Which call"
-                  className="mb-2 text-xs font-normal text-[var(--foreground-tertiary)]"
-                >
-                  <Select
-                    value={askSessionId ?? ''}
-                    onChange={(e) => setAskSessionId(e.target.value || null)}
-                    disabled={asking}
-                    className="mt-1 max-w-md"
-                  >
-                    {sessions
-                      .filter((s) => s.voiceSessionId)
-                      .map((s, i) => (
-                        <option key={s.voiceSessionId!} value={s.voiceSessionId!}>
-                          {i === 0 ? 'Newest call' : `Earlier call #${i + 1}`}
-                          {s.startedAt
-                            ? ` · ${new Date(s.startedAt).toLocaleString()}`
-                            : ''}
-                          {s.fitPercent != null && s.fitPercent > 0
-                            ? ' · some questions answered'
-                            : ''}
-                        </option>
-                      ))}
-                  </Select>
-                </Field>
-              )}
-              <div className="mb-2 flex flex-wrap gap-1.5">
-                {(
-                  [
-                    ['Summarize this call', 'Summarize this call'],
-                    [
-                      'Callback questions',
-                      'Draft questions for a callback about gaps from this screen',
-                    ],
-                    [
-                      'What was unclear?',
-                      'What answers were missing or unclear on this call?',
-                    ],
-                  ] as const
-                ).map(([label, prompt]) => (
-                  <Button
-                    key={label}
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    disabled={asking}
-                    onClick={() => void submitAsk(prompt)}
-                  >
-                    {label}
-                  </Button>
-                ))}
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <Input
-                  ref={askInputRef}
-                  type="text"
-                  value={askDraft}
-                  onChange={(e) => setAskDraft(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault();
-                      void submitAsk();
-                    }
-                  }}
-                  placeholder="e.g. What did they say about notice period?"
-                  disabled={asking}
-                  className="min-w-[220px] flex-1"
-                />
-                <Button
-                  type="button"
-                  size="sm"
-                  onClick={() => void submitAsk()}
-                  disabled={asking || !askDraft.trim()}
-                >
-                  {asking ? 'Asking…' : 'Ask'}
-                </Button>
-              </div>
-              {askError && (
-                <Notice kind="err">
-                  {askError}
-                </Notice>
-              )}
-              {(asking || askReply !== null) && (
-                <div
-                  className="mt-2.5 whitespace-pre-wrap rounded-md border border-[var(--separator-subtle)] bg-[var(--surface)] px-3 py-2.5 leading-snug"
-                  aria-live="polite"
-                >
-                  {askReply || (asking ? 'Writing…' : '')}
-                  {asking ? (
-                    <span className="ml-0.5 inline-block h-3.5 w-0.5 animate-pulse bg-[var(--accent)] align-middle" />
-                  ) : null}
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      )}
+      </div>
+
+      {statusOnly && !canReadTranscript ? (
+        <Alert kind="info" title="You can see that a call happened">
+          Its transcript and answers are kept for the people allowed to read call content. Ask a
+          workspace admin if you need them.
+        </Alert>
+      ) : null}
+
+      <ul role="list" className="m-0 grid list-none gap-3 p-0">
+        {listed.map((session, index) => {
+          const meta = sessionListMeta(session, screeningQuestions);
+          // A call that never connected has no answers to count.
+          const bits = [meta.durationLabel, session.structuredAnswers ? meta.answeredLabel : null].filter(Boolean);
+          const isOpen = openSessionId === session.voiceSessionId;
+          return (
+            <li key={session.voiceSessionId}>
+              <details
+                className="group"
+                open={isOpen}
+                onToggle={(e) => {
+                  const id = session.voiceSessionId;
+                  // React's own open={...} also fires toggle; only a real change counts.
+                  if (e.currentTarget.open === isOpen) return;
+                  touched.current = true;
+                  if (e.currentTarget.open) {
+                    setOpenSessionId(id);
+                    setAskReply(null);
+                    setAskError(null);
+                  } else {
+                    setOpenSessionId((prev) => (prev === id ? null : prev));
+                  }
+                }}
+              >
+                <summary className="flex min-h-14 cursor-pointer list-none items-center gap-3 rounded-card-sm border border-border bg-canvas px-4 py-2.5 transition-colors duration-fast marker:content-none hover:bg-subtle group-open:mb-4 [&::-webkit-details-marker]:hidden">
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-label font-medium text-text">
+                      {formatWhen(session.startedAt) || 'Call'}
+                    </span>
+                    {bits.length ? (
+                      <span className="mt-0.5 block truncate text-meta tabular-nums text-text-3">{bits.join(' · ')}</span>
+                    ) : null}
+                  </span>
+                  <StatusTag
+                    domain="call"
+                    value={session.status}
+                    stage={stage}
+                    hasResults={sessionHasResults(session)}
+                    failureReason={session.failureReason}
+                  />
+                  <ChevronDown
+                    aria-hidden
+                    strokeWidth={1.5}
+                    className="size-4 shrink-0 text-text-3 transition-transform duration-fast group-open:rotate-180"
+                  />
+                </summary>
+                {isOpen ? (
+                  <div className="grid gap-5">
+                    <ScreeningSessionCard
+                      session={session}
+                      agentId={agentId}
+                      candidateName={candidateName}
+                      stage={stage}
+                      screeningQuestions={screeningQuestions}
+                      canPlayRecording={canPlayRecording}
+                      canCallAgain={canCallAgain && index === 0 && !live}
+                      calling={calling}
+                      onCallAgain={onCallAgain}
+                    />
+                    {sessionHasResults(session) && canReadTranscript ? (
+                      <AskAboutCall
+                        draft={askDraft}
+                        setDraft={setAskDraft}
+                        asking={asking}
+                        stage={askStage}
+                        error={askError}
+                        reply={askReply}
+                        onAsk={(preset) => void submitAsk(preset)}
+                      />
+                    ) : null}
+                  </div>
+                ) : null}
+              </details>
+            </li>
+          );
+        })}
+      </ul>
     </div>
+  );
+}
+
+const PRESETS = [
+  ['Summarize this call', 'Summarize this call'],
+  ['Draft follow-up questions', 'Draft questions for a follow-up call about anything this call left open'],
+  ['What was unclear?', 'What answers were missing or unclear on this call?'],
+] as const;
+
+/** Questions about one call, answered from its transcript and answers only. */
+function AskAboutCall({
+  draft,
+  setDraft,
+  asking,
+  stage,
+  error,
+  reply,
+  onAsk,
+}: {
+  draft: string;
+  setDraft: (value: string) => void;
+  asking: boolean;
+  stage: string | null;
+  error: string | null;
+  reply: string | null;
+  onAsk: (preset?: string) => void;
+}) {
+  const headingId = useId();
+  return (
+    <section aria-labelledby={headingId} className="rounded-card-sm bg-subtle p-4">
+      <h3 id={headingId} className="m-0 text-label font-semibold text-text">
+        Ask about this call
+      </h3>
+      <p className="mb-3 mt-1 text-meta text-text-2">Answers come only from this call’s transcript and answers.</p>
+      <div className="mb-3 flex flex-wrap gap-2">
+        {PRESETS.map(([label, prompt]) => (
+          <Button key={label} type="button" variant="secondary" size="sm" disabled={asking} onClick={() => onAsk(prompt)}>
+            {label}
+          </Button>
+        ))}
+      </div>
+      <form
+        className="flex flex-col gap-2 sm:flex-row"
+        onSubmit={(e) => {
+          e.preventDefault();
+          onAsk();
+        }}
+      >
+        <Input
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          placeholder="For example: what did they say about notice period?"
+          aria-label="Your question about this call"
+          disabled={asking}
+          className="min-w-0 sm:flex-1"
+        />
+        <Button type="submit" loading={asking} disabled={!asking && !draft.trim()}>
+          Ask
+        </Button>
+      </form>
+      {error ? (
+        <Alert kind="error" className="mt-3">
+          {error}
+        </Alert>
+      ) : null}
+      {asking || reply !== null ? (
+        <div
+          aria-live="polite"
+          className="mt-3 whitespace-pre-wrap rounded-card-sm border border-border bg-canvas p-4 text-body leading-relaxed text-text"
+        >
+          {stage ? (
+            <p className="m-0 mb-2">
+              <StatusBadge tone="info" icon={Hourglass}>
+                {stage}
+              </StatusBadge>
+            </p>
+          ) : null}
+          {reply}
+          {asking && !reply ? (
+            <span aria-hidden className="inline-block h-4 w-0.5 bg-accent align-middle motion-safe:animate-pulse" />
+          ) : null}
+        </div>
+      ) : null}
+    </section>
   );
 }

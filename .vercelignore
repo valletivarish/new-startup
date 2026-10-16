@@ -1,0 +1,9 @@
+.worktrees
+apps/web/.next*
+benchmark/corpus
+docs
+BRD's
+.remember
+.storage
+.superpowers
+*.m4a

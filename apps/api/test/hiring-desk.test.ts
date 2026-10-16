@@ -25,6 +25,20 @@ let api: ApiHarness;
 let orgAOwner: TestActor;
 let orgBOwner: TestActor;
 
+async function asPhoneScreen(voiceSessionId: string) {
+  const db = superDatabase();
+  try {
+    await db.db.execute(sql`
+      update agent_sessions as s
+      set channel = 'phone'
+      from voice_sessions vs
+      where vs.id = ${voiceSessionId}
+        and s.id = vs.session_id
+    `);
+  } finally {
+    await db.close();
+  }
+}
 
 async function createJobScopedCandidate(
   harness: ApiHarness,
@@ -815,6 +829,7 @@ describe('candidate screening results', () => {
     expect(start.statusCode).toBe(201);
     const voiceSessionId = (JSON.parse(start.body) as { voiceSessionId: string })
       .voiceSessionId;
+    await asPhoneScreen(voiceSessionId);
 
     const db = superDatabase();
     try {
@@ -862,6 +877,60 @@ describe('candidate screening results', () => {
     expect(body.results.fitPercent).toBeNull();
     expect(body.sessions).toHaveLength(1);
     expect(body.sessions[0]?.voiceSessionId).toBe(voiceSessionId);
+  });
+
+  it('omits website browser demos from screening history', async () => {
+    const candRes = await createJobScopedCandidate(voiceApi, cookie, jobId, {
+      fullName: 'Browser Demo Person',
+      phone: '9000111222',
+    });
+    expect(candRes.statusCode).toBe(201);
+    const demoCandidateId = (JSON.parse(candRes.body) as { id: string }).id;
+
+    const start = await voiceApi.request({
+      method: 'POST',
+      url: `/agents/${agentId}/voice-sessions`,
+      cookie,
+      payload: { jobId, candidateId: demoCandidateId },
+    });
+    expect(start.statusCode).toBe(201);
+    const voiceSessionId = (JSON.parse(start.body) as { voiceSessionId: string })
+      .voiceSessionId;
+
+    const db = superDatabase();
+    try {
+      await db.db.execute(sql`
+        update voice_sessions set
+          status = 'ended',
+          transcript = ${JSON.stringify([
+            { role: 'agent', message: 'This is a website demo.' },
+          ])}::jsonb,
+          summary = 'Website browser demo. Should not appear in history.',
+          external_conversation_id = ${`stub-demo-${voiceSessionId}`}
+        where id = ${voiceSessionId}
+      `);
+    } finally {
+      await db.close();
+    }
+
+    const res = await voiceApi.request({
+      method: 'GET',
+      url: `/jobs/${jobId}/candidates/${demoCandidateId}/results`,
+      cookie,
+    });
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body) as {
+      results: {
+        voiceSessionId: string | null;
+        summary: string | null;
+        recordingAvailable: boolean;
+      };
+      sessions: unknown[];
+    };
+    expect(body.results.voiceSessionId).toBeNull();
+    expect(body.results.summary).toBeNull();
+    expect(body.results.recordingAvailable).toBe(false);
+    expect(body.sessions).toEqual([]);
   });
 
   it('lists multiple screens newest-first and scores fit when must-ask exists', async () => {
@@ -915,6 +984,7 @@ describe('candidate screening results', () => {
       payload: { jobId: fitJobId, candidateId: fitCandidateId },
     });
     const olderId = (JSON.parse(older.body) as { voiceSessionId: string }).voiceSessionId;
+    await asPhoneScreen(olderId);
     await voiceApi.request({
       method: 'POST',
       url: `/agents/${created.id}/voice-sessions/${olderId}/end`,
@@ -929,6 +999,7 @@ describe('candidate screening results', () => {
       payload: { jobId: fitJobId, candidateId: fitCandidateId },
     });
     const newerId = (JSON.parse(newer.body) as { voiceSessionId: string }).voiceSessionId;
+    await asPhoneScreen(newerId);
 
     const db = superDatabase();
     try {
@@ -1068,6 +1139,7 @@ describe('candidate screening results', () => {
     expect(sessA.statusCode).toBe(201);
     const sessAId = (JSON.parse(sessA.body) as { voiceSessionId: string })
       .voiceSessionId;
+    await asPhoneScreen(sessAId);
     await voiceApi.request({
       method: 'POST',
       url: `/agents/${created.id}/voice-sessions/${sessAId}/end`,
@@ -1084,6 +1156,7 @@ describe('candidate screening results', () => {
     expect(sessB.statusCode).toBe(201);
     const sessBId = (JSON.parse(sessB.body) as { voiceSessionId: string })
       .voiceSessionId;
+    await asPhoneScreen(sessBId);
     await voiceApi.request({
       method: 'POST',
       url: `/agents/${created.id}/voice-sessions/${sessBId}/end`,
@@ -1191,6 +1264,7 @@ describe('candidate screening results', () => {
     expect(start.statusCode).toBe(201);
     const voiceSessionId = (JSON.parse(start.body) as { voiceSessionId: string })
       .voiceSessionId;
+    await asPhoneScreen(voiceSessionId);
 
     const db = superDatabase();
     let frozenLabels: string[] = [];
@@ -1303,6 +1377,7 @@ describe('candidate screening results', () => {
     expect(start.statusCode).toBe(201);
     const voiceSessionId = (JSON.parse(start.body) as { voiceSessionId: string })
       .voiceSessionId;
+    await asPhoneScreen(voiceSessionId);
 
     const db = superDatabase();
     try {

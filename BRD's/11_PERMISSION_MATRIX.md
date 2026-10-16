@@ -5,6 +5,8 @@
 **Governed by:** `10_ADRs/ADR-004-permission-model.md`
 **Fills the gap left by:** `02_BRD.md` §5 — "Exact permissions must be defined in the API/authorization specification"
 
+> **Change note, 2026-10-01:** Administrators now hold `roles.manage`, and organization-defined custom roles are in scope. See `10_ADRs/ADR-009-administrators-manage-custom-roles.md` (ACCEPTED on the founder's instruction, 2026-10-01) and migration `0028_administrator_manages_roles.sql`. The table below remains the 2026-08-16 record. Where it disagrees, ADR-009 governs.
+
 ---
 
 ## How to read this

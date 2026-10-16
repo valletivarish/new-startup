@@ -29,7 +29,7 @@ import {
 } from '../tokens.more.js';
 import type { AuditService } from '../audit/audit.service.js';
 import type { KnowledgeService } from '../knowledge/knowledge.service.js';
-import type { CandidateScreeningResults, JobsService } from './jobs.service.js';
+import { CANDIDATE_STAGES, type CandidateScreeningResults, type JobsService } from './jobs.service.js';
 import type { CandidatesService } from './candidates.service.js';
 import type { VoiceSessionService } from '../providers/elevenlabs/voice-session.service.js';
 import { assistJobDescription } from './jd-assist.js';
@@ -149,7 +149,7 @@ const AssignCandidate = z
 
 const UpdateAssignmentStatus = z
   .object({
-    status: z.enum(['new', 'screening', 'reviewed']),
+    status: z.enum(CANDIDATE_STAGES),
     reason: z.string().trim().max(500).optional(),
   })
   .strict();
@@ -161,7 +161,7 @@ const BulkUpdateAssignmentStatus = z
         z
           .object({
             candidateId: z.string().uuid(),
-            status: z.enum(['new', 'screening', 'reviewed']),
+            status: z.enum(CANDIDATE_STAGES),
           })
           .strict(),
       )
@@ -317,6 +317,7 @@ export class JobsController {
       {
         apiKey: this.env.GEMINI_API_KEY,
         model: this.env.GEMINI_MODEL,
+        baseUrl: this.env.GEMINI_BASE_URL,
       },
     );
   }
@@ -449,7 +450,7 @@ export class JobsController {
     const ListQuery = z.object({
       limit: z.coerce.number().int().min(1).max(200).optional(),
       cursor: z.string().max(500).optional(),
-      status: z.enum(['new', 'screening', 'reviewed']).optional(),
+      status: z.enum(CANDIDATE_STAGES).optional(),
       q: z.string().trim().min(1).max(120).optional(),
     });
     const q = parse(ListQuery, query ?? {});
@@ -475,6 +476,42 @@ export class JobsController {
       })),
       nextCursor: page.nextCursor,
       totals: page.totals,
+    };
+  }
+
+  /**
+   * One job-candidate row, same shape as an element of GET :jobId/candidates.
+   * Deep links work past the first page; 404 when the person is not on this job.
+   */
+  @RequirePermission('jobs.read')
+  @Get(':jobId/candidates/:candidateId')
+  async getCandidate(
+    @Req() req: RequestWithAuth,
+    @Param('jobId') jobId: string,
+    @Param('candidateId') candidateId: string,
+  ) {
+    requireCandidatesRead(req);
+    const includePhone = canReadPii(req);
+    if (includePhone) {
+      await this.auditPiiAccess(req);
+    }
+    const row = await this.jobs.getJobCandidate(
+      actorOf(req),
+      parse(Uuid, jobId),
+      parse(Uuid, candidateId),
+    );
+    return {
+      id: row.id,
+      candidateId: row.candidateId,
+      status: row.status,
+      callStatus: row.callStatus,
+      callReceived: row.callReceived,
+      candidate: {
+        id: row.candidateId,
+        fullName: row.fullName,
+        source: row.source,
+        ...(includePhone ? { phone: row.phone } : {}),
+      },
     };
   }
 
@@ -565,6 +602,7 @@ export class JobsController {
       {
         apiKey: this.env.GEMINI_API_KEY,
         model: this.env.GEMINI_MODEL,
+        baseUrl: this.env.GEMINI_BASE_URL,
       },
     );
     return answered;
@@ -624,6 +662,7 @@ export class JobsController {
         {
           apiKey: this.env.GEMINI_API_KEY,
           model: this.env.GEMINI_MODEL,
+          baseUrl: this.env.GEMINI_BASE_URL,
         },
       )) {
         writeEvent(event);

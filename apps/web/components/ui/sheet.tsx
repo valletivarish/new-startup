@@ -2,71 +2,183 @@
 
 import * as React from 'react';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
-import { X } from 'lucide-react';
 import { cva, type VariantProps } from 'class-variance-authority';
-import { cn } from '@/lib/utils';
+import { cn } from './cn';
+import { DialogCloseButton, DialogOverlay, keepOpenForToasts, useReturnFocus } from './dialog';
+import { SHEET_TOASTER, Toaster } from './toaster';
 
 const Sheet = DialogPrimitive.Root;
 const SheetTrigger = DialogPrimitive.Trigger;
-const SheetClose = DialogPrimitive.Close;
 const SheetPortal = DialogPrimitive.Portal;
+const SheetOverlay = DialogOverlay;
 
-const SheetOverlay = React.forwardRef<
-  React.ElementRef<typeof DialogPrimitive.Overlay>,
-  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Overlay>
->(({ className, ...props }, ref) => (
-  <DialogPrimitive.Overlay
-    ref={ref}
-    className={cn(
-      'fixed inset-0 z-50 bg-black/40 backdrop-blur-[2px] data-[state=open]:animate-fade-in data-[state=closed]:animate-fade-out',
-      className,
-    )}
-    {...props}
-  />
-));
-SheetOverlay.displayName = DialogPrimitive.Overlay.displayName;
+// Lets every SheetClose inside a blocked sheet refuse to close it, not only the X.
+const BlockCloseContext = React.createContext<((event: { preventDefault(): void }) => void) | null>(null);
 
-const sheetVariants = cva(
-  'material-floating fixed z-50 flex flex-col gap-0 border-[var(--separator-subtle)] bg-[var(--surface)] shadow-lg outline-none',
-  {
-    variants: {
-      side: {
-        right:
-          'inset-y-0 right-0 h-dvh w-[min(40rem,calc(100vw-0.75rem))] border-l data-[state=open]:animate-slide-in-right data-[state=closed]:animate-slide-out-right',
-        left: 'inset-y-0 left-0 h-dvh w-[min(40rem,calc(100vw-0.75rem))] border-r data-[state=open]:animate-slide-in-left data-[state=closed]:animate-slide-out-left',
-        bottom:
-          'inset-x-0 bottom-0 max-h-[min(92dvh,40rem)] w-full rounded-t-xl border-t data-[state=open]:animate-slide-in-up data-[state=closed]:animate-slide-out-down',
-      },
+const SheetClose = React.forwardRef<
+  React.ElementRef<typeof DialogPrimitive.Close>,
+  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Close>
+>(({ onClick, ...props }, ref) => {
+  const block = React.useContext(BlockCloseContext);
+  return (
+    <DialogPrimitive.Close
+      ref={ref}
+      onClick={(event) => {
+        onClick?.(event);
+        block?.(event);
+      }}
+      {...props}
+    />
+  );
+});
+SheetClose.displayName = DialogPrimitive.Close.displayName;
+
+// A panel on the canvas: white, the float shadow, and a 24px radius on its open edge only.
+const sheetVariants = cva('fixed z-50 flex flex-col border-border bg-canvas text-text shadow-float outline-none', {
+  variants: {
+    side: {
+      // 560px from tablet up, the whole screen on phones.
+      right:
+        'inset-y-0 right-0 h-dvh w-full md:w-[35rem] md:rounded-l-canvas md:border-l data-[state=closed]:animate-sheet-out data-[state=open]:animate-sheet-in',
+      left: 'inset-y-0 left-0 h-dvh w-full md:w-[35rem] md:rounded-r-canvas md:border-r data-[state=closed]:animate-slide-out-left data-[state=open]:animate-slide-in-left',
+      bottom:
+        'inset-x-0 bottom-0 max-h-[85dvh] w-full rounded-t-canvas border-t data-[state=closed]:animate-slide-out-down data-[state=open]:animate-slide-in-up',
     },
-    defaultVariants: { side: 'right' },
   },
-);
+  defaultVariants: { side: 'right' },
+});
 
+// The sheet's own toasts land beside it, never over its footer (the decision bar).
+const TOAST_POSITION = { right: 'bottom-left', left: 'bottom-right', bottom: 'top-center' } as const;
+
+export interface SheetContentProps
+  extends React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content>,
+    VariantProps<typeof sheetVariants> {
+  hideClose?: boolean;
+  /**
+   * Set while a request this sheet owns is in flight. Escape, outside clicks, the X and any
+   * SheetClose stop closing the sheet, and a note under the X says why when someone tries.
+   */
+  closeBlockedReason?: string;
+}
+
+/**
+ * Needs a SheetTitle inside (Radix names the sheet from it). Focus returns to whatever opened it.
+ * Mounts a toaster inside the sheet's focus trap: raise a decision's toast with
+ * toastUndo(message, onUndo, { toasterId: SHEET_TOASTER }) so Undo is reachable by keyboard.
+ */
 const SheetContent = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Content>,
-  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content> &
-    VariantProps<typeof sheetVariants> & {
-      hideClose?: boolean;
+  SheetContentProps
+>(
+  (
+    {
+      side = 'right',
+      className,
+      children,
+      hideClose = false,
+      closeBlockedReason,
+      onEscapeKeyDown,
+      onPointerDownOutside,
+      onOpenAutoFocus,
+      onCloseAutoFocus,
+      ...props
+    },
+    ref,
+  ) => {
+    const returnFocus = useReturnFocus(onOpenAutoFocus, onCloseAutoFocus);
+    const blocked = Boolean(closeBlockedReason);
+    const [tried, setTried] = React.useState(false);
+    const reasonId = React.useId();
+    React.useEffect(() => {
+      if (!blocked) setTried(false);
+    }, [blocked]);
+
+    function stop(event: { preventDefault(): void }) {
+      if (!blocked) return;
+      event.preventDefault();
+      setTried(true);
     }
->(({ side = 'right', className, children, hideClose = false, ...props }, ref) => (
-  <SheetPortal>
-    <SheetOverlay />
-    <DialogPrimitive.Content
-      ref={ref}
-      className={cn(sheetVariants({ side }), className)}
-      {...props}
-    >
-      {children}
-      {hideClose ? null : (
-        <DialogPrimitive.Close className="absolute right-3 top-3 rounded-md p-1 text-[var(--foreground-tertiary)] transition-colors hover:bg-[var(--background-secondary)] hover:text-[var(--foreground)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]">
-          <X className="h-4 w-4" aria-hidden />
-          <span className="sr-only">Close</span>
-        </DialogPrimitive.Close>
-      )}
-    </DialogPrimitive.Content>
-  </SheetPortal>
-));
+
+    return (
+      <SheetPortal>
+        <SheetOverlay />
+        <DialogPrimitive.Content
+          ref={ref}
+          className={cn(sheetVariants({ side }), className)}
+          onEscapeKeyDown={(event) => {
+            onEscapeKeyDown?.(event);
+            stop(event);
+          }}
+          onPointerDownOutside={(event) => {
+            onPointerDownOutside?.(event);
+            keepOpenForToasts(event);
+            // A press on a toast is not an attempt to close, so it shows no blocked reason.
+            if (!event.defaultPrevented) stop(event);
+          }}
+          {...returnFocus}
+          {...props}
+        >
+          <BlockCloseContext.Provider value={stop}>{children}</BlockCloseContext.Provider>
+          {hideClose ? null : (
+            <DialogCloseButton
+              aria-disabled={blocked || undefined}
+              aria-describedby={blocked && tried ? reasonId : undefined}
+              onClick={stop}
+              className={blocked ? 'cursor-not-allowed text-text-3 hover:bg-transparent hover:text-text-3' : undefined}
+            />
+          )}
+          {/* Always mounted, so screen readers announce the reason when it fills in. Drawn like a
+              tooltip under the X it explains. */}
+          <p
+            id={reasonId}
+            role="status"
+            className={cn(
+              'm-0',
+              blocked && tried
+                ? 'absolute right-4 top-16 z-10 max-w-[16rem] rounded-input bg-primary px-3 py-2 text-meta font-medium text-primary-foreground shadow-float'
+                : 'sr-only',
+            )}
+          >
+            {blocked && tried ? closeBlockedReason : null}
+          </p>
+          <Toaster id={SHEET_TOASTER} position={TOAST_POSITION[side ?? 'right']} />
+        </DialogPrimitive.Content>
+      </SheetPortal>
+    );
+  },
+);
 SheetContent.displayName = DialogPrimitive.Content.displayName;
+
+function SheetHeader({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
+  return (
+    <div
+      className={cn('flex flex-col gap-1 border-b border-border px-4 py-4 pr-16 sm:px-6 sm:py-5 sm:pr-16', className)}
+      {...props}
+    />
+  );
+}
+
+function SheetBody({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
+  return (
+    <div
+      className={cn('min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-5 sm:px-6', className)}
+      {...props}
+    />
+  );
+}
+
+function SheetFooter({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
+  return (
+    <div
+      className={cn(
+        'mt-auto flex flex-wrap items-center justify-end gap-2 border-t border-border px-4 py-3 sm:px-6 sm:py-4',
+        className,
+      )}
+      {...props}
+    />
+  );
+}
 
 const SheetTitle = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Title>,
@@ -74,10 +186,7 @@ const SheetTitle = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <DialogPrimitive.Title
     ref={ref}
-    className={cn(
-      'm-0 font-display text-lg font-semibold tracking-tight text-[var(--foreground)]',
-      className,
-    )}
+    className={cn('m-0 text-section font-semibold text-text', className)}
     {...props}
   />
 ));
@@ -89,50 +198,11 @@ const SheetDescription = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <DialogPrimitive.Description
     ref={ref}
-    className={cn('m-0 text-sm text-[var(--foreground-tertiary)]', className)}
+    className={cn('m-0 text-label text-text-2', className)}
     {...props}
   />
 ));
 SheetDescription.displayName = DialogPrimitive.Description.displayName;
-
-function SheetHeader({
-  className,
-  ...props
-}: React.HTMLAttributes<HTMLDivElement>) {
-  return (
-    <div
-      className={cn('flex flex-col gap-1 border-b border-[var(--separator-subtle)] px-5 py-4 pr-12', className)}
-      {...props}
-    />
-  );
-}
-
-function SheetBody({
-  className,
-  ...props
-}: React.HTMLAttributes<HTMLDivElement>) {
-  return (
-    <div
-      className={cn('min-h-0 flex-1 overflow-y-auto px-5 py-4', className)}
-      {...props}
-    />
-  );
-}
-
-function SheetFooter({
-  className,
-  ...props
-}: React.HTMLAttributes<HTMLDivElement>) {
-  return (
-    <div
-      className={cn(
-        'mt-auto flex flex-wrap items-center justify-end gap-2 border-t border-[var(--separator-subtle)] px-5 py-4',
-        className,
-      )}
-      {...props}
-    />
-  );
-}
 
 export {
   Sheet,

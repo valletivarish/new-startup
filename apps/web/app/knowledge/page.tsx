@@ -1,32 +1,45 @@
 'use client';
 
 /**
- * Documents — upload hiring docs recruiters actually have (PDF, Word, PPT).
+ * Knowledge (D2): the company facts the agent can answer from on every call. The documents
+ * with their state in words, adding one (a file or pasted text), a search that finds what a
+ * call would, then what belongs here or on a job, and the optional document sets.
  */
 
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
-import { useRouter } from 'next/navigation';
-import { FileText } from 'lucide-react';
-import { AppShell } from '../../components/AppShell';
-import { Badge, statusTone } from '../../components/ui/badge';
-import { Button } from '../../components/ui/button';
+import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import Link from 'next/link';
 import {
-  Field,
-  FileInput,
-  Input,
-  Select,
-  Textarea,
-} from '../../components/ui/input';
+  ArrowUpRight,
+  Check,
+  ChevronDown,
+  CircleCheck,
+  CircleQuestionMark,
+  Clock,
+  FileText,
+  Hourglass,
+  Lock,
+  Plus,
+  RotateCw,
+  Trash2,
+  TriangleAlert,
+  type LucideIcon,
+} from 'lucide-react';
+import { toast } from 'sonner';
+import { AppShell } from '@/components/AppShell';
+import { Button } from '@/components/ui/button';
+import { ConfirmDialog } from '@/components/ui/confirm';
+import { EmptyState, IconTile } from '@/components/ui/empty-state';
+import { ErrorState } from '@/components/ui/error-state';
+import { IconButton } from '@/components/ui/icon-button';
+import { Field, FileInput, Input, SearchInput, Select, Textarea, formatBytes } from '@/components/ui/input';
+import { Alert, type StatusTone } from '@/components/ui/notice';
+import { PageHeader, PageMain } from '@/components/ui/page-header';
+import { Segmented } from '@/components/ui/segmented';
+import { SkeletonRows, useHeldLoading } from '@/components/ui/skeleton';
+import { StatusBadge } from '@/components/ui/state-tag';
+import { ListCell, ListRow, ListRowPrimary, ListRows } from '@/components/ui/strip';
 import {
-  EmptyState,
-  Notice,
-  PageHeader,
-  PageMain,
-  Surface,
-} from '../../components/ui/page';
-import { SkeletonPage, SkeletonRows } from '../../components/ui/skeleton';
-import {
-  ApiClientError,
+  JOB_SOURCE_DESCRIPTION,
   createKnowledgeSource,
   deleteKnowledgeDocument,
   deleteKnowledgeSource,
@@ -40,84 +53,103 @@ import {
   type KnowledgeSource,
   type Me,
   type RetrievedChunk,
-} from '../../lib/api';
-import { loginPathForReturn } from '../../lib/auth-redirect';
-import {
-  ACCEPT_DOCUMENT,
-  fileToBase64,
-  resolveUploadContentType,
-} from '../../lib/upload';
+} from '@/lib/api';
+import { messageText, plainServerText, toUserMessage, type UserMessage } from '@/lib/errors';
+import { ACCEPT_DOCUMENT, fileToBase64, resolveUploadContentType } from '@/lib/upload';
+import { useUseCase } from '@/lib/use-cases';
 
-const STATUS_LABEL: Record<string, string> = {
-  pending: 'Waiting to be indexed',
-  processing: 'Indexing…',
-  ready: 'Ready to use',
-  failed: 'Could not be indexed',
+const MAX_BYTES = 10 * 1024 * 1024;
+
+const CARD = 'rounded-card border border-border bg-canvas p-5 sm:p-6';
+const COUNT =
+  'inline-flex h-6 min-w-6 items-center justify-center rounded-pill bg-subtle px-2 text-caption font-medium tabular-nums text-text-2';
+
+// A document's state in words, never colour alone.
+const DOC_STATE: Record<string, { tone: StatusTone; icon: LucideIcon; label: string }> = {
+  pending: { tone: 'neutral', icon: Clock, label: 'Waiting' },
+  processing: { tone: 'info', icon: Hourglass, label: 'Getting it ready' },
+  ready: { tone: 'success', icon: CircleCheck, label: 'Ready' },
+  failed: { tone: 'danger', icon: TriangleAlert, label: 'Couldn’t read it' },
+};
+const UNKNOWN_STATE = { tone: 'neutral' as const, icon: CircleQuestionMark, label: 'Unknown' };
+
+const OUTCOME: Record<string, { kind: 'info' | 'warning'; text: string }> = {
+  no_knowledge: { kind: 'info', text: 'Nothing in your documents matches this yet.' },
+  below_threshold: {
+    kind: 'info',
+    text: 'Nothing was close enough to be useful. Try other words, or add a document that answers it.',
+  },
+  failed: { kind: 'warning', text: 'Search isn’t working right now. Try again in a minute.' },
 };
 
-const OUTCOME_LABEL: Record<string, string> = {
-  ok: 'Found matching documents',
-  no_knowledge: 'Nothing indexed matches this yet',
-  below_threshold: 'Nothing was close enough to be useful',
-  failed: 'Search is temporarily unavailable',
-};
+function kindOf(contentType: string): string | null {
+  if (contentType === 'application/pdf') return 'PDF';
+  if (contentType.includes('wordprocessingml')) return 'Word';
+  if (contentType.includes('presentationml')) return 'PowerPoint';
+  if (contentType.startsWith('text/')) return 'Text';
+  return null;
+}
+
+type Removal = { kind: 'document' | 'set'; id: string; name: string };
 
 export default function KnowledgePage() {
-  const router = useRouter();
+  const { labels } = useUseCase();
+  const job = labels.workItem.one.toLowerCase();
+  const contact = labels.contact.one.toLowerCase();
   const [profile, setProfile] = useState<Me | null>(null);
   const [sources, setSources] = useState<KnowledgeSource[]>([]);
-  const [documents, setDocuments] = useState<KnowledgeDocument[]>([]);
+  const [documents, setDocuments] = useState<KnowledgeDocument[] | null>(null);
+  const [loadError, setLoadError] = useState<unknown>(null);
+  const [retrying, setRetrying] = useState(false);
   const [sourceName, setSourceName] = useState('');
+  const [creatingSet, setCreatingSet] = useState(false);
   const [uploadSource, setUploadSource] = useState('');
   const [docFile, setDocFile] = useState<File | null>(null);
   const [fileInputKey, setFileInputKey] = useState(0);
   const [pasteName, setPasteName] = useState('');
   const [pasteContent, setPasteContent] = useState('');
   const [mode, setMode] = useState<'file' | 'paste'>('file');
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<UserMessage | null>(null);
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<RetrievedChunk[] | null>(null);
   const [outcome, setOutcome] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
-  const [noticeKind, setNoticeKind] = useState<'ok' | 'err'>('ok');
-  const [uploading, setUploading] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState<UserMessage | null>(null);
+  const [reindexing, setReindexing] = useState<string | null>(null);
+  const [removing, setRemoving] = useState<Removal | null>(null);
+  const [removeOpen, setRemoveOpen] = useState(false);
+  const [removeBusy, setRemoveBusy] = useState(false);
+  const [removeError, setRemoveError] = useState<string | null>(null);
+  const docsHeading = useRef<HTMLHeadingElement>(null);
+  const removed = useRef(false);
 
   const reload = useCallback(async () => {
     try {
       const p = await me();
       setProfile(p);
       if (p.activeOrganization?.permissions.includes('knowledge.read')) {
-        const [s, d] = await Promise.all([
-          listKnowledgeSources(),
-          listKnowledgeDocuments(),
-        ]);
+        const [s, d] = await Promise.all([listKnowledgeSources(), listKnowledgeDocuments()]);
         setSources(s.sources);
         setDocuments(d.documents);
-        if (!uploadSource && s.sources[0]) setUploadSource(s.sources[0].id);
+        setUploadSource(
+          (prev) => prev || s.sources.find((x) => x.description !== JOB_SOURCE_DESCRIPTION)?.id || '',
+        );
       }
+      setLoadError(null);
     } catch (e) {
-      if (e instanceof ApiClientError && e.status === 401) {
-        router.push(loginPathForReturn());
-      } else if (e instanceof ApiClientError && e.status === 403) {
-        setNoticeKind('err');
-        setNotice('You do not have access to documents for this company.');
-      } else {
-        setNoticeKind('err');
-        setNotice('Could not load documents.');
-      }
-    } finally {
-      setLoading(false);
+      // A 401 is already on its way to sign-in (lib/api).
+      setLoadError(e);
     }
-  }, [router, uploadSource]);
+  }, []);
 
   useEffect(() => {
     void reload();
   }, [reload]);
 
+  // While a document is being read, check again every few seconds.
   useEffect(() => {
-    const busy = documents.some(
-      (d) => d.status === 'pending' || d.status === 'processing',
-    );
+    const busy = documents?.some((d) => d.status === 'pending' || d.status === 'processing');
     if (!busy) return;
     const id = window.setInterval(() => {
       void reload();
@@ -125,34 +157,44 @@ export default function KnowledgePage() {
     return () => window.clearInterval(id);
   }, [documents, reload]);
 
-  const can = (p: string) =>
-    profile?.activeOrganization?.permissions.includes(p) ?? false;
+  const can = (p: string) => profile?.activeOrganization?.permissions.includes(p) ?? false;
+  const canRead = can('knowledge.read');
+  const companySources = sources.filter((x) => x.description !== JOB_SOURCE_DESCRIPTION);
+  const skeleton = useHeldLoading(documents === null && !loadError && (profile === null || canRead));
 
-  async function run(action: () => Promise<unknown>, ok: string) {
-    try {
-      await action();
-      setNoticeKind('ok');
-      setNotice(ok);
-      await reload();
-    } catch (e) {
-      setNoticeKind('err');
-      setNotice(e instanceof ApiClientError ? e.message : 'That did not work.');
-    }
-  }
+  const retry = async () => {
+    setRetrying(true);
+    await reload();
+    setRetrying(false);
+  };
 
   async function onCreateSource(event: FormEvent) {
     event.preventDefault();
-    await run(async () => {
+    setCreatingSet(true);
+    try {
       await createKnowledgeSource(sourceName);
       setSourceName('');
-    }, 'Document set created.');
+      toast.success('Document set created.');
+      await reload();
+    } catch (e) {
+      const m = toUserMessage(e, 'create the set');
+      toast.error(m.title, { description: m.detail });
+    } finally {
+      setCreatingSet(false);
+    }
+  }
+
+  function added(name: string, deduplicated: boolean) {
+    if (deduplicated) toast.info('That exact document is already here.');
+    else toast.success(`Added ${name}`, { description: 'The agent can use it in a moment.' });
   }
 
   async function onUpload(event: FormEvent) {
     event.preventDefault();
     setUploading(true);
+    setUploadError(null);
     try {
-      let sourceId = uploadSource || sources[0]?.id;
+      let sourceId = uploadSource || companySources[0]?.id;
       if (!sourceId) {
         const created = await createKnowledgeSource('Company documents');
         sourceId = created.id;
@@ -160,8 +202,7 @@ export default function KnowledgePage() {
       }
       if (mode === 'file') {
         if (!docFile) {
-          setNoticeKind('err');
-          setNotice('Choose a PDF, Word, PowerPoint, or text file.');
+          setUploadError({ title: 'Choose a file first.', detail: 'PDF, Word, PowerPoint or a text file.', action: 'fix_input' });
           return;
         }
         const contentType = resolveUploadContentType(docFile);
@@ -175,17 +216,12 @@ export default function KnowledgePage() {
         });
         setDocFile(null);
         setFileInputKey((k) => k + 1);
-        setNoticeKind('ok');
-        setNotice(
-          res.deduplicated
-            ? 'That exact document was already added.'
-            : 'Document added and indexing.',
-        );
+        added(docFile.name, res.deduplicated);
       } else {
-        const name = pasteName.trim() || 'notes.txt';
-        const contentType = name.toLowerCase().endsWith('.md')
-          ? 'text/markdown'
-          : 'text/plain';
+        // Pasted text is stored as a text file, and the server wants its name to say so.
+        const typed = pasteName.trim() || 'notes';
+        const name = /\.(txt|text|md)$/i.test(typed) ? typed : `${typed}.txt`;
+        const contentType = name.toLowerCase().endsWith('.md') ? 'text/markdown' : 'text/plain';
         const res = await uploadKnowledgeDocument({
           sourceId,
           name,
@@ -195,349 +231,488 @@ export default function KnowledgePage() {
         });
         setPasteName('');
         setPasteContent('');
-        setNoticeKind('ok');
-        setNotice(
-          res.deduplicated
-            ? 'That exact document was already added.'
-            : 'Document added and indexing.',
-        );
+        added(name, res.deduplicated);
       }
       await reload();
     } catch (e) {
-      setNoticeKind('err');
-      setNotice(e instanceof ApiClientError ? e.message : 'Upload failed.');
+      setUploadError(toUserMessage(e, 'add the document'));
     } finally {
       setUploading(false);
     }
   }
 
+  async function onReindex(doc: KnowledgeDocument) {
+    setReindexing(doc.id);
+    try {
+      await reindexKnowledgeDocument(doc.id);
+      toast.success(`Reading ${doc.name} again.`);
+      await reload();
+    } catch (e) {
+      const m = toUserMessage(e, `read ${doc.name} again`);
+      toast.error(m.title, { description: m.detail });
+    } finally {
+      setReindexing(null);
+    }
+  }
+
+  function askRemove(removal: Removal) {
+    setRemoving(removal);
+    setRemoveError(null);
+    setRemoveOpen(true);
+  }
+
+  async function confirmRemove() {
+    if (!removing) return;
+    setRemoveBusy(true);
+    setRemoveError(null);
+    try {
+      if (removing.kind === 'document') await deleteKnowledgeDocument(removing.id);
+      else await deleteKnowledgeSource(removing.id);
+      removed.current = true;
+      setRemoveOpen(false);
+      toast.success(removing.kind === 'document' ? `Removed ${removing.name}.` : `Removed the set ${removing.name}.`);
+      await reload();
+    } catch (e) {
+      const m = toUserMessage(e, `remove ${removing.name}`);
+      setRemoveError(messageText(m));
+    } finally {
+      setRemoveBusy(false);
+    }
+  }
+
   async function onSearch(event: FormEvent) {
     event.preventDefault();
+    setSearching(true);
+    setSearchError(null);
     try {
       const res = await searchKnowledge(query, 5);
       setOutcome(res.outcome);
       setResults(res.chunks);
     } catch (e) {
-      setNoticeKind('err');
-      setNotice(e instanceof ApiClientError ? e.message : 'Search failed.');
+      setSearchError(toUserMessage(e, 'search your documents'));
+    } finally {
+      setSearching(false);
     }
   }
 
-  if (!profile) {
-    return (
-      <AppShell profile={null}>
-        <PageMain>
-          {loading ? <SkeletonPage withAction={false} /> : null}
-          {notice ? <Notice kind={noticeKind}>{notice}</Notice> : null}
-        </PageMain>
-      </AppShell>
+  const header = (
+    <PageHeader
+      title="What the agent"
+      accent="answers from"
+      description={`Company facts it can use on every call. Anything about one ${job} goes on that ${job}.`}
+    />
+  );
+
+  const shell = (children: ReactNode) => (
+    <AppShell profile={profile}>
+      <PageMain>
+        {header}
+        {children}
+      </PageMain>
+    </AppShell>
+  );
+
+  if (skeleton) return shell(<SkeletonRows rows={3} />);
+  if (profile === null || (canRead && documents === null)) {
+    const m = toUserMessage(loadError, 'load your documents');
+    return shell(<ErrorState title={m.title} cause={m.detail} onRetry={() => void retry()} retrying={retrying} />);
+  }
+  if (!canRead || documents === null) {
+    return shell(
+      <div className="rounded-card border border-border bg-canvas">
+        <EmptyState
+          icon={<Lock />}
+          title="You can’t see Knowledge in this workspace"
+          description="Ask a workspace admin for access."
+        />
+      </div>,
     );
   }
 
-  return (
-    <AppShell profile={profile}>
-      <PageMain className="pb-10">
-        <PageHeader
-          title="Documents"
-          description="Job descriptions, policies, and FAQs your hiring voice can use on calls."
-        />
+  const jobSourceIds = new Set(
+    sources.filter((x) => x.description === JOB_SOURCE_DESCRIPTION).map((x) => x.id),
+  );
+  const companyDocs = documents.filter((d) => !jobSourceIds.has(d.sourceId));
+  const jobDocs = documents.length - companyDocs.length;
+  const busyCount = companyDocs.filter((d) => d.status === 'pending' || d.status === 'processing').length;
+  const outcomeNote = outcome ? OUTCOME[outcome] : undefined;
 
-        {notice ? <Notice kind={noticeKind}>{notice}</Notice> : null}
+  return shell(
+    <>
+      {loadError ? (
+        <Alert
+          kind="warning"
+          title="Couldn’t refresh your documents"
+          action={
+            <Button variant="secondary" size="sm" loading={retrying} onClick={() => void retry()}>
+              Retry
+            </Button>
+          }
+        >
+          What you see is from the last time it loaded.
+        </Alert>
+      ) : null}
 
-        {/* Empty library: lead with upload. Populated: library first. */}
-        {documents.length > 0 || loading ? (
-          <section className="space-y-3">
-            <h2 className="m-0 text-sm font-semibold uppercase tracking-wide text-[var(--foreground-muted)]">
-              Library
+      <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,20rem)]">
+        <div className="min-w-0 space-y-6">
+          <section aria-labelledby="knowledge-docs" className="space-y-4">
+            <h2
+              id="knowledge-docs"
+              ref={docsHeading}
+              tabIndex={-1}
+              className="m-0 flex items-center gap-2.5 text-section text-text"
+            >
+              Documents
+              {companyDocs.length > 0 ? <span className={COUNT}>{companyDocs.length}</span> : null}
             </h2>
-            {loading ? (
-              <SkeletonRows rows={3} />
+            <p role="status" className="sr-only">
+              {busyCount > 0 ? `Getting ${busyCount} ${busyCount === 1 ? 'document' : 'documents'} ready` : ''}
+            </p>
+            {companyDocs.length === 0 ? (
+              <div className="rounded-card border border-border bg-canvas">
+                <EmptyState
+                  headingLevel={3}
+                  icon={<FileText />}
+                  title="No company facts yet"
+                  description={
+                    can('knowledge.create')
+                      ? `Add what’s true for every ${job}: who you are, your policies, benefits and locations. The agent answers from them on every call.`
+                      : 'Ask a workspace admin to add your policies and facts about the company.'
+                  }
+                />
+              </div>
             ) : (
-              <Surface className="overflow-hidden p-0">
-                <ul className="m-0 list-none divide-y divide-[var(--separator-subtle)] p-0">
-                  {documents.map((d) => (
-                    <li
-                      key={d.id}
-                      className="flex flex-wrap items-start justify-between gap-3 px-5 py-4 transition-colors duration-fast hover:bg-[var(--surface-secondary)]"
-                    >
-                      <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <p className="m-0 text-sm font-semibold">{d.name}</p>
-                          <Badge tone={statusTone(d.status)}>
-                            {STATUS_LABEL[d.status] ?? d.status}
-                          </Badge>
-                        </div>
-                        {d.status === 'ready' ? (
-                          <p className="mt-1 mb-0 text-sm text-[var(--foreground-tertiary)]">
-                            Ready for screens to use
-                          </p>
-                        ) : null}
-                        {d.status === 'failed' && d.failureReason ? (
-                          <p className="mt-1 mb-0 text-sm text-[var(--danger)]">
-                            {d.failureReason}
-                          </p>
-                        ) : null}
-                      </div>
-                      <div className="flex flex-wrap gap-2">
+              <ListRows
+                aria-label="Documents"
+                columns="minmax(0,1fr) auto auto"
+                header={
+                  <>
+                    <span>Document</span>
+                    <span>Status</span>
+                    <span className="sr-only">Actions</span>
+                  </>
+                }
+              >
+                {companyDocs.map((d) => {
+                  const state = DOC_STATE[d.status] ?? UNKNOWN_STATE;
+                  const details = [kindOf(d.contentType), d.byteSize > 0 ? formatBytes(d.byteSize) : null]
+                    .filter(Boolean)
+                    .join(' · ');
+                  return (
+                    <ListRow key={d.id}>
+                      <ListRowPrimary
+                        avatar={
+                          <IconTile className="size-9 rounded-input [&_svg]:size-4">
+                            <FileText />
+                          </IconTile>
+                        }
+                        title={d.name}
+                        meta={
+                          d.status === 'failed' ? (
+                            // Wraps, unlike the usual one-line meta: the reason is the next step.
+                            <span className="block whitespace-normal text-status-danger-text">
+                              {plainServerText(d.failureReason) ?? 'Try a PDF with real text, or a Word file, then retry.'}
+                            </span>
+                          ) : (
+                            details || undefined
+                          )
+                        }
+                      />
+                      <ListCell kind="tag">
+                        <StatusBadge tone={state.tone} icon={state.icon}>
+                          {state.label}
+                        </StatusBadge>
+                      </ListCell>
+                      <ListCell kind="actions">
                         {can('knowledge.create') && d.status === 'failed' ? (
                           <Button
                             type="button"
                             size="sm"
-                            variant="outline"
-                            onClick={() =>
-                              void run(
-                                () => reindexKnowledgeDocument(d.id),
-                                'Re-indexing started.',
-                              )
-                            }
+                            variant="secondary"
+                            loading={reindexing === d.id}
+                            onClick={() => void onReindex(d)}
                           >
+                            <RotateCw aria-hidden strokeWidth={1.5} />
                             Retry
                           </Button>
                         ) : null}
                         {can('knowledge.delete') ? (
-                          <Button
-                            type="button"
+                          <IconButton
                             size="sm"
-                            variant="ghost"
-                            onClick={() =>
-                              void run(
-                                () => deleteKnowledgeDocument(d.id),
-                                'Document removed.',
-                              )
-                            }
+                            variant="quiet"
+                            label={`Remove ${d.name}`}
+                            onClick={() => askRemove({ kind: 'document', id: d.id, name: d.name })}
                           >
-                            Remove
-                          </Button>
+                            <Trash2 aria-hidden strokeWidth={1.5} />
+                          </IconButton>
                         ) : null}
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              </Surface>
+                      </ListCell>
+                    </ListRow>
+                  );
+                })}
+              </ListRows>
             )}
+            {jobDocs > 0 ? (
+              <p className="m-0 text-meta text-text-3">
+                {labels.workItem.one} descriptions stay on their {labels.workItem.many.toLowerCase()} and aren’t listed here.
+              </p>
+            ) : null}
           </section>
-        ) : !can('knowledge.create') ? (
-          <EmptyState
-            icon={<FileText className="h-5 w-5" aria-hidden />}
-            title="No documents yet"
-            description="Ask an admin to upload a JD pack or FAQ so screens can cite company facts."
-          />
-        ) : null}
 
-        {can('knowledge.create') ? (
-          <Surface className="space-y-4">
-            <div>
-              <h2 className="m-0 font-display text-base font-semibold tracking-tight">
-                {documents.length === 0 ? 'Add your first document' : 'Add a document'}
+          {can('knowledge.create') ? (
+            <section aria-labelledby="knowledge-add" className={CARD}>
+              <h2 id="knowledge-add" className="m-0 text-section text-text">
+                {companyDocs.length === 0 ? 'Add your first document' : 'Add a document'}
               </h2>
-              <p className="mt-1 mb-0 max-w-prose text-sm leading-relaxed text-[var(--foreground-tertiary)]">
-                PDF, Word, PowerPoint, or plain text — up to 10 MB. Prefer a
-                text-based PDF (not a scan). First upload creates a Company
-                documents set.
+              <p className="mb-0 mt-1 text-text-2">
+                PDF, Word, PowerPoint or plain text, up to 10 MB. A PDF with real text works better than a scan.
               </p>
-            </div>
-            <div
-              role="tablist"
-              aria-label="How to add"
-              className="inline-flex rounded-md border border-[var(--separator)] bg-[var(--surface-secondary)] p-0.5"
-            >
-              <button
-                type="button"
-                role="tab"
-                aria-selected={mode === 'file'}
-                className={
-                  mode === 'file'
-                    ? 'rounded-[5px] bg-[var(--surface)] px-3 py-1.5 text-xs font-medium text-[var(--foreground)] shadow-sm'
-                    : 'rounded-[5px] px-3 py-1.5 text-xs font-medium text-[var(--foreground-tertiary)] hover:text-[var(--foreground-secondary)]'
-                }
-                onClick={() => setMode('file')}
-              >
-                Upload file
-              </button>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={mode === 'paste'}
-                className={
-                  mode === 'paste'
-                    ? 'rounded-[5px] bg-[var(--surface)] px-3 py-1.5 text-xs font-medium text-[var(--foreground)] shadow-sm'
-                    : 'rounded-[5px] px-3 py-1.5 text-xs font-medium text-[var(--foreground-tertiary)] hover:text-[var(--foreground-secondary)]'
-                }
-                onClick={() => setMode('paste')}
-              >
-                Paste text
-              </button>
-            </div>
-            <form onSubmit={onUpload} className="grid max-w-xl gap-3">
-              {sources.length > 1 ? (
-                <Field label="Document set">
-                  <Select
-                    value={uploadSource}
-                    onChange={(e) => setUploadSource(e.target.value)}
-                  >
-                    {sources.map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.name}
-                      </option>
-                    ))}
-                  </Select>
-                </Field>
-              ) : null}
-              {mode === 'file' ? (
-                <Field label="File" compound>
-                  <FileInput
-                    key={fileInputKey}
-                    accept={ACCEPT_DOCUMENT}
-                    required
-                    variant="dropzone"
-                    onFileChange={setDocFile}
-                    emptyLabel="Drop a PDF, Word, or text file here"
-                  />
-                </Field>
-              ) : (
-                <>
-                  <Field label="File name">
-                    <Input
-                      value={pasteName}
-                      onChange={(e) => setPasteName(e.target.value)}
-                      placeholder="notes.txt"
-                    />
-                  </Field>
-                  <Field label="Document text">
-                    <Textarea
-                      value={pasteContent}
-                      onChange={(e) => setPasteContent(e.target.value)}
-                      placeholder="Paste the document text here"
-                      required
-                      rows={8}
-                    />
-                  </Field>
-                </>
-              )}
-              <div>
-                <Button type="submit" disabled={uploading}>
-                  {uploading ? 'Uploading…' : 'Add document'}
-                </Button>
-              </div>
-            </form>
-          </Surface>
-        ) : null}
-
-        {can('knowledge.create') ? (
-          <details className="group rounded-lg border border-[var(--separator-subtle)] bg-[var(--surface)]">
-            <summary className="cursor-pointer list-none px-5 py-4 font-display text-sm font-semibold tracking-tight marker:content-none [&::-webkit-details-marker]:hidden">
-              Optional: name a document set
-            </summary>
-            <div className="space-y-3 border-t border-[var(--separator-subtle)] px-5 py-4">
-              <p className="m-0 text-sm text-[var(--foreground-tertiary)]">
-                Only if you want separate groups (for example “Engineering JD
-                pack”).
-              </p>
-              <form
-                onSubmit={onCreateSource}
-                className="flex flex-col gap-2 sm:flex-row sm:items-end"
-              >
-                <Field label="Set name" className="sm:flex-1">
-                  <Input
-                    value={sourceName}
-                    onChange={(e) => setSourceName(e.target.value)}
-                    placeholder="Name (e.g. Backend role docs)"
-                    required
-                    minLength={2}
-                  />
-                </Field>
-                <Button type="submit">Create set</Button>
-              </form>
-              {sources.length > 0 ? (
-                <ul className="m-0 list-none divide-y divide-[var(--separator-subtle)] p-0">
-                  {sources.map((s) => (
-                    <li
-                      key={s.id}
-                      className="flex items-center justify-between gap-3 py-3 text-sm"
-                    >
-                      <span className="min-w-0">
-                        <strong className="font-semibold">{s.name}</strong>
-                        <span className="text-[var(--foreground-tertiary)]">
-                          {' '}
-                          ({s.documentCount} file
-                          {s.documentCount === 1 ? '' : 's'})
-                        </span>
-                        {s.documentCount === 0 ? (
-                          <span className="mt-0.5 block text-[12px] text-[var(--foreground-muted)]">
-                            Empty — add a file above
-                          </span>
-                        ) : null}
-                      </span>
-                      {can('knowledge.delete') ? (
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          onClick={() =>
-                            void run(
-                              () => deleteKnowledgeSource(s.id),
-                              'Document set removed.',
-                            )
-                          }
-                        >
-                          Remove
-                        </Button>
-                      ) : null}
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
-            </div>
-          </details>
-        ) : null}
-
-        {can('knowledge.read') ? (
-          <details className="group rounded-lg border border-[var(--separator-subtle)] bg-[var(--surface)]">
-            <summary className="cursor-pointer list-none px-5 py-4 font-display text-sm font-semibold tracking-tight marker:content-none [&::-webkit-details-marker]:hidden">
-              Check what screens can find
-            </summary>
-            <div className="space-y-3 border-t border-[var(--separator-subtle)] px-5 py-4">
-              <p className="m-0 text-sm text-[var(--foreground-tertiary)]">
-                Optional — search your uploaded docs the same way a screen would.
-              </p>
-              <form
-                onSubmit={onSearch}
-                className="flex flex-col gap-2 sm:flex-row"
-              >
-                <Input
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  placeholder="e.g. notice period, remote work, benefits"
-                  required
-                  className="sm:flex-1"
+              <form onSubmit={onUpload} className="mt-5 grid max-w-xl gap-4">
+                <Segmented
+                  label="How to add it"
+                  value={mode}
+                  onValueChange={(next) => {
+                    setMode(next);
+                    setUploadError(null);
+                  }}
+                  options={[
+                    { value: 'file', label: 'Upload a file' },
+                    { value: 'paste', label: 'Paste text' },
+                  ]}
+                  className="justify-self-start"
                 />
-                <Button type="submit">Search</Button>
+                {companySources.length > 1 ? (
+                  <Field label="Document set">
+                    <Select value={uploadSource} onChange={(e) => setUploadSource(e.target.value)}>
+                      {companySources.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.name}
+                        </option>
+                      ))}
+                    </Select>
+                  </Field>
+                ) : null}
+                {mode === 'file' ? (
+                  <Field label="File">
+                    <FileInput
+                      key={fileInputKey}
+                      accept={ACCEPT_DOCUMENT}
+                      maxBytes={MAX_BYTES}
+                      required
+                      variant="dropzone"
+                      onFileChange={setDocFile}
+                      emptyLabel="Drop a PDF, Word, PowerPoint or text file here"
+                    />
+                  </Field>
+                ) : (
+                  <>
+                    <Field label="Name" hint="How it shows in the list. It’s saved as a text file.">
+                      <Input
+                        value={pasteName}
+                        onChange={(e) => setPasteName(e.target.value)}
+                        placeholder="For example, Leave policy"
+                      />
+                    </Field>
+                    <Field label="Text">
+                      <Textarea
+                        value={pasteContent}
+                        onChange={(e) => setPasteContent(e.target.value)}
+                        placeholder="Paste the document’s text here"
+                        required
+                        rows={8}
+                      />
+                    </Field>
+                  </>
+                )}
+                {uploadError ? (
+                  <Alert kind="error" title={uploadError.title}>
+                    {uploadError.detail}
+                  </Alert>
+                ) : null}
+                <div>
+                  <Button type="submit" loading={uploading}>
+                    <Plus aria-hidden strokeWidth={1.5} />
+                    Add document
+                  </Button>
+                </div>
               </form>
-              {outcome ? (
-                <p className="m-0 text-sm text-[var(--foreground-tertiary)]">
-                  {OUTCOME_LABEL[outcome] ?? outcome}
+            </section>
+          ) : null}
+
+          <section aria-labelledby="knowledge-search" className={CARD}>
+            <h2 id="knowledge-search" className="m-0 text-section text-text">
+              Check what the agent can find
+            </h2>
+            <p className="mb-0 mt-1 text-text-2">
+              Ask the way a {contact} might. It searches your documents the way a call does.
+            </p>
+            <form role="search" onSubmit={onSearch} className="mt-4 flex max-w-xl flex-col gap-2 sm:flex-row">
+              <SearchInput
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="For example, is there a night shift allowance?"
+                aria-label="What to search for"
+                required
+                className="sm:flex-1"
+              />
+              <Button type="submit" variant="secondary" loading={searching}>
+                Search
+              </Button>
+            </form>
+            {searchError ? (
+              <Alert kind="error" title={searchError.title} className="mt-4">
+                {searchError.detail}
+              </Alert>
+            ) : outcomeNote ? (
+              <Alert kind={outcomeNote.kind} className="mt-4">
+                {outcomeNote.text}
+              </Alert>
+            ) : outcome === 'ok' && results?.length === 0 ? (
+              <Alert kind="info" className="mt-4">
+                Nothing matched.
+              </Alert>
+            ) : null}
+            {!searchError && results && results.length > 0 ? (
+              <ol role="list" aria-label="What it found" className="m-0 mt-4 list-none space-y-2 p-0">
+                {results.map((c, i) => (
+                  <li key={`${c.documentId}-${i}`} className="rounded-card-sm bg-subtle px-4 py-3">
+                    <p className="m-0 text-meta font-medium text-text-2">
+                      {[c.documentName?.trim(), c.section?.trim()].filter(Boolean).join(' · ') || `Passage ${i + 1}`}
+                    </p>
+                    <p className="mb-0 mt-1 whitespace-pre-wrap text-text [overflow-wrap:anywhere]">{c.content}</p>
+                  </li>
+                ))}
+              </ol>
+            ) : null}
+          </section>
+        </div>
+
+        <aside className="min-w-0 space-y-6 lg:pt-11">
+          <section aria-labelledby="knowledge-guide" className={CARD}>
+            <h2 id="knowledge-guide" className="m-0 text-title font-semibold text-text">
+              What goes here
+            </h2>
+            <ul role="list" className="m-0 mt-3 list-none space-y-2 p-0 text-text-2">
+              {[
+                'About the company and how you work',
+                `Policies for every ${job}`,
+                'Benefits, holidays and office locations',
+              ].map((item) => (
+                <li key={item} className="flex gap-2.5">
+                  <Check aria-hidden strokeWidth={1.5} className="mt-0.5 size-4 shrink-0 text-text-3" />
+                  {item}
+                </li>
+              ))}
+            </ul>
+            <h3 className="mb-0 mt-5 text-label font-semibold text-text">On the {job} instead</h3>
+            <ul role="list" className="m-0 mt-2 list-none space-y-2 p-0 text-text-2">
+              {[
+                `The ${job} description`,
+                'Pay, notice period and must-ask questions',
+                `Anything that changes from ${job} to ${job}`,
+              ].map((item) => (
+                <li key={item} className="flex gap-2.5">
+                  <ArrowUpRight aria-hidden strokeWidth={1.5} className="mt-0.5 size-4 shrink-0 text-text-3" />
+                  {item}
+                </li>
+              ))}
+            </ul>
+            {can('jobs.read') ? (
+              <Button asChild variant="secondary" size="sm" className="mt-5">
+                <Link href="/jobs">Open {labels.workItem.many.toLowerCase()}</Link>
+              </Button>
+            ) : null}
+          </section>
+
+          {can('knowledge.create') ? (
+            <details className="group rounded-card border border-border bg-canvas">
+              <summary className="flex min-h-14 cursor-pointer list-none items-center justify-between gap-3 rounded-card px-5 marker:content-none focus-visible:-outline-offset-2 sm:px-6 [&::-webkit-details-marker]:hidden">
+                <h2 className="m-0 text-title font-semibold text-text">Document sets</h2>
+                <span className="flex items-center gap-2 text-meta text-text-3">
+                  Optional
+                  <ChevronDown
+                    aria-hidden
+                    strokeWidth={1.5}
+                    className="size-4 transition-transform duration-fast group-open:rotate-180"
+                  />
+                </span>
+              </summary>
+              <div className="border-t border-border px-5 pb-5 pt-4 sm:px-6">
+                <p className="m-0 text-text-2">
+                  Group company files, say policies apart from facts about the company. Don’t make a set for each {job}.
                 </p>
-              ) : null}
-              {results && results.length > 0 ? (
-                <ul className="m-0 list-none divide-y divide-[var(--separator-subtle)] p-0">
-                  {results.map((c, i) => (
-                    <li key={`${c.documentId}-${i}`} className="py-3">
-                      <p className="m-0 text-[12px] font-medium text-[var(--foreground-muted)]">
-                        {[c.documentName?.trim(), c.section?.trim()]
-                          .filter(Boolean)
-                          .join(' · ') || `Passage ${i + 1}`}
-                      </p>
-                      <p className="mt-1 mb-0 whitespace-pre-wrap text-sm leading-relaxed text-[var(--foreground-secondary)]">
-                        {c.content}
-                      </p>
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
-            </div>
-          </details>
-        ) : null}
-      </PageMain>
-    </AppShell>
+                <form onSubmit={onCreateSource} className="mt-4 grid gap-3">
+                  <Field label="Set name">
+                    <Input
+                      value={sourceName}
+                      onChange={(e) => setSourceName(e.target.value)}
+                      placeholder="For example, Company policies"
+                      required
+                      minLength={2}
+                    />
+                  </Field>
+                  <div>
+                    <Button type="submit" variant="secondary" size="sm" loading={creatingSet}>
+                      Create set
+                    </Button>
+                  </div>
+                </form>
+                {companySources.length > 0 ? (
+                  <ul role="list" className="m-0 mt-4 list-none divide-y divide-border border-t border-border p-0">
+                    {companySources.map((s) => (
+                      <li key={s.id} className="flex min-h-12 items-center justify-between gap-3 py-2">
+                        <span className="min-w-0">
+                          <span className="block truncate font-medium text-text">{s.name}</span>
+                          <span className="block text-meta tabular-nums text-text-3">
+                            {s.documentCount === 0
+                              ? 'Empty'
+                              : `${s.documentCount} ${s.documentCount === 1 ? 'file' : 'files'}`}
+                          </span>
+                        </span>
+                        {can('knowledge.delete') ? (
+                          <IconButton
+                            size="sm"
+                            variant="quiet"
+                            label={`Remove the set ${s.name}`}
+                            onClick={() => askRemove({ kind: 'set', id: s.id, name: s.name })}
+                          >
+                            <Trash2 aria-hidden strokeWidth={1.5} />
+                          </IconButton>
+                        ) : null}
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </div>
+            </details>
+          ) : null}
+        </aside>
+      </div>
+
+      {removing ? (
+        <ConfirmDialog
+          open={removeOpen}
+          onOpenChange={setRemoveOpen}
+          title={removing.kind === 'document' ? `Remove ${removing.name}?` : `Remove the set ${removing.name}?`}
+          body={
+            removing.kind === 'document'
+              ? 'The agent stops using it on calls. You can add it again later.'
+              : 'Its documents are removed too, and the agent stops using them on calls.'
+          }
+          confirmLabel="Remove"
+          tone="danger"
+          busy={removeBusy}
+          error={removeError}
+          onConfirm={() => void confirmRemove()}
+          onCloseAutoFocus={(event) => {
+            // The row that opened the dialog is about to go, so focus waits on the list's heading.
+            if (!removed.current) return;
+            removed.current = false;
+            event.preventDefault();
+            docsHeading.current?.focus();
+          }}
+        />
+      ) : null}
+    </>,
   );
 }

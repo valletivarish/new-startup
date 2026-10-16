@@ -21,3 +21,9 @@ export const VOICE_SESSION_SERVICE = Symbol('VOICE_SESSION_SERVICE');
 
 export const JOBS_SERVICE = Symbol('JOBS_SERVICE');
 export const CANDIDATES_SERVICE = Symbol('CANDIDATES_SERVICE');
+
+/** Call cost ledger + platform-admin cost dashboard. */
+export const COST_SERVICE = Symbol('COST_SERVICE');
+
+/** Own voice loop (apps/voice ↔ Nest). */
+export const OWN_LOOP_SERVICE = Symbol('OWN_LOOP_SERVICE');

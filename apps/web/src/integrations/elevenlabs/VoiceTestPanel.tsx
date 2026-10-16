@@ -1,25 +1,24 @@
 'use client';
 
 /**
- * VoiceTestPanel — ElevenLabs browser-voice test interface (MVP-01).
+ * VoiceTestPanel: a test call in the browser (MVP-01). The person plays the candidate and
+ * nobody's phone rings.
  *
  * ISOLATION: this file is the ONLY place in apps/web that imports from
  * @elevenlabs/react. All other web code imports only from lib/api.ts.
  *
  * FLOW:
- *   1. User clicks "Start Voice Test"
+ *   1. "Start test call" asks first: the call uses paid minutes and the microphone. No auto-start.
  *   2. POST /agents/:id/voice-sessions → receives { voiceSessionId, conversationToken }
- *   3. ElevenLabs React SDK connects via WebRTC using conversationToken
- *   4. User speaks; agent responds via the ElevenLabs conversational-AI agent
- *   5. User clicks "End Call" (or session auto-ends after max minutes)
- *   6. End marks the session ended server-side, then results are reconciled
- *
- * COST WARNING: displayed before starting. The user must acknowledge they
- * understand the call uses real voice minutes. No auto-start.
+ *   3. The voice SDK connects with conversationToken; the agent's face and the Listening bar
+ *      follow who is talking.
+ *   4. "End test call" (or the agent hanging up) marks the session ended server-side, then
+ *      results are reconciled until the summary and answers land.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { ConversationProvider, useConversation } from '@elevenlabs/react';
+import { Mic, PhoneOff, RotateCw } from 'lucide-react';
 import {
   ApiClientError,
   startVoiceSession,
@@ -27,17 +26,17 @@ import {
   reconcileVoiceSession,
   endVoiceSession,
   type VoiceSession,
-  type TranscriptTurn,
 } from '../../../lib/api';
+import { Agent } from '@/components/brand/agent';
+import type { AgentState } from '@/components/brand/agent-draw';
+import { answerItems } from '@/components/candidates/answers';
+import { AnswersList } from '@/components/shared/answers-list';
+import { ListeningBar } from '@/components/shared/listening-bar';
+import { Transcript, toTranscriptTurns } from '@/components/shared/transcript';
 import { Button } from '@/components/ui/button';
-import { Notice, Surface } from '@/components/ui/page';
-import { Badge, statusTone } from '@/components/ui/badge';
-import { StatusIndicator } from '@/components/ui/status-indicator';
-import { VoiceWaveform } from '@/components/calls/VoiceWaveform';
-import { cn } from '@/lib/utils';
-import {
-  scorecardRows,
-} from '@/components/candidates/screening-answers';
+import { ConfirmDialog } from '@/components/ui/confirm';
+import { Alert } from '@/components/ui/notice';
+import { StatusTag } from '@/components/ui/state-tag';
 
 export interface VoiceTestPanelProps {
   agentId: string;
@@ -45,16 +44,57 @@ export interface VoiceTestPanelProps {
   canTest: boolean;
   /** Whether the agent is published (pre-condition to voice testing). */
   agentPublished: boolean;
-  /** Optional hiring link — labels this as a candidate screen demo. */
+  /** Optional hiring link: the test call plays a candidate on this job. */
   jobId?: string;
   candidateId?: string;
   candidateName?: string;
-  /** Override heading (defaults based on hiring link). */
+  /** Override heading (defaults to "Test call in your browser"). */
   title?: string;
+  /** The job's questions, so the results read as question and answer. */
+  questions?: readonly { id: string; label: string }[];
+  /** True while a test call starts, runs or ends; false once it is over or the panel goes. */
+  onActiveChange?: (active: boolean) => void;
+  /** 3 inside a section that has its own h2. */
+  headingLevel?: 2 | 3;
 }
 
 type PanelState = 'idle' | 'confirming' | 'connecting' | 'active' | 'ending' | 'ended' | 'error';
 
+// What the agent's face acts out in each panel state ('active' turns 'speaking' while it talks).
+const PANEL_FACE: Record<PanelState, AgentState> = {
+  idle: 'idle',
+  confirming: 'idle',
+  connecting: 'ringing',
+  active: 'listening',
+  ending: 'thinking',
+  ended: 'done',
+  error: 'missed',
+};
+
+// The panel's state in the state map's words: the test call's own while it runs, the call's after.
+function stateTag(state: PanelState, speaking: boolean) {
+  switch (state) {
+    case 'connecting':
+      return { domain: 'voice', value: 'connecting' } as const;
+    case 'active':
+      return { domain: 'voice', value: speaking ? 'speaking' : 'listening' } as const;
+    case 'ending':
+      return { domain: 'call', value: 'results_pending' } as const;
+    case 'ended':
+      return { domain: 'call', value: 'ended' } as const;
+    case 'error':
+      return { domain: 'call', value: 'failed' } as const;
+    default:
+      return null;
+  }
+}
+
+/**
+ * A test call in the browser as one card: the agent's face, what it is, Start (which asks
+ * first), the Listening bar while it runs, then the summary, answers and transcript. Mount it
+ * where the test call belongs, with no card or Start button of your own around it; pass
+ * onActiveChange to hold a sheet open while a call runs.
+ */
 export function VoiceTestPanel(props: VoiceTestPanelProps) {
   return (
     <ConversationProvider>
@@ -71,34 +111,49 @@ function VoiceTestPanelInner({
   candidateId,
   candidateName,
   title,
+  questions = [],
+  onActiveChange,
+  headingLevel = 2,
 }: VoiceTestPanelProps) {
   const isHiringScreen = Boolean(jobId && candidateId);
-  const heading =
-    title ??
-    (isHiringScreen
-      ? `Browser screen${candidateName ? ` · ${candidateName}` : ''}`
-      : 'Demo conversation (browser)');
+  const heading = title ?? 'Test call in your browser';
+  const who = isHiringScreen && candidateName ? candidateName : 'the candidate';
+  const Heading = headingLevel === 3 ? 'h3' : 'h2';
+  const headingId = useId();
   const [state, setState] = useState<PanelState>('idle');
   const [notice, setNotice] = useState<string | null>(null);
   const [voiceSession, setVoiceSession] = useState<VoiceSession | null>(null);
   const voiceSessionIdRef = useRef<string | null>(null);
+  const [connectedAt, setConnectedAt] = useState<number | null>(null);
+  const [now, setNow] = useState(() => Date.now());
+  // Keeps keyboard focus in the panel when the button that had it goes with the state.
+  const panel = useRef<HTMLElement>(null);
+  const status = useRef<HTMLSpanElement>(null);
+  const start = useRef<HTMLButtonElement>(null);
+  const refocus = useRef(false);
+  const holdFocus = () => {
+    refocus.current = Boolean(panel.current?.contains(document.activeElement));
+  };
 
   // The ElevenLabs React SDK conversation hook.
   // It is instantiated here even in idle state — the SDK requires this to
   // call startSession before the WebRTC handshake occurs.
   const conversation = useConversation({
     onConnect: () => {
+      setConnectedAt(Date.now());
+      setNow(Date.now());
       setState('active');
-      setNotice('Practice call active. Speak to the hiring voice.');
+      setNotice(null);
     },
     onDisconnect: () => {
       setState('ending');
-      setNotice('Call ended. Fetching results…');
+      setNotice(null);
       void handleSessionEnded();
     },
     onError: (msg: string) => {
       setState('error');
-      setNotice(`Voice error: ${micPermissionMessage(msg)}`);
+      // The SDK's own words can name the provider: show ours unless it is about the microphone.
+      setNotice(micPermissionMessage(msg) ?? 'The connection dropped. Check your internet and microphone, then try again.');
       const vsId = voiceSessionIdRef.current;
       if (vsId) {
         void endVoiceSession(agentId, vsId).catch(() => undefined);
@@ -125,7 +180,7 @@ function VoiceTestPanelInner({
     const vsId = voiceSessionIdRef.current;
     if (!vsId) return;
 
-    // Mark the session ended on the server so another screen can start.
+    // Mark the session ended on the server so another test call can start.
     try {
       const ended = await endVoiceSession(agentId, vsId);
       setVoiceSession(ended.voiceSession);
@@ -158,11 +213,11 @@ function VoiceTestPanelInner({
       }
     }
     setState('ended');
-    if (!lastResult?.transcript) {
-      setNotice('Call ended. Results may take a moment to appear - click Refresh results.');
-    } else {
-      setNotice('Call ended. Results are below.');
-    }
+    setNotice(
+      lastResult?.transcript
+        ? null
+        : 'The summary and transcript can take a minute after the call. Refresh the results to check again.',
+    );
   }, [agentId]);
 
   const handleStart = useCallback(async () => {
@@ -187,17 +242,18 @@ function VoiceTestPanelInner({
       if (e instanceof ApiClientError) {
         setNotice(e.message);
       } else {
-        const raw =
-          e instanceof Error ? e.message : typeof e === 'string' ? e : '';
-        setNotice(micPermissionMessage(raw) ||
-          'Could not start the browser voice session. Check that voice is enabled and the microphone is allowed.');
+        const raw = e instanceof Error ? e.message : typeof e === 'string' ? e : '';
+        setNotice(
+          micPermissionMessage(raw) ??
+            'The test call couldn’t start. Check that the microphone is allowed for this site, then try again.',
+        );
       }
     }
   }, [agentId, candidateId, conversation, jobId]);
 
   const handleEnd = useCallback(async () => {
+    holdFocus();
     setState('ending');
-    setNotice('Ending call…');
     try {
       await conversation.endSession();
     } catch {
@@ -215,7 +271,7 @@ function VoiceTestPanelInner({
       setVoiceSession(result.voiceSession);
       setNotice('Results refreshed.');
     } catch (e) {
-      setNotice(e instanceof ApiClientError ? e.message : 'Could not refresh results.');
+      setNotice(e instanceof ApiClientError ? e.message : 'Couldn’t refresh the results. Try again in a moment.');
     }
   }, [agentId]);
 
@@ -235,6 +291,28 @@ function VoiceTestPanelInner({
     setNotice(null);
   }, [agentId, conversation]);
 
+  // The call clock for the Listening bar, while connected.
+  useEffect(() => {
+    if (state !== 'active') return;
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [state]);
+
+  useEffect(() => {
+    if (!refocus.current) return;
+    refocus.current = false;
+    status.current?.focus();
+  }, [state]);
+
+  // Tell the page while a call is under way (it may hold the sheet open meanwhile). Only on a
+  // change: callers often pass a new function each render.
+  const active = state === 'connecting' || state === 'active' || state === 'ending';
+  const onActive = useRef(onActiveChange);
+  onActive.current = onActiveChange;
+  useEffect(() => {
+    onActive.current?.(active);
+  }, [active]);
+
   // Cleanup on unmount — free the concurrent browser slot.
   useEffect(() => {
     return () => {
@@ -247,148 +325,155 @@ function VoiceTestPanelInner({
       if (vsId) {
         void endVoiceSession(agentId, vsId).catch(() => undefined);
       }
+      onActive.current?.(false);
     };
     // Intentionally only on unmount
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const frame = (body: ReactNode, face: AgentState, tag: ReturnType<typeof stateTag> = null) => (
+    <section
+      ref={panel}
+      aria-labelledby={headingId}
+      className="rounded-card border border-border bg-canvas p-5 text-text sm:p-6"
+    >
+      <div className="flex items-start gap-3">
+        <Agent size={48} state={face} colour="ink" onLight />
+        <div className="min-w-0 flex-1 pt-0.5">
+          <Heading id={headingId} className="m-0 text-title font-semibold text-text">
+            {heading}
+          </Heading>
+          <p className="mb-0 mt-0.5 text-meta text-text-3">
+            You play {who}. Nobody’s phone rings.
+          </p>
+        </div>
+        {/* Focus lands here when the button that had it goes with the state. */}
+        <span ref={status} tabIndex={-1} role="status" className="inline-flex shrink-0 rounded-xs">
+          {tag ? <StatusTag domain={tag.domain} value={tag.value} stamped={`${tag.domain}:${tag.value}`} /> : null}
+        </span>
+      </div>
+      <div className="mt-4 grid gap-4">{body}</div>
+    </section>
+  );
+
   if (!canTest) {
-    return (
-      <Surface className="space-y-2">
-        <h2 className="m-0 font-display text-base font-semibold tracking-tight">
-          {heading}
-        </h2>
-        <p className="m-0 text-sm text-[var(--foreground-tertiary)]">
-          You do not have permission to run voice demos for this company.
-        </p>
-      </Surface>
+    return frame(
+      <p className="m-0 text-body text-text-2">
+        Test calls aren’t open to you in this workspace. Ask a workspace admin to add you to the people who can run
+        them.
+      </p>,
+      'idle',
     );
   }
 
   if (!agentPublished) {
-    return (
-      <Surface className="space-y-2">
-        <h2 className="m-0 font-display text-base font-semibold tracking-tight">
-          {heading}
-        </h2>
-        <p className="m-0 text-sm text-[var(--foreground-tertiary)]">
-          Publish the hiring voice before starting a browser demo.
-        </p>
-      </Surface>
+    return frame(
+      <p className="m-0 text-body text-text-2">Publish the agent first: test calls use its published version.</p>,
+      'idle',
     );
   }
 
-  return (
-    <Surface elevated className="space-y-3">
-      <div>
-        <h2 className="m-0 font-display text-base font-semibold tracking-tight">
-          {heading}
-        </h2>
-        <p className="mt-1 mb-0 text-[11px] font-semibold uppercase tracking-[0.06em] text-[var(--accent)]">
-          Demo only · not a live phone call
-        </p>
-      </div>
+  const speaking = conversation.isSpeaking;
+  const face = state === 'active' && speaking ? 'speaking' : PANEL_FACE[state];
+  const seconds = state === 'active' && connectedAt ? (now - connectedAt) / 1000 : null;
 
-      {state === 'idle' ? (
+  return frame(
+    <>
+      {state === 'idle' || state === 'confirming' ? (
         <>
-          <p className="m-0 text-sm leading-relaxed text-[var(--foreground-tertiary)]">
+          <p className="m-0 max-w-[60ch] text-body text-text-2">
             {isHiringScreen
-              ? 'Talk to the hiring voice in your browser as if you were the candidate. Allow microphone access when asked. This uses real voice minutes and is not an outbound phone call.'
-              : 'Try the hiring voice in your browser before you screen real candidates. Allow microphone access when asked. This uses real voice minutes and is not an outbound phone call.'}
+              ? `The agent asks you this job’s questions, the way it would ask ${who}. Allow the microphone when your browser asks.`
+              : 'Talk to the agent the way a candidate would. Allow the microphone when your browser asks.'}{' '}
+            Test calls use paid call minutes.
           </p>
-          <Button type="button" onClick={() => setState('confirming')}>
-            {isHiringScreen ? 'Start browser screen' : 'Start demo'}
-          </Button>
-        </>
-      ) : null}
-
-      {state === 'confirming' ? (
-        <>
-          <Notice kind="warn">
-            This uses paid voice minutes on your account.
-          </Notice>
-          <p className="m-0 text-sm leading-relaxed text-[var(--foreground-tertiary)]">
-            A conversation will start in this browser. Allow microphone access
-            when the browser asks. Continue only if you mean to spend those
-            minutes.
-          </p>
-          <div className="flex flex-wrap gap-2">
-            <Button type="button" onClick={() => void handleStart()}>
-              Yes, start
-            </Button>
-            <Button type="button" variant="outline" onClick={() => setState('idle')}>
-              Cancel
+          <div>
+            <Button ref={start} type="button" onClick={() => setState('confirming')}>
+              <Mic aria-hidden strokeWidth={1.5} />
+              Start test call
             </Button>
           </div>
         </>
       ) : null}
 
       {state === 'connecting' ? (
-        <div className="flex items-center gap-3 rounded-lg border border-[var(--separator-subtle)] bg-[var(--surface-secondary)] px-4 py-3">
-          <StatusIndicator status="connecting" />
-          <p className="m-0 text-sm text-[var(--foreground-tertiary)]">
-            Connecting the browser mic…
-          </p>
-        </div>
+        <p className="m-0 text-body text-text-2">Connecting. Allow the microphone if your browser asks.</p>
       ) : null}
 
       {state === 'active' ? (
-        <div
-          className={cn(
-            'space-y-4 rounded-lg border border-[color-mix(in_srgb,var(--accent)_28%,var(--separator-subtle))] bg-[var(--surface-secondary)] p-4 shadow-sm',
-          )}
-        >
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <StatusIndicator status="speaking" />
-            <span className="text-[11px] font-medium uppercase tracking-[0.04em] text-[var(--foreground-muted)]">
-              Live in browser
-            </span>
+        <>
+          {/* The tag beside the heading reads the change out; the bar only shows it. */}
+          <ListeningBar state={speaking ? 'speaking' : 'listening'} seconds={seconds} announce={false} />
+          <div>
+            <Button type="button" variant="destructive-secondary" onClick={() => void handleEnd()}>
+              <PhoneOff aria-hidden strokeWidth={1.5} />
+              End test call
+            </Button>
           </div>
-          <VoiceWaveform active className="py-1" />
-          <Button type="button" variant="danger" onClick={() => void handleEnd()}>
-            End demo
-          </Button>
-        </div>
+        </>
       ) : null}
 
       {state === 'ending' ? (
-        <div className="flex items-center gap-3 rounded-lg border border-[var(--separator-subtle)] bg-[var(--surface-secondary)] px-4 py-3">
-          <StatusIndicator status="processing" />
-          <p className="m-0 text-sm text-[var(--foreground-tertiary)]">
-            Ending demo and fetching results…
-          </p>
-        </div>
+        <p className="m-0 text-body text-text-2">The call ended. Writing up what was said…</p>
       ) : null}
 
-      {notice ? (
-        <Notice kind={state === 'error' ? 'err' : 'ok'}>{notice}</Notice>
+      {state === 'error' && notice ? (
+        <Alert kind="error" title="The test call stopped">
+          {notice}
+        </Alert>
       ) : null}
 
       {(state === 'ended' || state === 'error') && voiceSession ? (
-        <VoiceSessionResultView session={voiceSession} />
+        <Results session={voiceSession} questions={questions} headingLevel={headingLevel} />
       ) : null}
+
+      {state === 'ended' && notice ? <p className="m-0 text-meta text-text-3">{notice}</p> : null}
 
       {state === 'ended' || state === 'error' ? (
         <div className="flex flex-wrap gap-2">
-          {voiceSession?.externalConversationId ? (
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => void handleRefreshResults()}
-            >
+          <Button
+            type="button"
+            onClick={() => {
+              handleReset();
+              setState('confirming');
+            }}
+          >
+            <Mic aria-hidden strokeWidth={1.5} />
+            New test call
+          </Button>
+          {state === 'ended' && voiceSession?.externalConversationId ? (
+            <Button type="button" variant="secondary" onClick={() => void handleRefreshResults()}>
+              <RotateCw aria-hidden strokeWidth={1.5} />
               Refresh results
             </Button>
           ) : null}
-          <Button type="button" onClick={handleReset}>
-            New demo
-          </Button>
         </div>
       ) : null}
-    </Surface>
+
+      <ConfirmDialog
+        open={state === 'confirming'}
+        onOpenChange={(open) => {
+          if (!open) setState('idle');
+        }}
+        title="Start a test call?"
+        body="It runs here in your browser and uses paid call minutes. Allow the microphone when your browser asks."
+        confirmLabel="Start test call"
+        tone="real-world"
+        onCloseAutoFocus={(event) => {
+          // Cancelled: back to Start (New test call, which opened it, is gone). Confirmed: Start
+          // is gone too, so focus goes to the call's state.
+          event.preventDefault();
+          (state === 'idle' ? start : status).current?.focus();
+        }}
+        onConfirm={() => void handleStart()}
+      />
+    </>,
+    face,
+    stateTag(state, speaking),
   );
 }
 
-function micPermissionMessage(raw: string): string {
+/** Microphone trouble in plain words, or null when the error is about something else. */
+function micPermissionMessage(raw: string): string | null {
   const lower = raw.toLowerCase();
   if (
     lower.includes('notallowed') ||
@@ -397,136 +482,52 @@ function micPermissionMessage(raw: string): string {
     lower.includes('microphone') ||
     lower.includes('getusermedia')
   ) {
-    return 'Microphone access is blocked. Allow the mic for this site in the browser address bar, then try again.';
+    return 'The microphone is blocked. Allow it for this site in your browser’s address bar, then try again.';
   }
-  return raw;
+  return null;
 }
 
 // ---------------------------------------------------------------------------
-// Result display sub-component
+// What the test call left behind: summary, answers, transcript (no nested card).
 // ---------------------------------------------------------------------------
 
-function VoiceSessionResultView({ session }: { session: VoiceSession }) {
-  const statusLabel =
-    session.status === 'ended'
-      ? 'Completed'
-      : session.status === 'failed'
-        ? 'Failed'
-        : session.status === 'active' || session.status === 'pending'
-          ? 'In progress'
-          : session.status;
-  const rows = scorecardRows(session.structuredAnswers, []);
+function Results({
+  session,
+  questions,
+  headingLevel,
+}: {
+  session: VoiceSession;
+  questions: readonly { id: string; label: string }[];
+  headingLevel: 2 | 3;
+}) {
+  const Sub = headingLevel === 3 ? 'h4' : 'h3';
+  const turns = toTranscriptTurns(
+    session.transcript?.filter((turn) => turn.message?.trim()),
+    'You',
+  );
+  const answers = answerItems(session.structuredAnswers, questions);
+  const summary = session.summary?.trim();
+  if (!summary && answers.length === 0 && turns.length === 0) return null;
 
   return (
-    <div className="space-y-3 border-t border-[var(--separator-subtle)] pt-4">
-      <div className="flex flex-wrap items-center gap-2">
-        <h3 className="m-0 font-display text-sm font-semibold tracking-tight">
-          Screening results
-        </h3>
-        <Badge tone={statusTone(session.status)} className="normal-case">
-          {statusLabel}
-        </Badge>
-      </div>
-      {session.durationSeconds != null ? (
-        <p className="m-0 text-xs text-[var(--foreground-tertiary)]">
-          {Math.floor(session.durationSeconds / 60)}:
-          {String(session.durationSeconds % 60).padStart(2, '0')} on the call
-          {session.costCredits != null
-            ? ` · provider usage ${session.costCredits}`
-            : ''}
-        </p>
-      ) : session.costCredits != null ? (
-        <p className="m-0 text-xs text-[var(--foreground-tertiary)]">
-          Provider usage {session.costCredits}
-        </p>
+    <div className="grid gap-5 border-t border-border pt-4">
+      {summary ? (
+        <section aria-label="Summary" className="rounded-card-sm bg-subtle p-4">
+          <Sub className="m-0 text-label font-semibold text-text">Summary</Sub>
+          <p className="mb-0 mt-1.5 text-body leading-relaxed text-text [overflow-wrap:anywhere]">{summary}</p>
+        </section>
       ) : null}
-
-      {session.summary ? (
-        <div>
-          <p className="m-0 text-[11px] font-medium uppercase tracking-wide text-[var(--foreground-muted)]">
-            Summary
-          </p>
-          <p className="mt-1 mb-0 text-sm leading-relaxed text-[var(--foreground-secondary)]">
-            {session.summary}
-          </p>
-        </div>
+      {answers.length > 0 ? (
+        <section aria-label="Answers" className="grid gap-3">
+          <Sub className="m-0 text-label font-semibold text-text">Answers</Sub>
+          <AnswersList items={answers} />
+        </section>
       ) : null}
-
-      {session.transcript && session.transcript.length > 0 ? (
-        <div>
-          <p className="m-0 text-[11px] font-medium uppercase tracking-wide text-[var(--foreground-muted)]">
-            Conversation
-          </p>
-          <ol className="mt-2 mb-0 list-none space-y-2.5 p-0">
-            {session.transcript.map((turn: TranscriptTurn, i: number) => (
-              <li
-                key={i}
-                className="rounded-md border border-[var(--separator-subtle)] bg-[var(--surface-secondary)] px-3 py-2.5"
-              >
-                <p
-                  className={cn(
-                    'm-0 text-[11px] font-semibold uppercase tracking-[0.04em]',
-                    turn.role === 'agent'
-                      ? 'text-[var(--accent)]'
-                      : 'text-[var(--foreground-muted)]',
-                  )}
-                >
-                  {turn.role === 'agent'
-                    ? 'Hiring voice'
-                    : turn.role === 'user'
-                      ? 'Candidate'
-                      : turn.role}
-                  {turn.timeInCallSecs !== undefined
-                    ? ` · ${turn.timeInCallSecs}s`
-                    : ''}
-                </p>
-                <p className="m-0 mt-1 text-sm leading-relaxed text-[var(--foreground-secondary)]">
-                  {turn.message}
-                </p>
-              </li>
-            ))}
-          </ol>
-        </div>
-      ) : null}
-
-      {rows.length > 0 ? (
-        <div>
-          <p className="m-0 text-[11px] font-medium uppercase tracking-wide text-[var(--foreground-muted)]">
-            Scorecard
-          </p>
-          <div className="mt-2 overflow-hidden rounded-md border border-[var(--separator-subtle)]">
-            <table className="w-full border-collapse text-left text-sm">
-              <thead>
-                <tr className="border-b border-[var(--separator-subtle)] bg-[var(--surface)]">
-                  <th className="px-3 py-2 text-[11px] font-medium uppercase tracking-wide text-[var(--foreground-muted)]">
-                    Question
-                  </th>
-                  <th className="px-3 py-2 text-[11px] font-medium uppercase tracking-wide text-[var(--foreground-muted)]">
-                    Answer
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[var(--separator-subtle)]">
-                {rows.map((row) => (
-                  <tr key={row.label}>
-                    <td className="align-top px-3 py-2.5 text-[13px] font-medium">
-                      {row.label}
-                    </td>
-                    <td className="align-top px-3 py-2.5 text-[13px] text-[var(--foreground-secondary)]">
-                      {row.value}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      ) : null}
-
-      {!session.transcript && session.status !== 'ended' ? (
-        <p className="m-0 text-sm text-[var(--foreground-tertiary)]">
-          Results not yet available. Click “Refresh results” in a moment.
-        </p>
+      {turns.length > 0 ? (
+        <section aria-label="Transcript" className="grid gap-3">
+          <Sub className="m-0 text-label font-semibold text-text">Transcript</Sub>
+          <Transcript turns={turns} label="Transcript of the test call" />
+        </section>
       ) : null}
     </div>
   );

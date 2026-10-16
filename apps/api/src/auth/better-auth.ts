@@ -22,7 +22,6 @@ import { schema } from '@platform/db';
 import type { NotificationProvider } from '@platform/providers';
 
 import type { Env } from '../config.js';
-import { rememberConsoleResetLink } from './console-reset-links.js';
 
 export interface AuthDeps {
   readonly db: PlatformDatabase<Record<string, never>>;
@@ -111,9 +110,6 @@ export function createAuth(deps: AuthDeps) {
           subject: 'Reset your password',
           text: `Reset your password: ${url}`,
         });
-        if (env.NOTIFICATION_TRANSPORT === 'console') {
-          rememberConsoleResetLink(user.email, url);
-        }
       },
     },
 

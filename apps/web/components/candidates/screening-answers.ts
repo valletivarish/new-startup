@@ -1,17 +1,17 @@
 export function formatAnswerValue(value: unknown): string {
-  if (value == null) return '—';
-  if (typeof value === 'string') return value.trim() || '—';
+  if (value == null) return 'None';
+  if (typeof value === 'string') return value.trim() || 'None';
   if (typeof value === 'number' || typeof value === 'boolean') {
     return String(value);
   }
   if (Array.isArray(value)) {
-    return value.map(formatAnswerValue).filter((v) => v !== '—').join(', ') || '—';
+    return value.map(formatAnswerValue).filter((v) => v !== 'None').join(', ') || 'None';
   }
   if (typeof value === 'object') {
     return (
       Object.entries(value as Record<string, unknown>)
         .map(([k, v]) => `${k.replace(/_/g, ' ')}: ${formatAnswerValue(v)}`)
-        .join('; ') || '—'
+        .join('; ') || 'None'
     );
   }
   return String(value);
@@ -21,6 +21,53 @@ export function formatCallDuration(seconds: number): string {
   const m = Math.floor(seconds / 60);
   const s = seconds % 60;
   return `${m}:${String(s).padStart(2, '0')}`;
+}
+
+export function callStatusLabel(status: string | null | undefined): string {
+  if (status === 'active' || status === 'pending') return 'In progress';
+  if (status === 'ended' || status === 'completed') return 'Completed';
+  if (status === 'failed') return 'Failed';
+  const trimmed = status?.trim();
+  return trimmed || 'Call';
+}
+
+export function sessionListMeta(
+  session: {
+    status: string | null;
+    startedAt?: string | null;
+    durationSeconds?: number | null;
+    structuredAnswers: Record<string, unknown> | null;
+    transcript: readonly unknown[] | null;
+    recordingAvailable?: boolean;
+    summary?: string | null;
+  },
+  questions: readonly { id: string; label: string }[],
+): {
+  when: string;
+  statusLabel: string;
+  durationLabel: string | null;
+  answeredLabel: string | null;
+  turnCount: number;
+  hasRecording: boolean;
+  hasSummary: boolean;
+} {
+  const rows = scorecardRows(session.structuredAnswers, questions);
+  const answered = rows.filter((r) => r.answered).length;
+  const total = rows.length;
+  return {
+    when: session.startedAt
+      ? new Date(session.startedAt).toLocaleString()
+      : 'Screen',
+    statusLabel: callStatusLabel(session.status),
+    durationLabel:
+      session.durationSeconds != null
+        ? formatCallDuration(session.durationSeconds)
+        : null,
+    answeredLabel: total > 0 ? `${answered} of ${total} answered` : null,
+    turnCount: session.transcript?.length ?? 0,
+    hasRecording: Boolean(session.recordingAvailable),
+    hasSummary: Boolean(session.summary?.trim()),
+  };
 }
 
 export function labelForAnswerKey(

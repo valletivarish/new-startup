@@ -1,81 +1,123 @@
 'use client';
 
 /**
- * Tools catalogue is a later layer. Day-one hiring desk keeps this route soft-gated
- * so a bookmarked URL does not drop recruiters into form-builder chrome.
+ * Tools (D2): what the agent does on every call today, built in, and the one thing that is later
+ * work: connecting your own systems. In the sidebar's Workspace group, after Knowledge.
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import { Wrench } from 'lucide-react';
-import { AppShell } from '../../components/AppShell';
-import { Button } from '../../components/ui/button';
-import {
-  EmptyState,
-  Notice,
-  PageHeader,
-  PageMain,
-} from '../../components/ui/page';
-import { SkeletonCard } from '../../components/ui/skeleton';
-import { ApiClientError, me, type Me } from '../../lib/api';
-import { loginPathForReturn } from '../../lib/auth-redirect';
+import { ChevronRight, Clock, FileText, ListChecks, Phone, PhoneForwarded, Plug, Voicemail } from 'lucide-react';
+import { AppShell } from '@/components/AppShell';
+import { IconTile } from '@/components/ui/empty-state';
+import { PageHeader, PageMain } from '@/components/ui/page-header';
+import { StatusBadge } from '@/components/ui/state-tag';
+import { me, type Me } from '@/lib/api';
+import { useUseCase } from '@/lib/use-cases';
+
+interface Ability {
+  icon: ReactNode;
+  title: string;
+  text: string;
+  link?: { href: string; label: string };
+}
 
 export default function ToolsPage() {
-  const router = useRouter();
+  const { labels } = useUseCase();
   const [profile, setProfile] = useState<Me | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
 
+  // The page is static; the profile is only for the shell. Failures leave the shell's cached one.
   const reload = useCallback(async () => {
     try {
       setProfile(await me());
-    } catch (e) {
-      if (e instanceof ApiClientError && e.status === 401) {
-        router.push(loginPathForReturn());
-      } else {
-        setNotice(
-          e instanceof ApiClientError ? e.message : 'Could not load.',
-        );
-      }
+    } catch {
+      // A 401 is already on its way to sign-in (lib/api).
     }
-  }, [router]);
+  }, []);
 
   useEffect(() => {
     void reload();
   }, [reload]);
 
-  if (!profile) {
-    return (
-      <AppShell profile={null}>
-        <PageMain>
-          {notice ? <Notice kind="err">{notice}</Notice> : <SkeletonCard />}
-        </PageMain>
-      </AppShell>
-    );
-  }
+  const job = labels.workItem.one.toLowerCase();
+  const jobs = labels.workItem.many.toLowerCase();
+  const contact = labels.contact.one.toLowerCase();
+  const contacts = labels.contact.many.toLowerCase();
+
+  const abilities: Ability[] = [
+    {
+      icon: <Phone />,
+      title: `Calls your ${contacts}`,
+      text: `Phones each ${contact} you add to a ${job}, or takes a test call in your browser.`,
+      link: { href: '/jobs', label: `Open ${jobs}` },
+    },
+    {
+      icon: <ListChecks />,
+      title: 'Asks your questions',
+      text: `Asks each ${job}’s must-ask questions and answers from the ${job} description and your company facts.`,
+      link: { href: '/knowledge', label: 'Open knowledge' },
+    },
+    {
+      icon: <PhoneForwarded />,
+      title: 'Hands the call to a person',
+      text: `Transfers the call to someone on your team when a ${contact} asks for a person.`,
+      link: { href: '/agents', label: 'Set hand-off numbers' },
+    },
+    {
+      icon: <Voicemail />,
+      title: 'Notices voicemail',
+      text: 'Marks the call as reached voicemail, so you can call again later.',
+    },
+    {
+      icon: <FileText />,
+      title: 'Writes it all down',
+      text: 'The recording, transcript, a summary and each answer, ready for you to review. It never recommends who to hire.',
+      link: { href: '/calls', label: 'Open calls' },
+    },
+  ];
 
   return (
     <AppShell profile={profile}>
-      <PageMain className="pb-10">
+      <PageMain>
         <PageHeader
-          title="Tools"
-          description="Custom tool wiring ships later. Hiring screens today use Jobs, People, and Activity."
+          title="What the agent"
+          accent="can do"
+          description="All of this is built in and works on every call. Connecting your own systems comes later."
         />
-        <EmptyState
-          icon={<Wrench className="h-5 w-5" aria-hidden />}
-          title="Not needed for day-one hiring"
-          description="Your hiring voice already has what it needs for phone screens on each role."
-          action={
-            <div className="flex flex-wrap gap-2">
-              <Button asChild size="sm">
-                <Link href="/jobs">Go to Jobs</Link>
-              </Button>
-              <Button asChild size="sm" variant="outline">
-                <Link href="/settings">Settings</Link>
-              </Button>
+
+        <ul role="list" aria-label="Built in" className="m-0 grid list-none gap-4 p-0 sm:grid-cols-2 xl:grid-cols-3">
+          {abilities.map((ability) => (
+            <li key={ability.title} className="flex flex-col rounded-card border border-border bg-canvas p-5">
+              <IconTile>{ability.icon}</IconTile>
+              <h2 className="mb-0 mt-4 text-title font-semibold text-text">{ability.title}</h2>
+              <p className="mb-0 mt-1 text-text-2">{ability.text}</p>
+              {ability.link ? (
+                <Link
+                  href={ability.link.href}
+                  // ::after takes the hit area to 44px tall without moving the line.
+                  className="relative mt-auto inline-flex items-center gap-1 self-start pt-4 text-label font-medium text-text underline-offset-4 after:absolute after:-inset-x-2 after:-bottom-3 after:top-1 hover:underline"
+                >
+                  {ability.link.label}
+                  <ChevronRight aria-hidden strokeWidth={1.5} className="size-4" />
+                </Link>
+              ) : null}
+            </li>
+          ))}
+          <li className="flex flex-col rounded-card border border-dashed border-border-input bg-subtle p-5">
+            <div className="flex items-start justify-between gap-3">
+              <IconTile className="bg-canvas">
+                <Plug />
+              </IconTile>
+              <StatusBadge tone="neutral" icon={Clock}>
+                Later
+              </StatusBadge>
             </div>
-          }
-        />
+            <h2 className="mb-0 mt-4 text-title font-semibold text-text">Your own systems</h2>
+            <p className="mb-0 mt-1 text-text-2">
+              Sending results to the HR software you already use, and other connections. Not built yet.
+            </p>
+          </li>
+        </ul>
       </PageMain>
     </AppShell>
   );

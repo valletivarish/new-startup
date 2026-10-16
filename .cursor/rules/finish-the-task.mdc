@@ -1,0 +1,20 @@
+---
+description: Always set a goal and finish the user's task — no half-stops
+alwaysApply: true
+---
+
+# Finish the task
+
+When the user gives a task:
+
+1. State a clear **goal** in one line.
+2. Work until that goal is done (or blocked by something only the user can unblock).
+3. Do **not** stop after a partial fix, a side question, or a mid-walkthrough.
+4. If interrupted, resume the **same** goal next turn without asking to continue.
+5. End with what was completed vs still blocked — never abandon silently.
+
+When the user sends a new message while work is still in progress:
+
+1. Finish the **current** goal first (or unblock it), then start the new ask.
+2. Do not drop or half-abandon the old task to chase the new one.
+3. If both matter, queue the new goal and say briefly when you switch after the old one is done.

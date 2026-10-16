@@ -1,0 +1,11 @@
+{
+  "slug": "hero-portrait",
+  "file": "/images/site/hero-portrait.jpg",
+  "width": 1290,
+  "height": 2150,
+  "alt": "Tall green grass rising into a clear blue summer sky",
+  "source": "AI-generated with Higgsfield (Nano Banana Pro, 4K), 2026-10-02",
+  "people": "None",
+  "modifications": "Centre crop of the hero frame at 3:5.",
+  "use": "Website hero below 768px (art-directed)."
+}

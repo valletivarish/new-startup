@@ -8,7 +8,7 @@ import { ApiError } from '../errors.js';
 const MIN_NOTES = 20;
 const MAX_NOTES = 40_000;
 const DEFAULT_MODEL = 'gemini-3.5-flash-lite';
-const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta';
+export const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 
 export type JdAssistMode = 'generate' | 'format' | 'questions';
 export type JdAssistLanguage = 'en' | 'hi';
@@ -23,6 +23,7 @@ export type AssistJobDescriptionInput = {
 export type AssistJobDescriptionDeps = {
   apiKey: string;
   model?: string;
+  baseUrl?: string;
   fetchFn?: typeof fetch;
 };
 
@@ -151,7 +152,7 @@ export async function assistJobDescription(
   const title = input.title.trim() || 'Open role';
   const model = (deps.model?.trim() || DEFAULT_MODEL);
   const fetchFn = deps.fetchFn ?? fetch;
-  const url = `${GEMINI_BASE}/models/${encodeURIComponent(model)}:generateContent`;
+  const url = `${deps.baseUrl || GEMINI_BASE}/models/${encodeURIComponent(model)}:generateContent`;
 
   const response = await fetchFn(url, {
     method: 'POST',

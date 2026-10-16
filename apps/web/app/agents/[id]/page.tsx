@@ -1,23 +1,31 @@
 'use client';
 
 /**
- * Agent detail: versions, draft editing, lifecycle actions, and a session
- * inspector that exercises the runtime end to end.
- *
- * Voice, persona, and transfer settings live here. Job description and
- * must-ask questions are set on each job.
+ * One agent (D2): its state beside the controls that change it, a test call in the browser,
+ * the numbers it hands calls to, and where its words come from. Voice, persona and hand-off
+ * are set here; each job's description and must-ask questions are set on the job.
+ * Agents that aren't hiring agents also get the builder's advanced settings and session log.
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import Link from 'next/link';
-import { useParams, useRouter } from 'next/navigation';
-import { AppShell } from '../../../components/AppShell';
-import { Notice, PageHeader, PageMain, Surface } from '../../../components/ui/page';
-import { Button } from '../../../components/ui/button';
-import { Field, Input, Select, Textarea } from '../../../components/ui/input';
-import { SkeletonCard } from '../../../components/ui/skeleton';
-import { Badge, statusTone } from '../../../components/ui/badge';
-import { AGENT_STATUS_LABEL } from '../../../lib/status-labels';
+import { useParams } from 'next/navigation';
+import { Archive, ChevronDown, CirclePause, Radio } from 'lucide-react';
+import { toast } from 'sonner';
+import { AppShell } from '@/components/AppShell';
+import { agentStateCopy } from '@/components/agents/copy';
+import { AgentSources } from '@/components/agents/sources';
+import { HiringVoiceFace } from '@/components/fx/HiringVoiceFace';
+import { Breadcrumb } from '@/components/ui/breadcrumb';
+import { Button } from '@/components/ui/button';
+import { cn } from '@/components/ui/cn';
+import { ConfirmDialog } from '@/components/ui/confirm';
+import { ErrorState } from '@/components/ui/error-state';
+import { Field, Input, Select, Textarea } from '@/components/ui/input';
+import { Alert } from '@/components/ui/notice';
+import { PageHeader, PageMain } from '@/components/ui/page-header';
+import { Skeleton, SkeletonRecord, useHeldLoading } from '@/components/ui/skeleton';
+import { StatusTag } from '@/components/ui/state-tag';
 import {
   ApiClientError,
   agentAction,
@@ -43,12 +51,18 @@ import {
   type SessionEvent,
   type Tool,
   type ToolExecution,
-} from '../../../lib/api';
-import { VoiceTestPanel } from '../../../src/integrations/elevenlabs/VoiceTestPanel';
-import { loginPathForReturn } from '../../../lib/auth-redirect';
-import { fromPublicId } from '../../../lib/public-id';
+} from '@/lib/api';
+import { messageText, toUserMessage } from '@/lib/errors';
+import { formatPhone } from '@/lib/format';
+import { fromPublicId } from '@/lib/public-id';
+import { useUseCase } from '@/lib/use-cases';
+import { VoiceTestPanel } from '@/src/integrations/elevenlabs/VoiceTestPanel';
 
 const INTELLIGENCE_TIERS = ['standard', 'advanced', 'premium'] as const;
+
+const CARD = 'rounded-card border border-border bg-canvas p-5 sm:p-6';
+// Two columns from lg: the agent's own cards, then where its words come from.
+const COLUMNS = 'grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,20rem)]';
 
 /** Reads a nested value without asserting the configuration's shape. */
 function tierOf(configuration: Record<string, unknown> | undefined): string {
@@ -71,9 +85,10 @@ function transferPhonesFromConfig(
 }
 
 export default function AgentDetailPage() {
-  const router = useRouter();
   const params = useParams<{ id: string }>();
   const agentId = fromPublicId(params.id) ?? params.id;
+  const { labels } = useUseCase();
+  const stateHeading = useRef<HTMLHeadingElement>(null);
 
   const [profile, setProfile] = useState<Me | null>(null);
   const [agent, setAgent] = useState<Agent | null>(null);
@@ -83,14 +98,18 @@ export default function AgentDetailPage() {
   const [activeSession, setActiveSession] = useState<string | null>(null);
   const [events, setEvents] = useState<SessionEvent[]>([]);
   const [message, setMessage] = useState('');
-  const [notice, setNotice] = useState<string | null>(null);
   const [catalogue, setCatalogue] = useState<Tool[]>([]);
   const [agentTools, setAgentTools] = useState<Tool[]>([]);
   const [executions, setExecutions] = useState<ToolExecution[]>([]);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [transferEdit, setTransferEdit] = useState('');
   const [savingTransfer, setSavingTransfer] = useState(false);
-  const [confirmingArchive, setConfirmingArchive] = useState(false);
+  const [transferError, setTransferError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<unknown>(null);
+  const [retrying, setRetrying] = useState(false);
+  const [busy, setBusy] = useState<'publish' | 'pause' | 'archive' | null>(null);
+  const [archiveOpen, setArchiveOpen] = useState(false);
+  const [archiveError, setArchiveError] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
     try {
@@ -118,16 +137,18 @@ export default function AgentDetailPage() {
       ]);
       setCatalogue(all.tools);
       setAgentTools(granted.tools);
+      setLoadError(null);
     } catch (e) {
-      if (e instanceof ApiClientError && e.status === 401) router.push(loginPathForReturn());
-      else setNotice(e instanceof ApiClientError ? e.message : 'Could not load the hiring voice.');
+      // A 401 is already on its way to sign-in (lib/api).
+      setLoadError(e);
     }
-  }, [agentId, router]);
+  }, [agentId]);
 
   useEffect(() => {
     void reload();
   }, [reload]);
 
+  const skeleton = useHeldLoading(agent === null && !loadError);
   const can = (p: string) => profile?.activeOrganization?.permissions.includes(p) ?? false;
   const draft = versions.find((v) => v.status === 'draft');
   const published = versions.find((v) => v.status === 'published');
@@ -135,21 +156,68 @@ export default function AgentDetailPage() {
   const configForSummary = published?.configuration ?? draft?.configuration;
   const transferPhones = transferPhonesFromConfig(configForSummary);
   const showBuilderChrome = can('agents.update') && !isHiring;
+  const canTest = can('agents.test') || can('calls.initiate');
 
-  async function run(action: () => Promise<unknown>, ok: string) {
+  async function run(action: () => Promise<unknown>, ok: string, context: string) {
     try {
       await action();
-      setNotice(ok);
+      toast.success(ok);
       await reload();
+      return true;
     } catch (e) {
-      setNotice(e instanceof ApiClientError ? e.message : 'That did not work.');
+      const m = toUserMessage(e, context);
+      toast.error(m.title, { description: m.detail });
+      return false;
+    }
+  }
+
+  /** Publish or pause. The button goes once the state changes, so focus moves to the new state's heading. */
+  async function lifecycle(kind: 'publish' | 'pause') {
+    setBusy(kind);
+    const done =
+      kind === 'publish'
+        ? await run(
+            async () => {
+              const draftVer = versions.find((v) => v.status === 'draft');
+              if (draftVer) {
+                await publishVersion(agentId, draftVer.id);
+                return;
+              }
+              await agentAction(agentId, 'publish');
+            },
+            'Published. The agent can call now.',
+            'publish the agent',
+          )
+        : await run(
+            () => agentAction(agentId, 'pause'),
+            'Paused. The agent calls no one until you publish it again.',
+            'pause the agent',
+          );
+    setBusy(null);
+    if (done) stateHeading.current?.focus();
+  }
+
+  async function archive() {
+    setBusy('archive');
+    setArchiveError(null);
+    try {
+      await agentAction(agentId, 'archive');
+      setArchiveOpen(false);
+      toast.success('Archived. It stays in your records.');
+      await reload();
+      stateHeading.current?.focus();
+    } catch (e) {
+      const m = toUserMessage(e, 'archive the agent');
+      setArchiveError(messageText(m));
+    } finally {
+      setBusy(null);
     }
   }
 
   async function saveTransferPhones() {
     if (!can('agents.update')) return;
     setSavingTransfer(true);
-    setNotice(null);
+    setTransferError(null);
     try {
       const phones = transferEdit
         .split('\n')
@@ -183,15 +251,16 @@ export default function AgentDetailPage() {
       await updateDraft(agentId, draftId, next);
       if (can('agents.deploy')) {
         await publishVersion(agentId, draftId);
-        setNotice('Transfer numbers saved and published.');
+        toast.success('Hand-off numbers saved. The agent uses them from the next call.');
       } else {
-        setNotice('Transfer numbers saved. Publish the voice when ready.');
+        toast.success('Hand-off numbers saved', {
+          description: 'They apply once a workspace admin publishes the agent.',
+        });
       }
       await reload();
     } catch (e) {
-      setNotice(
-        e instanceof ApiClientError ? e.message : 'Could not save transfer numbers.',
-      );
+      const m = toUserMessage(e, 'save the hand-off numbers');
+      setTransferError(messageText(m));
     } finally {
       setSavingTransfer(false);
     }
@@ -205,567 +274,634 @@ export default function AgentDetailPage() {
     }
   }
 
+  const crumbs = [{ label: 'Agents', href: '/agents' }, { label: agent?.name ?? 'Agent' }];
+
   if (!agent) {
+    let body: ReactNode;
+    if (skeleton) {
+      body = <DetailSkeleton />;
+    } else {
+      const m = toUserMessage(loadError, 'open this agent');
+      // The whole page: the error names it (h1), with Retry and the way out.
+      body = (
+        <ErrorState
+          headingLevel={1}
+          title={m.title}
+          cause={m.detail}
+          retrying={retrying}
+          onRetry={async () => {
+            setRetrying(true);
+            await reload();
+            setRetrying(false);
+          }}
+          action={
+            <Button asChild variant="tertiary">
+              <Link href="/agents">All agents</Link>
+            </Button>
+          }
+        />
+      );
+    }
     return (
-      <AppShell profile={profile}>
-        <PageMain>
-          <SkeletonCard />
-        </PageMain>
+      <AppShell profile={profile} breadcrumb={crumbs}>
+        <PageMain>{body}</PageMain>
       </AppShell>
     );
   }
 
+  const state = agentStateCopy(agent.status, labels);
+  const canPublish = can('agents.deploy') && agent.status !== 'published' && agent.status !== 'archived';
+  const canPause = can('agents.pause') && agent.status === 'published';
+  const canArchive = can('agents.archive') && agent.status !== 'archived';
+
   return (
-    <AppShell profile={profile}>
-    <PageMain className="space-y-4 pb-10">
-      <PageHeader
-        title={agent.name}
-        description={agent.purpose || 'Phone screens for open roles'}
-        actions={
-          <Button asChild variant="ghost" size="sm">
-            <Link href="/agents">All hiring voices</Link>
-          </Button>
-        }
-      />
+    <AppShell profile={profile} breadcrumb={crumbs}>
+      <PageMain>
+        <PageHeader
+          title={agent.name}
+          status={<StatusTag domain="agent" value={agent.status} />}
+          description={agent.purpose || 'No description yet.'}
+          breadcrumb={<Breadcrumb items={crumbs} />}
+        />
 
-      {notice ? <Notice kind="ok">{notice}</Notice> : null}
-
-      <Surface className="space-y-3">
-        <div className="flex flex-wrap items-center gap-2 text-sm">
-          <span className="text-[var(--foreground-tertiary)]">Status</span>
-          <Badge tone={statusTone(agent.status)}>
-            {AGENT_STATUS_LABEL[agent.status] ?? agent.status}
-          </Badge>
-          {agent.currentVersion !== null ? (
-            <span className="text-[var(--foreground-muted)]">
-              {isHiring
-                ? 'Ready for phone screens'
-                : `Published version ${agent.currentVersion}`}
-            </span>
-          ) : null}
-        </div>
-        {agent.status !== 'published' && (
-          <p className="m-0 text-sm text-[var(--foreground-tertiary)]">
-            Publish before you try a browser demo or place a phone screen.
-          </p>
-        )}
-        <div className="flex flex-wrap gap-2">
-          {can('agents.deploy') && agent.status !== 'published' && (
-            <Button
-              type="button"
-              onClick={() =>
-                void run(async () => {
-                  const draftVer = versions.find((v) => v.status === 'draft');
-                  if (draftVer) {
-                    await publishVersion(agentId, draftVer.id);
-                    return;
-                  }
-                  await agentAction(agentId, 'publish');
-                }, 'Hiring voice published.')
-              }
-            >
-              Publish
-            </Button>
-          )}
-          {can('agents.pause') && agent.status === 'published' && (
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() =>
-                void run(() => agentAction(agentId, 'pause'), 'Hiring voice paused.')
-              }
-            >
-              Pause
-            </Button>
-          )}
-          {can('agents.archive') && agent.status !== 'archived' && !confirmingArchive && (
-            <Button type="button" variant="outline" onClick={() => setConfirmingArchive(true)}>
-              Archive
-            </Button>
-          )}
-        </div>
-        {can('agents.archive') && agent.status !== 'archived' && confirmingArchive && (
-          <div
-            role="alertdialog"
-            aria-labelledby="archive-confirm-title"
-            aria-describedby="archive-confirm-desc"
-            className="mt-3 rounded-lg border border-[color-mix(in_srgb,var(--danger)_35%,var(--separator))] bg-[color-mix(in_srgb,var(--danger)_8%,var(--surface))] p-3.5"
-          >
-            <p
-              id="archive-confirm-title"
-              className="m-0 mb-1.5 text-sm font-semibold text-[var(--danger)]"
-            >
-              Archive this hiring voice? This cannot be undone.
-            </p>
-            <p
-              id="archive-confirm-desc"
-              className="mb-3 mt-0 text-[13px] text-[var(--foreground-tertiary)]"
-            >
-              After archive, it stays in history only. You cannot publish it,
-              change it, or use it for new phone screens. Attach a different
-              published hiring voice on each job if you still need to call.
-            </p>
-            <div className="flex flex-wrap gap-2">
+        {loadError ? (
+          <Alert
+            kind="warning"
+            title="Couldn’t refresh this agent"
+            action={
               <Button
-                type="button"
-                variant="danger"
-                onClick={() =>
-                  void run(async () => {
-                    await agentAction(agentId, 'archive');
-                    setConfirmingArchive(false);
-                  }, 'Hiring voice archived.')
-                }
+                variant="secondary"
+                size="sm"
+                loading={retrying}
+                onClick={async () => {
+                  setRetrying(true);
+                  await reload();
+                  setRetrying(false);
+                }}
               >
-                Yes, archive
+                Retry
               </Button>
-              <Button type="button" variant="outline" onClick={() => setConfirmingArchive(false)}>
-                Cancel
-              </Button>
+            }
+          >
+            What you see is from the last time it loaded.
+          </Alert>
+        ) : null}
+
+        <div className={COLUMNS}>
+          <div className="min-w-0 space-y-6">
+            <section aria-labelledby="agent-state" className={CARD}>
+              <div className="flex items-start gap-4">
+                <HiringVoiceFace size={56} />
+                <div className="min-w-0 flex-1">
+                  {/* The state's tag sits by the agent's name; focus lands here after Publish or Pause. */}
+                  <h2 id="agent-state" ref={stateHeading} tabIndex={-1} className="m-0 text-section text-text">
+                    {state.title}
+                  </h2>
+                  <p className="mb-0 mt-1 text-text-2">{state.line}</p>
+                  {!isHiring && agent.currentVersion !== null ? (
+                    <p className="mb-0 mt-1 text-meta text-text-3 tabular-nums">
+                      Live setup: version {agent.currentVersion}
+                    </p>
+                  ) : null}
+                  {canPublish || canPause || canArchive ? (
+                    <div className="mt-5 flex flex-wrap gap-2">
+                      {canPublish ? (
+                        <Button
+                          type="button"
+                          loading={busy === 'publish'}
+                          disabled={busy !== null && busy !== 'publish'}
+                          onClick={() => void lifecycle('publish')}
+                        >
+                          <Radio aria-hidden strokeWidth={1.5} />
+                          Publish
+                        </Button>
+                      ) : null}
+                      {canPause ? (
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          loading={busy === 'pause'}
+                          disabled={busy !== null && busy !== 'pause'}
+                          onClick={() => void lifecycle('pause')}
+                        >
+                          <CirclePause aria-hidden strokeWidth={1.5} />
+                          Pause
+                        </Button>
+                      ) : null}
+                      {canArchive ? (
+                        <Button
+                          type="button"
+                          variant="tertiary"
+                          disabled={busy !== null}
+                          onClick={() => {
+                            setArchiveError(null);
+                            setArchiveOpen(true);
+                          }}
+                        >
+                          <Archive aria-hidden strokeWidth={1.5} />
+                          Archive
+                        </Button>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            </section>
+
+            {canTest ? (
+              <VoiceTestPanel
+                agentId={agentId}
+                canTest={canTest}
+                agentPublished={agent.status === 'published'}
+              />
+            ) : null}
+
+            {isHiring ? (
+              <section aria-labelledby="agent-handoff" className={CARD}>
+                <h2 id="agent-handoff" className="m-0 text-section text-text">
+                  Hand calls to your team
+                </h2>
+                <p className="mb-0 mt-1 max-w-[65ch] text-text-2">
+                  When a {labels.contact.one.toLowerCase()} asks for a person, the agent transfers
+                  the call to one of these numbers.
+                </p>
+                {can('agents.update') ? (
+                  <form
+                    className="mt-5 grid max-w-xl gap-4"
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      void saveTransferPhones();
+                    }}
+                  >
+                    <Field
+                      label="Hand-off numbers"
+                      hint="One number per line, with the country code, like +91 98765 43210. Up to 10."
+                      error={transferError}
+                    >
+                      <Textarea
+                        value={transferEdit}
+                        onChange={(e) => setTransferEdit(e.target.value)}
+                        placeholder="+91 98765 43210"
+                        rows={3}
+                      />
+                    </Field>
+                    <div>
+                      <Button type="submit" variant="secondary" loading={savingTransfer}>
+                        Save numbers
+                      </Button>
+                    </div>
+                  </form>
+                ) : transferPhones.length === 0 ? (
+                  <p className="mb-0 mt-4 text-text-3">No hand-off numbers yet.</p>
+                ) : (
+                  <ul role="list" className="m-0 mt-4 list-none space-y-1 p-0 tabular-nums text-text">
+                    {transferPhones.map((phone) => (
+                      <li key={phone}>{formatPhone(phone)}</li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+            ) : null}
+
+            {showBuilderChrome ? (
+              <Advanced
+                agent={agent}
+                versions={versions}
+                draft={draft}
+                published={published}
+                draftText={draftText}
+                setDraftText={setDraftText}
+                catalogue={catalogue}
+                agentTools={agentTools}
+                sessions={sessions}
+                activeSession={activeSession}
+                events={events}
+                executions={executions}
+                message={message}
+                setMessage={setMessage}
+                open={showAdvanced}
+                setOpen={setShowAdvanced}
+                can={can}
+                run={run}
+                openSession={openSession}
+                agentId={agentId}
+              />
+            ) : null}
+          </div>
+
+          <AgentSources can={can} />
+        </div>
+
+        <ConfirmDialog
+          open={archiveOpen}
+          onOpenChange={setArchiveOpen}
+          title={`Archive ${agent.name}?`}
+          body={`It stays in your records, but it can’t be changed, published or used for new calls. ${labels.workItem.many} that use it need another live agent before they can call.`}
+          confirmLabel="Archive agent"
+          tone="danger"
+          busy={busy === 'archive'}
+          error={archiveError}
+          onConfirm={() => void archive()}
+        />
+      </PageMain>
+    </AppShell>
+  );
+}
+
+/** The page's own shape: name, tag and line, the state card, a second card, and the aside. */
+function DetailSkeleton() {
+  return (
+    <SkeletonRecord tabs={0}>
+      <div className={COLUMNS}>
+        <div className="space-y-6">
+          <div className={cn(CARD, 'flex gap-4')}>
+            <Skeleton className="size-14 shrink-0 rounded-pill" />
+            <div className="flex-1 space-y-3 pt-1">
+              <Skeleton className="h-4 w-1/3 rounded-pill" />
+              <Skeleton className="h-3 w-2/3 rounded-pill" />
+              <Skeleton className="h-10 w-48 rounded-button" />
             </div>
           </div>
-        )}
-      </Surface>
+          <div className={cn(CARD, 'space-y-3')}>
+            <Skeleton className="h-4 w-1/4 rounded-pill" />
+            <Skeleton className="h-3 w-3/4 rounded-pill" />
+            <Skeleton className="h-10 w-36 rounded-button" />
+          </div>
+        </div>
+        <div className="space-y-3">
+          <Skeleton className="h-5 w-48 rounded-pill" />
+          <Skeleton className="h-20 rounded-card-sm" />
+          <Skeleton className="h-20 rounded-card-sm" />
+        </div>
+      </div>
+    </SkeletonRecord>
+  );
+}
 
-      {isHiring && (
-        <Surface className="space-y-3">
-          <h2 className="m-0 font-display text-base font-semibold tracking-tight">Hiring voice</h2>
-          <p className="m-0 text-[13px] text-[var(--foreground-tertiary)]">
-            This is the voice that runs phone screens. Transfer numbers hand a
-            call to your team when someone asks for a person. Role details and
-            screening questions live on each job.
-          </p>
-          <p className="m-0 text-sm">
-            <Link
-              href="/jobs"
-              className="font-semibold text-[var(--accent)] no-underline hover:underline"
-            >
-              Go to jobs
-            </Link>
-            <span className="text-[var(--foreground-muted)]">
-              {' '}
-              to attach this hiring voice to a role
-            </span>
-          </p>
-          {can('agents.update') ? (
-            <div className="grid gap-3">
-              <Field
-                label="Transfer numbers"
-                hint="One +91 mobile per line for human handoff."
-              >
-                <Textarea
-                  value={transferEdit}
-                  onChange={(e) => setTransferEdit(e.target.value)}
-                  rows={3}
-                />
-              </Field>
+/** One collapsible group of the advanced settings. */
+function Group({ title, open, children }: { title: string; open?: boolean; children: ReactNode }) {
+  return (
+    <details open={open} className="group rounded-card-sm border border-border">
+      <summary className="flex min-h-12 cursor-pointer list-none items-center justify-between gap-3 rounded-card-sm px-4 text-label font-semibold text-text marker:content-none focus-visible:-outline-offset-2 [&::-webkit-details-marker]:hidden">
+        {title}
+        <ChevronDown
+          aria-hidden
+          strokeWidth={1.5}
+          className="size-4 shrink-0 text-text-3 transition-transform duration-fast group-open:rotate-180"
+        />
+      </summary>
+      <div className="space-y-3 border-t border-border px-4 pb-4 pt-3">{children}</div>
+    </details>
+  );
+}
+
+/** The builder's settings and session log, for agents that aren't hiring agents. */
+function Advanced({
+  agent,
+  versions,
+  draft,
+  published,
+  draftText,
+  setDraftText,
+  catalogue,
+  agentTools,
+  sessions,
+  activeSession,
+  events,
+  executions,
+  message,
+  setMessage,
+  open,
+  setOpen,
+  can,
+  run,
+  openSession,
+  agentId,
+}: {
+  agent: Agent;
+  versions: AgentVersion[];
+  draft: AgentVersion | undefined;
+  published: AgentVersion | undefined;
+  draftText: string;
+  setDraftText: (text: string) => void;
+  catalogue: Tool[];
+  agentTools: Tool[];
+  sessions: AgentSession[];
+  activeSession: string | null;
+  events: SessionEvent[];
+  executions: ToolExecution[];
+  message: string;
+  setMessage: (text: string) => void;
+  open: boolean;
+  setOpen: (open: boolean) => void;
+  can: (permission: string) => boolean;
+  run: (action: () => Promise<unknown>, ok: string, context: string) => Promise<boolean>;
+  openSession: (id: string) => Promise<void>;
+  agentId: string;
+}) {
+  return (
+    <section aria-labelledby="agent-advanced" className={CARD}>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 id="agent-advanced" className="m-0 text-section text-text">
+          Advanced settings
+        </h2>
+        <Button type="button" variant="secondary" size="sm" aria-expanded={open} onClick={() => setOpen(!open)}>
+          {open ? 'Hide' : 'Show'}
+        </Button>
+      </div>
+      <p className="mb-0 mt-1 text-text-2">For technical admins. Changes stay unpublished until you publish them.</p>
+
+      {open ? (
+        <div className="mt-5 space-y-3">
+          <Group title="Saved setups" open>
+            <ul role="list" className="m-0 list-none divide-y divide-border p-0">
+              {versions.map((v) => (
+                <li key={v.id} className="flex min-h-12 flex-wrap items-center justify-between gap-2 py-2">
+                  <span className="tabular-nums">
+                    Setup {v.version}
+                    <span className="text-text-3">
+                      {' · '}
+                      {v.status === 'published' ? 'Live' : v.status === 'draft' ? 'Unpublished' : 'Earlier'}
+                    </span>
+                  </span>
+                  {v.status === 'draft' && can('agents.deploy') ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      onClick={() =>
+                        void run(() => publishVersion(agentId, v.id), 'This setup is now live.', 'publish this setup')
+                      }
+                    >
+                      Make this live
+                    </Button>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+            {can('agents.update') && !draft && published ? (
               <Button
                 type="button"
-                className="justify-self-start"
-                disabled={savingTransfer}
-                onClick={() => void saveTransferPhones()}
+                variant="secondary"
+                size="sm"
+                onClick={() =>
+                  void run(
+                    () => createDraft(agentId, published.configuration),
+                    'Started a new unpublished setup from the live one.',
+                    'start a new setup',
+                  )
+                }
               >
-                {savingTransfer ? 'Saving…' : 'Save transfer numbers'}
+                Start a new setup
               </Button>
-              {!published && (
-                <p className="m-0 text-[13px] text-[var(--foreground-tertiary)]">
-                  Publish the hiring voice before screening.
-                </p>
-              )}
-            </div>
-          ) : (
-            <p className="m-0 text-sm">
-              <strong>Transfer numbers</strong>
-              {transferPhones.length === 0 ? (
-                <span className="text-[var(--foreground-tertiary)]"> — none</span>
-              ) : (
-                <span>: {transferPhones.join(', ')}</span>
-              )}
+            ) : null}
+          </Group>
+
+          <Group title="Intelligence">
+            <p className="m-0 text-meta text-text-2">
+              A tier is a capability, not a model. Which model serves a tier is a platform
+              decision, so this setting survives changes behind the scenes.
             </p>
-          )}
-        </Surface>
-      )}
+            <p className="m-0">
+              Live tier: <strong className="font-semibold">{published ? tierOf(published.configuration) : 'not published'}</strong>
+            </p>
+            {draft && can('agents.update') ? (
+              <Field label="Unpublished setup tier" className="max-w-xs">
+                <Select
+                  value={tierOf(draft.configuration)}
+                  onChange={(e) =>
+                    void run(
+                      async () => {
+                        const next = {
+                          ...draft.configuration,
+                          capabilities: {
+                            ...((draft.configuration['capabilities'] as Record<string, unknown>) ?? {}),
+                            intelligenceTier: e.target.value,
+                          },
+                        };
+                        await updateDraft(agentId, draft.id, next);
+                        setDraftText(JSON.stringify(next, null, 2));
+                      },
+                      'Tier updated. Publish to use it on calls.',
+                      'update the tier',
+                    )
+                  }
+                >
+                  {INTELLIGENCE_TIERS.map((tier) => (
+                    <option key={tier} value={tier}>
+                      {tier}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+            ) : null}
+          </Group>
 
-      {can('agents.test') || can('calls.initiate') ? (
-        <VoiceTestPanel
-          agentId={agentId}
-          canTest={can('agents.test') || can('calls.initiate')}
-          agentPublished={agent.status === 'published'}
-          title={isHiring ? 'Try the hiring voice in your browser' : undefined}
-        />
-      ) : null}
+          <Group title="Integrations">
+            <p className="m-0 text-meta text-text-2">
+              Company integrations this agent may use during a call. Most teams leave these off.
+            </p>
+            {catalogue.length === 0 ? (
+              <p className="m-0 text-text-2">No integrations are available in this workspace yet. Calls work without them.</p>
+            ) : (
+              <ul role="list" className="m-0 list-none divide-y divide-border p-0">
+                {catalogue.map((tool) => {
+                  const isGranted = agentTools.some((t) => t.id === tool.id);
+                  return (
+                    <li key={tool.id} className="flex min-h-12 items-center justify-between gap-3 py-2">
+                      <span className="min-w-0">
+                        {tool.name}
+                        {!tool.enabled ? <span className="text-meta text-text-3"> · switched off in this workspace</span> : null}
+                      </span>
+                      {can('agents.update') ? (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="secondary"
+                          onClick={() =>
+                            void run(
+                              () => (isGranted ? revokeAgentTool(agentId, tool.id) : grantAgentTool(agentId, tool.id)),
+                              isGranted ? `${tool.name} is off for this agent.` : `${tool.name} is on for this agent.`,
+                              isGranted ? `turn off ${tool.name}` : `turn on ${tool.name}`,
+                            )
+                          }
+                        >
+                          {isGranted ? 'Turn off' : 'Turn on'}
+                        </Button>
+                      ) : null}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </Group>
 
-      {showBuilderChrome && (
-        <>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => setShowAdvanced((v) => !v)}
-          >
-            {showAdvanced ? 'Hide advanced settings' : 'Show advanced settings'}
-          </Button>
+          {draft && can('agents.update') ? (
+            <Group title="Setup text">
+              <p className="m-0 text-meta text-text-2">
+                The unpublished setup as text. Each job’s questions and documents are set on the job instead.
+              </p>
+              <Textarea
+                value={draftText}
+                onChange={(e) => setDraftText(e.target.value)}
+                rows={14}
+                className="min-h-[16rem] font-mono text-meta"
+                aria-label="Unpublished setup text"
+              />
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() =>
+                  void run(
+                    async () => {
+                      let parsed: unknown;
+                      try {
+                        parsed = JSON.parse(draftText);
+                      } catch {
+                        throw new ApiClientError(422, {
+                          code: 'validation_failed',
+                          message: 'That setup text could not be read. Ask a technical admin to check it.',
+                        });
+                      }
+                      return updateDraft(agentId, draft.id, parsed);
+                    },
+                    'Setup saved.',
+                    'save the setup',
+                  )
+                }
+              >
+                Save setup
+              </Button>
+            </Group>
+          ) : null}
 
-          {showAdvanced && (
-            <div className="space-y-4">
-              <details open className="group rounded-xl border border-[var(--separator-subtle)] bg-[var(--surface)]">
-                <summary className="cursor-pointer list-none px-4 py-3 font-display text-sm font-semibold tracking-tight marker:content-none [&::-webkit-details-marker]:hidden">
-                  Saved setups
-                  <span className="ml-2 text-[12px] font-medium text-[var(--foreground-muted)] group-open:hidden">
-                    show
-                  </span>
-                </summary>
-                <div className="space-y-3 border-t border-[var(--separator-subtle)] px-4 pb-4 pt-3">
-                  <ul className="m-0 list-none space-y-0 p-0 text-sm">
-                    {versions.map((v) => (
-                      <li
-                        key={v.id}
-                        className="flex flex-wrap items-center gap-2 border-t border-[var(--separator-subtle)] py-2 first:border-t-0"
-                      >
-                        <span>
-                          Setup {v.version} ·{' '}
-                          {v.status === 'published'
-                            ? 'Live'
-                            : v.status === 'draft'
-                              ? 'Unpublished'
-                              : v.status}
+          {can('agents.sessions.read') ? (
+            <Group title="Test sessions">
+              {can('agents.sessions.manage') && agent.status === 'published' ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  onClick={() =>
+                    void run(
+                      async () => {
+                        const s = await createSession(agentId);
+                        await openSession(s.id);
+                      },
+                      'Session started.',
+                      'start a session',
+                    )
+                  }
+                >
+                  Start a test session
+                </Button>
+              ) : null}
+              {sessions.length === 0 ? (
+                <p className="m-0 text-text-3">No sessions yet.</p>
+              ) : (
+                <ul role="list" className="m-0 list-none divide-y divide-border p-0">
+                  {sessions.map((s) => (
+                    <li key={s.id} className="flex min-h-11 flex-wrap items-center gap-x-2 py-1.5">
+                      <Button type="button" variant="link" className="h-auto px-0" onClick={() => void openSession(s.id)}>
+                        {s.id.slice(0, 8)}
+                      </Button>
+                      <span className="text-meta text-text-3 tabular-nums">
+                        Setup {s.agentVersion} · {s.status}
+                        {s.endedReason ? ` (${s.endedReason})` : ''}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </Group>
+          ) : null}
+
+          {activeSession ? (
+            <Group title="Session log" open>
+              <ol className="m-0 space-y-1 pl-5 font-mono text-meta">
+                {events.map((e) => {
+                  const citations = Array.isArray(e.payload?.['citations'])
+                    ? (e.payload['citations'] as { documentName: string }[])
+                    : [];
+                  const tone =
+                    e.type === 'ErrorOccurred' || e.type === 'ToolFailed'
+                      ? 'text-status-danger-text'
+                      : e.direction === 'inbound'
+                        ? 'text-status-warning-text'
+                        : 'text-status-success-text';
+                  return (
+                    <li key={e.id}>
+                      <span className={tone}>
+                        {e.sequence}. {e.type}
+                      </span>
+                      {typeof e.payload?.['content'] === 'string' ? (
+                        <span className="text-text-2"> {String(e.payload['content'])}</span>
+                      ) : null}
+                      {typeof e.payload?.['message'] === 'string' ? (
+                        <span className="text-text-2"> {String(e.payload['message'])}</span>
+                      ) : null}
+                      {typeof e.payload?.['toolName'] === 'string' ? (
+                        <span className="text-text-2"> {String(e.payload['toolName'])}</span>
+                      ) : null}
+                      {citations.length > 0 ? (
+                        <span className="text-text-2">
+                          {' '}
+                          · from {citations.map((c) => c.documentName).join(', ')}
                         </span>
-                        {v.status === 'draft' && can('agents.deploy') && (
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            onClick={() =>
-                              void run(
-                                () => publishVersion(agentId, v.id),
-                                'This setup is now live.',
-                              )
-                            }
-                          >
-                            Make this live
-                          </Button>
-                        )}
+                      ) : null}
+                    </li>
+                  );
+                })}
+              </ol>
+
+              {executions.length > 0 ? (
+                <>
+                  <h3 className="m-0 text-label font-semibold">Integration calls</h3>
+                  <ul role="list" className="m-0 list-none p-0 font-mono text-meta">
+                    {executions.map((x) => (
+                      <li key={x.id} className="py-0.5">
+                        <span className={x.status === 'completed' ? 'text-status-success-text' : 'text-status-danger-text'}>
+                          {x.toolName}, {x.status}
+                        </span>
+                        {x.denialReason ? ` (${x.denialReason})` : ''}
+                        {x.durationMs !== null ? ` · ${x.durationMs}ms` : ''}
                       </li>
                     ))}
                   </ul>
-                  {can('agents.update') && !draft && published && (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() =>
-                        void run(
-                          () => createDraft(agentId, published.configuration),
-                          'Started a new unpublished setup from the live one.',
-                        )
-                      }
-                    >
-                      Start a new setup
-                    </Button>
-                  )}
-                </div>
-              </details>
-
-              <details className="rounded-xl border border-[var(--separator-subtle)] bg-[var(--surface)]">
-                <summary className="cursor-pointer list-none px-4 py-3 font-display text-sm font-semibold tracking-tight marker:content-none [&::-webkit-details-marker]:hidden">
-                  Intelligence
-                </summary>
-                <div className="space-y-3 border-t border-[var(--separator-subtle)] px-4 pb-4 pt-3">
-                  <p className="m-0 text-[13px] text-[var(--foreground-tertiary)]">
-                    A tier is a capability, not a model. Which model serves a tier is a
-                    platform decision, so this setting survives changing providers.
-                  </p>
-                  <p className="m-0 text-sm">
-                    Serving:{' '}
-                    <strong>
-                      {published ? tierOf(published.configuration) : 'not published'}
-                    </strong>
-                  </p>
-                  {draft && can('agents.update') && (
-                    <Field
-                      label="Unpublished setup · intelligence"
-                      className="max-w-xs"
-                    >
-                      <Select
-                        value={tierOf(draft.configuration)}
-                        onChange={(e) =>
-                          void run(async () => {
-                            const next = {
-                              ...draft.configuration,
-                              capabilities: {
-                                ...((draft.configuration['capabilities'] as Record<
-                                  string,
-                                  unknown
-                                >) ?? {}),
-                                intelligenceTier: e.target.value,
-                              },
-                            };
-                            await updateDraft(agentId, draft.id, next);
-                            setDraftText(JSON.stringify(next, null, 2));
-                          }, 'Intelligence updated. Publish to use on calls.')
-                        }
-                      >
-                        {INTELLIGENCE_TIERS.map((tier) => (
-                          <option key={tier} value={tier}>
-                            {tier}
-                          </option>
-                        ))}
-                      </Select>
-                    </Field>
-                  )}
-                </div>
-              </details>
-
-              <details className="rounded-xl border border-[var(--separator-subtle)] bg-[var(--surface)]">
-                <summary className="cursor-pointer list-none px-4 py-3 font-display text-sm font-semibold tracking-tight marker:content-none [&::-webkit-details-marker]:hidden">
-                  Integrations
-                </summary>
-                <div className="space-y-3 border-t border-[var(--separator-subtle)] px-4 pb-4 pt-3">
-                  <p className="m-0 text-[13px] text-[var(--foreground-tertiary)]">
-                    Optional company integrations this hiring voice may request
-                    during a screen. Most hiring teams leave this closed.
-                  </p>
-                  {catalogue.length === 0 ? (
-                    <p className="m-0 text-sm text-[var(--foreground-secondary)]">
-                      No integrations are available for this company yet. Phone
-                      screens work without them.
-                    </p>
-                  ) : (
-                    <ul className="m-0 list-none p-0 text-sm">
-                      {catalogue.map((tool) => {
-                        const isGranted = agentTools.some((t) => t.id === tool.id);
-                        return (
-                          <li
-                            key={tool.id}
-                            className="flex justify-between gap-3 border-t border-[var(--separator-subtle)] py-2 first:border-t-0"
-                          >
-                            <span>
-                              {tool.name}
-                              <span className="text-[12.5px] text-[var(--foreground-tertiary)]">
-                                {' '}
-                                · needs {tool.requiredPermission}
-                                {!tool.enabled && ' · disabled for this company'}
-                              </span>
-                            </span>
-                            {can('agents.update') && (
-                              <Button
-                                type="button"
-                                size="sm"
-                                variant="outline"
-                                onClick={() =>
-                                  void run(
-                                    () =>
-                                      isGranted
-                                        ? revokeAgentTool(agentId, tool.id)
-                                        : grantAgentTool(agentId, tool.id),
-                                    isGranted
-                                      ? `${tool.name} revoked from this hiring voice.`
-                                      : `${tool.name} granted to this hiring voice.`,
-                                  )
-                                }
-                              >
-                                {isGranted ? 'Revoke' : 'Grant'}
-                              </Button>
-                            )}
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  )}
-                </div>
-              </details>
-
-              {draft && can('agents.update') && (
-                <details className="rounded-xl border border-[var(--separator-subtle)] bg-[var(--surface)]">
-                  <summary className="cursor-pointer list-none px-4 py-3 font-display text-sm font-semibold tracking-tight marker:content-none [&::-webkit-details-marker]:hidden">
-                    Advanced setup
-                  </summary>
-                  <div className="space-y-3 border-t border-[var(--separator-subtle)] px-4 pb-4 pt-3">
-                    <p className="m-0 text-[13px] text-[var(--foreground-tertiary)]">
-                      For technical admins. Most hiring teams never open this —
-                      job questions and documents are set on each role instead.
-                      Changes stay in draft until you publish.
-                    </p>
-                    <p className="m-0 text-[12px] text-[var(--foreground-muted)]">
-                      Unpublished setup
-                    </p>
-                    <Textarea
-                      value={draftText}
-                      onChange={(e) => setDraftText(e.target.value)}
-                      rows={14}
-                      className="min-h-[16rem] font-mono text-[12.5px]"
-                      aria-label="Advanced hiring voice setup"
-                    />
-                    <Button
-                      type="button"
-                      onClick={() =>
-                        void run(async () => {
-                          let parsed: unknown;
-                          try {
-                            parsed = JSON.parse(draftText);
-                          } catch {
-                            throw new ApiClientError(422, {
-                              code: 'validation_failed',
-                              message:
-                                'That setup text could not be read. Ask a technical admin to check it.',
-                            });
-                          }
-                          return updateDraft(agentId, draft.id, parsed);
-                        }, 'Setup saved.')
-                      }
-                    >
-                      Save setup
-                    </Button>
-                  </div>
-                </details>
-              )}
-
-              {can('agents.sessions.read') && (
-                <details className="rounded-xl border border-[var(--separator-subtle)] bg-[var(--surface)]">
-                  <summary className="cursor-pointer list-none px-4 py-3 font-display text-sm font-semibold tracking-tight marker:content-none [&::-webkit-details-marker]:hidden">
-                    Sessions
-                  </summary>
-                  <div className="space-y-3 border-t border-[var(--separator-subtle)] px-4 pb-4 pt-3">
-                    {can('agents.sessions.manage') && agent.status === 'published' && (
-                      <Button
-                        type="button"
-                        size="sm"
-                        onClick={() =>
-                          void run(async () => {
-                            const s = await createSession(agentId);
-                            await openSession(s.id);
-                          }, 'Session started.')
-                        }
-                      >
-                        Start a test session
-                      </Button>
-                    )}
-                    <ul className="m-0 list-none p-0 text-sm">
-                      {sessions.map((s) => (
-                        <li
-                          key={s.id}
-                          className="border-t border-[var(--separator-subtle)] py-2 first:border-t-0"
-                        >
-                          <button
-                            type="button"
-                            className="border-0 bg-transparent p-0 text-[var(--accent)] underline-offset-2 hover:underline"
-                            onClick={() => void openSession(s.id)}
-                          >
-                            {s.id.slice(0, 8)}
-                          </button>
-                          {' — '}setup {s.agentVersion} · {s.status}
-                          {s.endedReason && ` (${s.endedReason})`}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                </details>
-              )}
-
-              {activeSession && (
-                <details open className="rounded-xl border border-[var(--separator-subtle)] bg-[var(--surface)]">
-                  <summary className="cursor-pointer list-none px-4 py-3 font-display text-sm font-semibold tracking-tight marker:content-none [&::-webkit-details-marker]:hidden">
-                    Call log
-                  </summary>
-                  <div className="space-y-3 border-t border-[var(--separator-subtle)] px-4 pb-4 pt-3">
-                    <ol className="m-0 space-y-1 pl-5 font-mono text-[12.5px]">
-                      {events.map((e) => {
-                        const citations = Array.isArray(e.payload?.['citations'])
-                          ? (e.payload['citations'] as { documentName: string }[])
-                          : [];
-                        const tone =
-                          e.type === 'ErrorOccurred' || e.type === 'ToolFailed'
-                            ? 'text-[var(--danger)]'
-                            : e.direction === 'inbound'
-                              ? 'text-[var(--warning)]'
-                              : 'text-[var(--success)]';
-                        return (
-                          <li key={e.id}>
-                            <span className={tone}>
-                              {e.sequence}. {e.type}
-                            </span>
-                            {typeof e.payload?.['content'] === 'string' && (
-                              <span className="text-[var(--foreground-tertiary)]">
-                                {' '}
-                                — {String(e.payload['content'])}
-                              </span>
-                            )}
-                            {typeof e.payload?.['message'] === 'string' && (
-                              <span className="text-[var(--foreground-tertiary)]">
-                                {' '}
-                                — {String(e.payload['message'])}
-                              </span>
-                            )}
-                            {typeof e.payload?.['toolName'] === 'string' && (
-                              <span className="text-[var(--foreground-tertiary)]">
-                                {' '}
-                                — {String(e.payload['toolName'])}
-                              </span>
-                            )}
-                            {citations.length > 0 && (
-                              <span className="text-[var(--foreground-tertiary)]">
-                                {' '}
-                                · grounded in{' '}
-                                {citations.map((c) => c.documentName).join(', ')}
-                              </span>
-                            )}
-                          </li>
-                        );
-                      })}
-                    </ol>
-
-                    {executions.length > 0 && (
-                      <>
-                        <h3 className="m-0 text-sm font-semibold">Tool calls</h3>
-                        <ul className="m-0 mb-3.5 list-none p-0 font-mono text-[12.5px]">
-                          {executions.map((x) => (
-                            <li key={x.id} className="py-0.5">
-                              <span
-                                className={
-                                  x.status === 'completed'
-                                    ? 'text-[var(--success)]'
-                                    : 'text-[var(--danger)]'
-                                }
-                              >
-                                {x.toolName} — {x.status}
-                              </span>
-                              {x.denialReason && ` (${x.denialReason})`}
-                              {x.durationMs !== null && ` · ${x.durationMs}ms`}
-                            </li>
-                          ))}
-                        </ul>
-                      </>
-                    )}
-                    {can('agents.sessions.manage') && (
-                      <div className="flex gap-2">
-                        <Input
-                          value={message}
-                          onChange={(e) => setMessage(e.target.value)}
-                          placeholder="Send a message to the hiring voice"
-                          className="flex-1"
-                        />
-                        <Button
-                          type="button"
-                          onClick={() =>
-                            void run(async () => {
-                              await sendSessionMessage(activeSession, message);
-                              setMessage('');
-                              await openSession(activeSession);
-                            }, 'Message processed.')
-                          }
-                        >
-                          Send
-                        </Button>
-                      </div>
-                    )}
-                  </div>
-                </details>
-              )}
-            </div>
-          )}
-
-        </>
-      )}
-    </PageMain>
-    </AppShell>
+                </>
+              ) : null}
+              {can('agents.sessions.manage') ? (
+                <form
+                  className="flex flex-col gap-2 sm:flex-row"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    void run(
+                      async () => {
+                        await sendSessionMessage(activeSession, message);
+                        setMessage('');
+                        await openSession(activeSession);
+                      },
+                      'Message sent.',
+                      'send the message',
+                    );
+                  }}
+                >
+                  <Input
+                    value={message}
+                    onChange={(e) => setMessage(e.target.value)}
+                    placeholder="Send a message to the agent"
+                    aria-label="Message to the agent"
+                    className="sm:flex-1"
+                  />
+                  <Button type="submit" variant="secondary">
+                    Send
+                  </Button>
+                </form>
+              ) : null}
+            </Group>
+          ) : null}
+        </div>
+      ) : null}
+    </section>
   );
 }

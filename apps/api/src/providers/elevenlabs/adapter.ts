@@ -92,6 +92,7 @@ export interface VoiceSessionAdapter {
     organizationName?: string;
     greeting?: string;
     primaryLanguage?: string;
+    companyFacts?: string;
   }): Promise<{ externalAgentId: string; externalKbDocId: string | null; llmModel: string }>;
 
   /**
@@ -196,6 +197,7 @@ export function createVoiceSessionAdapter(env: Env): VoiceSessionAdapter {
       organizationName,
       greeting,
       primaryLanguage,
+      companyFacts,
     }) {
       const cl = client();
       const { verified, model } = await this.verifyLlmAvailable();
@@ -210,6 +212,7 @@ export function createVoiceSessionAdapter(env: Env): VoiceSessionAdapter {
         organizationName,
         greeting,
         primaryLanguage,
+        companyFacts,
       });
 
       // Upload knowledge snapshot if provided (Strategy A).

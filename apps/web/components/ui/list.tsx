@@ -1,65 +1,45 @@
-import type { ReactNode } from 'react';
-import Link from 'next/link';
-import { cn } from '@/lib/utils';
+'use client';
 
-/** Quiet table-like list for Jobs, people, agents, activity. */
-export function DataList({
-  children,
-  className,
-}: {
-  children: ReactNode;
-  className?: string;
-}) {
+import { createContext, useContext, type ReactNode } from 'react';
+import { cn } from './cn';
+import { LIST_HEADER, ListRow, ListRowTitle, RowLayoutContext } from './strip';
+
+/*
+  Legacy list family, drawn as D2 table rows. New code: ListRows, ListRow, ListRowPrimary, ListCell.
+  DataList is the white 20px card, DataListHeader its subtle header row, DataListBody the
+  hairline-divided rows. Rows open through a real link or button (DataListTitle), stretched
+  over the row. Hover subtle; open (selected) accent-soft with a 3px accent bar; focus an accent ring.
+*/
+
+const RowContext = createContext<{ href?: string; onClick?: () => void }>({});
+
+type Slot = { children: ReactNode; className?: string };
+
+export function DataList({ children, className }: Slot) {
   return (
-    <div
-      className={cn(
-        'overflow-hidden rounded-lg border border-[var(--separator-subtle)] bg-[var(--surface)]',
-        className,
-      )}
-    >
-      {children}
+    <div className={cn('overflow-hidden rounded-card border border-border bg-canvas', className)}>
+      <RowLayoutContext.Provider value="rows">{children}</RowLayoutContext.Provider>
     </div>
   );
 }
 
-export function DataListHeader({
-  children,
-  className,
-}: {
-  children: ReactNode;
-  className?: string;
-}) {
-  return (
-    <div
-      className={cn(
-        'grid items-center gap-3 border-b border-[var(--separator-subtle)] px-4 py-2 text-[11px] font-medium uppercase tracking-[0.04em] text-[var(--foreground-muted)]',
-        className,
-      )}
-    >
-      {children}
-    </div>
-  );
+/** Column labels on the subtle header row. Same horizontal geometry as a row, so pass the rows' grid-cols. */
+export function DataListHeader({ children, className }: Slot) {
+  return <div className={cn(LIST_HEADER, 'grid', className)}>{children}</div>;
 }
 
-export function DataListBody({
-  children,
-  className,
-}: {
-  children: ReactNode;
-  className?: string;
-}) {
+export function DataListBody({ children, className }: Slot) {
   return (
-    <ul
-      className={cn(
-        'm-0 list-none divide-y divide-[var(--separator-subtle)] p-0',
-        className,
-      )}
-    >
+    <ul role="list" className={cn('m-0 list-none divide-y divide-border p-0', className)}>
       {children}
     </ul>
   );
 }
 
+/**
+ * One row. With href or onClick the row opens through its DataListTitle,
+ * which becomes a link or a button; keep a DataListTitle in every such row.
+ */
 export function DataListRow({
   href,
   children,
@@ -73,83 +53,26 @@ export function DataListRow({
   onClick?: () => void;
   selected?: boolean;
 }) {
-  const rowClass = cn(
-    'grid items-center gap-3 px-4 py-2.5 text-[var(--foreground)] transition-colors duration-fast hover:bg-[var(--surface-secondary)]',
-    href && 'no-underline',
-    selected &&
-      'bg-[color-mix(in_srgb,var(--accent)_10%,transparent)] hover:bg-[color-mix(in_srgb,var(--accent)_14%,transparent)]',
-    className,
-  );
-
-  if (href) {
-    return (
-      <li>
-        <Link
-          href={href}
-          className={rowClass}
-          onClick={onClick}
-          aria-current={selected ? 'true' : undefined}
-        >
-          {children}
-        </Link>
-      </li>
-    );
-  }
-
   return (
     <li>
-      <div
-        className={rowClass}
-        onClick={onClick}
-        onKeyDown={
-          onClick
-            ? (e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault();
-                  onClick();
-                }
-              }
-            : undefined
-        }
-        role={onClick ? 'button' : undefined}
-        tabIndex={onClick ? 0 : undefined}
-        aria-current={selected ? 'true' : undefined}
-      >
-        {children}
-      </div>
+      <RowContext.Provider value={{ href, onClick }}>
+        <ListRow reflow={false} selected={selected} className={className}>
+          {children}
+        </ListRow>
+      </RowContext.Provider>
     </li>
   );
 }
 
-export function DataListTitle({
-  children,
-  className,
-}: {
-  children: ReactNode;
-  className?: string;
-}) {
+export function DataListTitle({ children, className }: Slot) {
+  const { href, onClick } = useContext(RowContext);
   return (
-    <span className={cn('block truncate text-sm font-semibold', className)}>
+    <ListRowTitle href={href} onOpen={onClick} className={className}>
       {children}
-    </span>
+    </ListRowTitle>
   );
 }
 
-export function DataListMeta({
-  children,
-  className,
-}: {
-  children: ReactNode;
-  className?: string;
-}) {
-  return (
-    <p
-      className={cn(
-        'mt-1 mb-0 text-sm text-[var(--foreground-tertiary)]',
-        className,
-      )}
-    >
-      {children}
-    </p>
-  );
+export function DataListMeta({ children, className }: Slot) {
+  return <p className={cn('mb-0 mt-0.5 text-meta text-text-3', className)}>{children}</p>;
 }

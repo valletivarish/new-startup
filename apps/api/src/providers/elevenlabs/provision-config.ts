@@ -96,6 +96,11 @@ export function buildVoiceProvisionConfig(input: {
   organizationName?: string;
   greeting?: string;
   primaryLanguage?: string;
+  /**
+   * Company-wide facts (policies, about the company). Injected into the
+   * system prompt on every screen. Not job-specific questions.
+   */
+  companyFacts?: string;
 }): VoiceProvisionConfig {
   const purpose = input.agentPurpose.trim();
   const criteria = (input.criteria ?? []).filter((c) => c.label.trim().length > 0);
@@ -129,12 +134,15 @@ export function buildVoiceProvisionConfig(input: {
         'You are the hiring agent for this company. Introduce yourself only as the hiring agent from the company. Never use a personal name, nickname, or the agent record name.',
       );
     }
+    lines.push(
+      'Talk like a friendly recruiter on the phone: short, natural sentences in plain words. Answer the candidate\'s questions in your own words. Never mention where an answer comes from: do not say "the job description says", "according to our documents" or "the knowledge base".',
+    );
   }
 
   if (criteria.length > 0) {
     lines.push('');
     lines.push(
-      'Ask exactly one question at a time from this list. Wait for a clear spoken answer before asking the next. Never bundle questions, never read the full list at once, and do not skip ahead:',
+      'Ask exactly one question at a time from this list, in order. Wait for their answer before asking the next. If they would rather not answer, or seem unwilling, accept it politely and move on; never press or ask that question again. If you did not hear their answer, say so and ask again (for example: "Sorry, I didn\'t get that. Could you tell me once more?"). If an answer is vague or does not answer the question, ask the same question once more in simpler words, the way a person would. Keep the same meaning; do not suggest an answer or give options. If it is still unclear, thank them and move to the next question. If they already answered a later question, do not ask it again. If they ask something the role details and company facts do not cover, do not guess; say you\'ll check with the hiring team. If they say it is not a good time to talk, say that is fine and the team can call at a better time, then end the call. Never bundle questions and never read the full list at once:',
     );
     criteria.forEach((c, i) => {
       lines.push(`${i + 1}. ${c.label.trim()}`);
@@ -142,6 +150,19 @@ export function buildVoiceProvisionConfig(input: {
     lines.push(
       'After the last answer, thank them briefly and end the call. Do not invent extra questions.',
     );
+  }
+
+  const companyFacts = (input.companyFacts ?? '').trim();
+  if (companyFacts) {
+    lines.push('');
+    lines.push(
+      'Company facts below are true for every role at this company. Use them when the candidate asks about the company, workplace, or shared policies.',
+    );
+    lines.push(
+      'Do not treat company facts as screening questions. Job-specific items such as notice period, pay for this role, or this job\'s requirements come from the role, not from this section.',
+    );
+    lines.push('');
+    lines.push(companyFacts.slice(0, 12_000));
   }
 
   if (isHiring) {

@@ -1,325 +1,657 @@
 'use client';
 
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
-import { useRouter } from 'next/navigation';
-import { UserPlus } from 'lucide-react';
-import { Button } from './ui/button';
-import { Field, Input, Select } from './ui/input';
-import { Notice, Surface } from './ui/page';
-import { SkeletonCard } from './ui/skeleton';
-import { loginPathForReturn } from '../lib/auth-redirect';
+/**
+ * Settings › Team (spec 8): the people in the workspace with their access levels, the invites
+ * that are out, and the invite dialog. Every change that reaches a person (a new level signs
+ * them out, a reset or invite emails them) or removes something asks first.
+ */
+
+import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query';
+import { toast } from 'sonner';
+import { Ban, KeyRound, Link2, UserMinus, UserPlus } from 'lucide-react';
 import {
-  ApiClientError,
   changeMemberRole,
   invitations as fetchInvitations,
   invite,
-  me,
+  listRoles,
   members as fetchMembers,
+  removeMember,
+  resendInvitation,
+  revokeInvitation,
+  sendMemberPasswordReset,
   type Invitation,
+  type InviteResult,
   type Me,
   type Member,
-} from '../lib/api';
+  type Role,
+} from '@/lib/api';
+import { messageText, toUserMessage } from '@/lib/errors';
+import { formatWhen } from '@/lib/format';
+import { useUseCase } from '@/lib/use-cases';
+import { UserInitials } from '@/components/shared/user-initials';
+import { Button } from '@/components/ui/button';
+import { ConfirmDialog } from '@/components/ui/confirm';
+import { CopyField } from '@/components/ui/copy-field';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { ErrorState } from '@/components/ui/error-state';
+import { IconButton } from '@/components/ui/icon-button';
+import { Field, Input, Select } from '@/components/ui/input';
+import { Alert } from '@/components/ui/notice';
+import { SkeletonRows, useHeldLoading } from '@/components/ui/skeleton';
+import { StatusBadge, StatusTag } from '@/components/ui/state-tag';
+import { ListCell, ListRow, ListRowPrimary, ListRows } from '@/components/ui/strip';
+import {
+  BUILT_IN_LEVELS,
+  accessBlurb,
+  accessName,
+  canGrant,
+  sortLevels,
+  teamKeys,
+  type Granter,
+} from './settings/access';
+import { SectionHead } from './settings/sections';
 
-const ROLE_LABEL: Record<string, string> = {
-  owner: 'Owner',
-  administrator: 'Administrator',
-  agent_manager: 'Hiring voice manager',
-  knowledge_manager: 'Documents manager',
-  recruiter: 'Recruiter',
-  analyst: 'Analyst',
-  viewer: 'Viewer',
-};
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-const ROLE_ACCESS: Record<string, string> = {
-  owner: 'Full company control, including inviting people and deleting the company.',
-  administrator: 'Run the hiring desk end to end. Cannot delete the company.',
-  agent_manager: 'Set up and publish hiring voices for screens.',
-  knowledge_manager: 'Add and edit company documents.',
-  recruiter: 'Jobs, candidates, and Call phone.',
-  analyst: 'Read hiring numbers only.',
-  viewer: 'See jobs and outcomes only.',
-};
+/** What the confirm dialog is asking about. */
+type Pending =
+  | { kind: 'level'; member: Member; level: Role }
+  | { kind: 'reset'; member: Member }
+  | { kind: 'remove'; member: Member }
+  | { kind: 'resend'; invitation: Invitation }
+  | { kind: 'revoke'; invitation: Invitation };
 
-const ASSIGNABLE_ROLES = [
-  ['viewer', 'Viewer'],
-  ['recruiter', 'Recruiter'],
-  ['analyst', 'Analyst'],
-  ['knowledge_manager', 'Documents manager'],
-  ['agent_manager', 'Hiring voice manager'],
-  ['administrator', 'Administrator'],
-] as const;
+/** The invite dialog: the form, or the link it made (a new invite, or a fresh link for an old one). */
+type InviteDialogState = { step: 'form' } | { step: 'link'; email: string; result: InviteResult; renewed: boolean };
 
-const ASSIGNABLE_ROLE_KEYS: ReadonlySet<string> = new Set(
-  ASSIGNABLE_ROLES.map(([value]) => value),
-);
+const nameOf = (m: Member) => m.name.trim() || m.email;
 
-function roleLabel(key: string): string {
-  return ROLE_LABEL[key] ?? key.replace(/_/g, ' ');
-}
+export function TeamSettings({
+  profile,
+  workspaceName,
+  inviteRequested = false,
+  onInviteHandled,
+}: {
+  profile: Me;
+  workspaceName: string | null;
+  /** The page was opened to invite someone (?invite=1): open the dialog once. */
+  inviteRequested?: boolean;
+  onInviteHandled?: () => void;
+}) {
+  const queryClient = useQueryClient();
+  const org = profile.activeOrganization;
+  const can = (p: string) => org?.permissions.includes(p) ?? false;
+  const me: Granter = { role: org?.role ?? '', permissions: org?.permissions ?? [] };
+  const workspace = workspaceName ?? 'this workspace';
 
-function roleAccess(key: string): string {
-  return ROLE_ACCESS[key] ?? 'Access for this company is set by their attached role.';
-}
+  const people = useQuery({ queryKey: teamKeys.members, queryFn: fetchMembers, enabled: can('users.read') });
+  const invites = useQuery({
+    queryKey: teamKeys.invites,
+    queryFn: fetchInvitations,
+    enabled: can('users.read') || can('users.invite'),
+  });
+  const roles = useQuery({ queryKey: teamKeys.roles, queryFn: listRoles, enabled: can('roles.read') });
+  // Without the list (no permission to see levels, or it failed) the built-in levels still work.
+  const levels = sortLevels(roles.data?.roles ?? BUILT_IN_LEVELS);
+  const grantable = levels.filter((level) => canGrant(level, me));
 
-export function TeamSettings() {
-  const router = useRouter();
-  const [profile, setProfile] = useState<Me | null>(null);
-  const [memberRows, setMemberRows] = useState<Member[]>([]);
-  const [inviteRows, setInviteRows] = useState<Invitation[]>([]);
-  const [inviteEmail, setInviteEmail] = useState('');
-  const [inviteRole, setInviteRole] = useState('viewer');
-  const [busyMembershipId, setBusyMembershipId] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
-  const [lastInviteUrl, setLastInviteUrl] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [dialog, setDialog] = useState<InviteDialogState | null>(null);
+  const [pending, setPending] = useState<Pending | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  // A removed person or revoked invite takes its button away: focus lands on the section instead.
+  const landOn = useRef<string | null>(null);
 
-  const reload = useCallback(async () => {
-    setLoading(true);
-    try {
-      const profileData = await me();
-      setProfile(profileData);
-
-      const permissions = new Set(
-        profileData.activeOrganization?.permissions ?? [],
-      );
-
-      if (
-        profileData.activeOrganization &&
-        permissions.has('users.read')
-      ) {
-        setMemberRows((await fetchMembers()).members);
-        setInviteRows((await fetchInvitations()).invitations);
-      } else {
-        setMemberRows([]);
-        if (
-          profileData.activeOrganization &&
-          permissions.has('users.invite')
-        ) {
-          setInviteRows((await fetchInvitations()).invitations);
-        } else {
-          setInviteRows([]);
-        }
-      }
-    } catch (e) {
-      if (e instanceof ApiClientError && e.status === 401) {
-        router.push(loginPathForReturn('/settings'));
-      } else {
-        setNotice('Could not load team. Refresh to retry.');
-      }
-    } finally {
-      setLoading(false);
-    }
-  }, [router]);
-
+  const canInvite = can('users.invite');
   useEffect(() => {
-    void reload();
-  }, [reload]);
+    if (!inviteRequested) return;
+    if (canInvite) setDialog({ step: 'form' });
+    onInviteHandled?.();
+  }, [inviteRequested, canInvite, onInviteHandled]);
 
-  async function onInvite(event: FormEvent) {
-    event.preventDefault();
-    const emailedTo = inviteEmail.trim();
-    try {
-      const created = await invite(emailedTo, inviteRole);
-      setInviteEmail('');
-      setLastInviteUrl(created.acceptUrl);
-      setNotice(
-        `Invite sent to ${emailedTo}. They get an email with the join link. Copy below if they need a backup.`,
-      );
-      await reload();
-    } catch (e) {
-      setLastInviteUrl(null);
-      setNotice(
-        e instanceof ApiClientError ? e.message : 'Invitation failed.',
-      );
-    }
+  function ask(next: Pending) {
+    setError(null);
+    setPending(next);
   }
 
-  async function onAttachRole(membershipId: string, roleKey: string) {
-    setBusyMembershipId(membershipId);
-    setNotice(null);
+  async function confirm() {
+    if (!pending) return;
+    setBusy(true);
+    setError(null);
     try {
-      await changeMemberRole(membershipId, roleKey);
-      setNotice('Access updated. They sign in again to pick up the new role.');
-      await reload();
+      if (pending.kind === 'level') {
+        await changeMemberRole(pending.member.membershipId, pending.level.key);
+        toast.success(`${nameOf(pending.member)}’s access is now ${accessName(pending.level.key, pending.level.name)}`, {
+          description: 'They pick up the change when they sign in again.',
+        });
+      } else if (pending.kind === 'reset') {
+        await sendMemberPasswordReset(pending.member.membershipId);
+        toast.success('Reset link sent', { description: `${pending.member.email} gets an email to set a new password.` });
+      } else if (pending.kind === 'remove') {
+        await removeMember(pending.member.membershipId);
+        toast.success(`${nameOf(pending.member)} was removed from ${workspace}`);
+      } else if (pending.kind === 'resend') {
+        const result = await resendInvitation(pending.invitation.id);
+        setDialog({ step: 'link', email: pending.invitation.email, result, renewed: true });
+      } else {
+        await revokeInvitation(pending.invitation.id);
+        toast.success('Invite revoked', { description: `The link for ${pending.invitation.email} no longer works.` });
+      }
+      if (pending.kind === 'remove') landOn.current = 'team-people';
+      if (pending.kind === 'revoke') landOn.current = 'team-invites';
+      setPending(null);
+      void queryClient.invalidateQueries({ queryKey: ['team'] });
     } catch (e) {
-      setNotice(
-        e instanceof ApiClientError
-          ? e.message
-          : 'Could not update their access.',
-      );
+      setError(messageText(toUserMessage(e, CONTEXT[pending.kind])));
     } finally {
-      setBusyMembershipId(null);
+      setBusy(false);
     }
   }
 
-  const active = profile?.activeOrganization;
-  const permissions = new Set(active?.permissions ?? []);
+  const memberRows = people.data?.members ?? [];
+  const inviteRows = invites.data?.invitations ?? [];
 
-  if (!active) {
-    return null;
+  return (
+    <div className="space-y-10">
+      {can('users.read') ? (
+        <section aria-labelledby="team-people">
+          <SectionHead
+            id="team-people"
+            title="People"
+            count={people.data ? memberRows.length : undefined}
+            description={`Everyone who can sign in to ${workspace}, and what each of them can see and do.`}
+            actions={
+              canInvite ? (
+                <Button onClick={() => setDialog({ step: 'form' })}>
+                  <UserPlus aria-hidden strokeWidth={1.5} />
+                  Invite people
+                </Button>
+              ) : null
+            }
+          />
+          <PeopleList
+            query={people}
+            self={profile.user.id}
+            levels={levels}
+            grantable={grantable}
+            me={me}
+            can={can}
+            onAsk={ask}
+          />
+        </section>
+      ) : canInvite ? (
+        <SectionHead
+          id="team-people"
+          title="Invite people"
+          description={`Bring in the people who work with you in ${workspace}.`}
+          actions={
+            <Button onClick={() => setDialog({ step: 'form' })}>
+              <UserPlus aria-hidden strokeWidth={1.5} />
+              Invite people
+            </Button>
+          }
+        />
+      ) : null}
+
+      {invites.isError && can('users.read') ? (
+        <Alert
+          kind="warning"
+          title="Couldn’t load your invites"
+          action={
+            <Button variant="secondary" size="sm" loading={invites.isFetching} onClick={() => void invites.refetch()}>
+              Retry
+            </Button>
+          }
+        >
+          {toUserMessage(invites.error).detail}
+        </Alert>
+      ) : null}
+
+      {inviteRows.length > 0 ? (
+        <section aria-labelledby="team-invites">
+          <SectionHead
+            id="team-invites"
+            title="Invites"
+            count={inviteRows.length}
+            description={`Each link works for 72 hours.${canInvite ? ' Get a new link if one has run out.' : ''}`}
+          />
+          <ListRows
+            aria-labelledby="team-invites"
+            columns="minmax(0,1.4fr) minmax(0,1fr) auto auto"
+            header={
+              <>
+                <span>Email</span>
+                <span>When</span>
+                <span>Status</span>
+                <span className="sr-only">Actions</span>
+              </>
+            }
+          >
+            {inviteRows.map((inv) => (
+              <InviteRow key={inv.id} invitation={inv} canManage={canInvite} onAsk={ask} />
+            ))}
+          </ListRows>
+        </section>
+      ) : null}
+
+      <Dialog open={dialog !== null} onOpenChange={(open) => !open && setDialog(null)}>
+        <DialogContent>
+          {dialog?.step === 'link' ? (
+            <InviteLink
+              email={dialog.email}
+              result={dialog.result}
+              renewed={dialog.renewed}
+              workspace={workspace}
+              onAnother={canInvite ? () => setDialog({ step: 'form' }) : undefined}
+              onDone={() => setDialog(null)}
+            />
+          ) : (
+            <InviteForm
+              workspace={workspace}
+              levels={grantable}
+              onCancel={() => setDialog(null)}
+              onSent={(email, result) => {
+                setDialog({ step: 'link', email, result, renewed: false });
+                void queryClient.invalidateQueries({ queryKey: teamKeys.invites });
+              }}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {pending ? (
+        <ConfirmDialog
+          open
+          onOpenChange={(open) => !open && setPending(null)}
+          {...confirmCopy(pending, workspace)}
+          busy={busy}
+          error={error}
+          onConfirm={() => void confirm()}
+          onCloseAutoFocus={(event) => {
+            const id = landOn.current;
+            landOn.current = null;
+            const heading = id ? document.getElementById(id) : null;
+            if (!heading) return;
+            event.preventDefault();
+            heading.focus();
+          }}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+const CONTEXT: Record<Pending['kind'], string> = {
+  level: 'change their access',
+  reset: 'send the reset link',
+  remove: 'remove them',
+  resend: 'make a new link',
+  revoke: 'revoke the invite',
+};
+
+function confirmCopy(pending: Pending, workspace: string) {
+  switch (pending.kind) {
+    case 'level': {
+      const level = accessName(pending.level.key, pending.level.name);
+      return {
+        title: `Change ${nameOf(pending.member)}’s access to ${level}?`,
+        body: 'They’re signed out of this workspace and pick up the change when they sign in again.',
+        confirmLabel: 'Change access',
+        tone: 'real-world' as const,
+      };
+    }
+    case 'reset':
+      return {
+        title: `Email ${nameOf(pending.member)} a password reset link?`,
+        body: `It goes to ${pending.member.email}. Their current password keeps working until they set a new one.`,
+        confirmLabel: 'Send reset link',
+        tone: 'real-world' as const,
+      };
+    case 'remove':
+      return {
+        title: `Remove ${nameOf(pending.member)} from ${workspace}?`,
+        body: 'They lose access straight away. You can invite them again later.',
+        confirmLabel: 'Remove',
+        tone: 'danger' as const,
+      };
+    case 'resend':
+      return {
+        title: `Make a new invite link for ${pending.invitation.email}?`,
+        body: 'The link you sent before stops working. The new one works for 72 hours.',
+        confirmLabel: 'Make new link',
+        tone: 'real-world' as const,
+      };
+    case 'revoke':
+      return {
+        title: `Revoke the invite for ${pending.invitation.email}?`,
+        body: 'Their link stops working. You can invite them again later.',
+        confirmLabel: 'Revoke invite',
+        tone: 'danger' as const,
+      };
   }
+}
 
-  if (
-    !permissions.has('users.read') &&
-    !permissions.has('users.invite')
-  ) {
-    return null;
+function PeopleList({
+  query,
+  self,
+  levels,
+  grantable,
+  me,
+  can,
+  onAsk,
+}: {
+  query: UseQueryResult<{ members: Member[] }>;
+  self: string;
+  levels: Role[];
+  grantable: Role[];
+  me: Granter;
+  can: (permission: string) => boolean;
+  onAsk: (pending: Pending) => void;
+}) {
+  const { labels } = useUseCase();
+  const loading = useHeldLoading(query.isPending);
+
+  if (query.isError) {
+    const m = toUserMessage(query.error, 'load your team');
+    return (
+      <ErrorState
+        headingLevel={3}
+        title={m.title}
+        cause={m.detail}
+        onRetry={() => void query.refetch()}
+        retrying={query.isFetching}
+        className="rounded-card border border-border bg-canvas"
+      />
+    );
   }
+  if (loading || !query.data) return <SkeletonRows rows={3} />;
 
-  if (loading) {
-    return <SkeletonCard />;
+  // You first, then by name.
+  const rows = [...query.data.members].sort(
+    (a, b) => Number(b.userId === self) - Number(a.userId === self) || nameOf(a).localeCompare(nameOf(b)),
+  );
+
+  return (
+    <>
+      <ListRows
+        aria-label="People"
+        columns="minmax(0,1.4fr) minmax(0,1fr) auto"
+        header={
+          <>
+            <span>Person</span>
+            <span>Access level</span>
+            <span className="sr-only">Actions</span>
+          </>
+        }
+      >
+        {rows.map((member) => {
+          const isSelf = member.userId === self;
+          const current = levels.find((l) => l.key === member.roleKey) ?? {
+            id: member.roleKey,
+            key: member.roleKey,
+            name: member.roleName ?? '',
+            description: '',
+            isSystem: !member.roleKey.startsWith('custom_'),
+          };
+          // Nobody changes their own level or someone with more access than they have (server rules).
+          const mayModify = !isSelf && canGrant(current, me);
+          const options = grantable.some((l) => l.key === current.key) ? grantable : [current, ...grantable];
+          const name = nameOf(member);
+          return (
+            <ListRow key={member.membershipId}>
+              <ListRowPrimary
+                avatar={<UserInitials name={name} />}
+                title={name}
+                meta={isSelf ? `${member.email} · you` : member.email}
+              />
+              <ListCell className="flex items-center gap-2 max-md:flex-1">
+                {mayModify && can('roles.assign') ? (
+                  <Select
+                    value={member.roleKey}
+                    aria-label={`Access level for ${name}`}
+                    onChange={(event) => {
+                      const level = options.find((l) => l.key === event.target.value);
+                      if (level && level.key !== member.roleKey) onAsk({ kind: 'level', member, level });
+                    }}
+                    className="md:max-w-[15rem]"
+                  >
+                    {options.map((level) => (
+                      <option key={level.key} value={level.key}>
+                        {accessName(level.key, level.name)}
+                      </option>
+                    ))}
+                  </Select>
+                ) : (
+                  <span className="text-text">{accessName(member.roleKey, member.roleName)}</span>
+                )}
+                {member.status === 'suspended' ? (
+                  <StatusBadge tone="warning" icon={Ban}>
+                    Suspended
+                  </StatusBadge>
+                ) : null}
+              </ListCell>
+              <ListCell kind="actions">
+                {mayModify && can('users.update') ? (
+                  <IconButton
+                    size="sm"
+                    variant="quiet"
+                    label={`Email ${name} a password reset link`}
+                    onClick={() => onAsk({ kind: 'reset', member })}
+                  >
+                    <KeyRound aria-hidden strokeWidth={1.5} />
+                  </IconButton>
+                ) : null}
+                {mayModify && can('users.deactivate') ? (
+                  <IconButton
+                    size="sm"
+                    variant="quiet"
+                    label={`Remove ${name}`}
+                    onClick={() => onAsk({ kind: 'remove', member })}
+                  >
+                    <UserMinus aria-hidden strokeWidth={1.5} />
+                  </IconButton>
+                ) : null}
+              </ListCell>
+            </ListRow>
+          );
+        })}
+      </ListRows>
+      {rows.length === 1 && can('users.invite') ? (
+        <p className="mb-0 mt-3 text-meta text-text-3">
+          It’s just you so far. Invite the people who review {labels.contact.many.toLowerCase()} with you.
+        </p>
+      ) : null}
+    </>
+  );
+}
+
+function inviteWhen(inv: Invitation): string {
+  if (inv.status === 'pending') return inv.expiresAt ? `Expires ${formatWhen(inv.expiresAt)}` : '';
+  if (inv.status === 'expired') return inv.expiresAt ? `Expired ${formatWhen(inv.expiresAt)}` : '';
+  if (inv.status === 'accepted') return inv.acceptedAt ? `Joined ${formatWhen(inv.acceptedAt)}` : '';
+  return inv.createdAt ? `Sent ${formatWhen(inv.createdAt)}` : '';
+}
+
+function InviteRow({
+  invitation: inv,
+  canManage,
+  onAsk,
+}: {
+  invitation: Invitation;
+  canManage: boolean;
+  onAsk: (pending: Pending) => void;
+}) {
+  const level = accessName(inv.roleKey, inv.roleName);
+  return (
+    <ListRow>
+      <ListRowPrimary
+        avatar={<UserInitials name={inv.email} />}
+        title={inv.email}
+        meta={inv.invitedByName ? `${level} · invited by ${inv.invitedByName}` : level}
+      />
+      <ListCell className="text-meta tabular-nums text-text-2">{inviteWhen(inv)}</ListCell>
+      <ListCell kind="tag">
+        <StatusTag domain="invite" value={inv.status} />
+      </ListCell>
+      <ListCell kind="actions">
+        {canManage && (inv.status === 'pending' || inv.status === 'expired') ? (
+          <IconButton
+            size="sm"
+            variant="quiet"
+            label={`Make a new invite link for ${inv.email}`}
+            onClick={() => onAsk({ kind: 'resend', invitation: inv })}
+          >
+            <Link2 aria-hidden strokeWidth={1.5} />
+          </IconButton>
+        ) : null}
+        {canManage && inv.status === 'pending' ? (
+          <IconButton
+            size="sm"
+            variant="quiet"
+            label={`Revoke the invite for ${inv.email}`}
+            onClick={() => onAsk({ kind: 'revoke', invitation: inv })}
+          >
+            <Ban aria-hidden strokeWidth={1.5} />
+          </IconButton>
+        ) : null}
+      </ListCell>
+    </ListRow>
+  );
+}
+
+function InviteForm({
+  workspace,
+  levels,
+  onCancel,
+  onSent,
+}: {
+  workspace: string;
+  levels: Role[];
+  onCancel: () => void;
+  onSent: (email: string, result: InviteResult) => void;
+}) {
+  const { labels } = useUseCase();
+  const [email, setEmail] = useState('');
+  // The least access by default: the inviter raises it on purpose.
+  const [levelKey, setLevelKey] = useState(levels[0]?.key ?? 'viewer');
+  const [emailError, setEmailError] = useState<string | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const level = levels.find((l) => l.key === levelKey);
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    const to = email.trim();
+    if (!EMAIL.test(to)) {
+      setEmailError('Enter an email address, like name@company.com.');
+      return;
+    }
+    setBusy(true);
+    setEmailError(null);
+    setFormError(null);
+    try {
+      onSent(to, await invite(to, levelKey));
+    } catch (e) {
+      const field = toUserMessage(e).fieldErrors?.find((f) => f.field === 'email')?.message;
+      if (field) setEmailError(field);
+      else setFormError(messageText(toUserMessage(e, 'send the invite')));
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
-    <Surface className="space-y-4">
-      {notice ? <Notice kind="ok">{notice}</Notice> : null}
+    <form onSubmit={(event) => void submit(event)} noValidate className="grid gap-5">
+      <DialogHeader>
+        <DialogTitle>Invite someone to {workspace}</DialogTitle>
+        <DialogDescription>They get a link to join. It works for 72 hours.</DialogDescription>
+      </DialogHeader>
+      <Field label="Email" error={emailError}>
+        <Input
+          type="email"
+          value={email}
+          onChange={(event) => {
+            setEmail(event.target.value);
+            setEmailError(null);
+          }}
+          autoComplete="off"
+          placeholder="name@company.com"
+          required
+        />
+      </Field>
+      <Field label="Access level" hint={level ? accessBlurb(level.key, level.description, labels) : undefined}>
+        <Select value={levelKey} onChange={(event) => setLevelKey(event.target.value)}>
+          {levels.map((l) => (
+            <option key={l.key} value={l.key}>
+              {accessName(l.key, l.name)}
+            </option>
+          ))}
+        </Select>
+      </Field>
+      {formError ? <Alert kind="error">{formError}</Alert> : null}
+      <DialogFooter>
+        <Button type="button" variant="secondary" disabled={busy} onClick={onCancel}>
+          Cancel
+        </Button>
+        <Button type="submit" loading={busy}>
+          <Link2 aria-hidden strokeWidth={1.5} />
+          Create invite
+        </Button>
+      </DialogFooter>
+    </form>
+  );
+}
 
-      <p className="m-0 text-sm text-[var(--foreground-tertiary)]">
-        People who can sign in to this company and what they can do here.
+function InviteLink({
+  email,
+  result,
+  renewed,
+  workspace,
+  onAnother,
+  onDone,
+}: {
+  email: string;
+  result: InviteResult;
+  renewed: boolean;
+  workspace: string;
+  onAnother?: () => void;
+  onDone: () => void;
+}) {
+  const link = result.inviteUrl ?? result.acceptUrl;
+  const expires = formatWhen(result.invitation?.expiresAt);
+  // Say "we emailed them" only when the server says the email went out.
+  const delivery =
+    result.emailDelivery === 'sent'
+      ? `We emailed ${email} a link to join ${workspace}.`
+      : result.emailDelivery === 'not_configured'
+        ? 'Email isn’t switched on for this workspace yet, so copy the link and send it to them yourself.'
+        : 'Copy the link and send it to them.';
+
+  return (
+    <div className="grid gap-5">
+      <DialogHeader>
+        <DialogTitle>{renewed ? 'New invite link' : 'Invite ready'}</DialogTitle>
+        <DialogDescription>
+          {delivery}
+          {renewed ? ' The old link no longer works.' : ''}
+        </DialogDescription>
+      </DialogHeader>
+      <CopyField label="Invite link" value={link} />
+      <p className="m-0 -mt-2 text-meta text-text-3">
+        {expires ? `It works until ${expires}.` : 'It works for 72 hours.'} It only works for {email}.
       </p>
-
-      {permissions.has('users.read') ? (
-        <div className="overflow-x-auto">
-          <table className="w-full border-collapse text-sm">
-            <thead>
-              <tr className="text-left text-[var(--foreground-tertiary)]">
-                <th className="px-2 py-2 font-medium">Person</th>
-                <th className="px-2 py-2 font-medium">Role</th>
-                <th className="px-2 py-2 font-medium">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {memberRows.map((m) => (
-                <tr
-                  key={m.membershipId}
-                  className="border-t border-[var(--separator-subtle)]"
-                >
-                  <td className="px-2 py-3 align-top">
-                    <div className="font-medium">{m.name}</div>
-                    <div className="text-xs text-[var(--foreground-tertiary)]">
-                      {m.email}
-                    </div>
-                  </td>
-                  <td className="px-2 py-3 align-top">
-                    {permissions.has('roles.assign') &&
-                    ASSIGNABLE_ROLE_KEYS.has(m.roleKey) &&
-                    profile &&
-                    m.userId !== profile.user.id ? (
-                      <Select
-                        value={m.roleKey}
-                        disabled={busyMembershipId === m.membershipId}
-                        aria-label={`Role for ${m.name || m.email}`}
-                        onChange={(e) =>
-                          void onAttachRole(m.membershipId, e.target.value)
-                        }
-                        className="w-auto min-w-[8.5rem]"
-                      >
-                        {ASSIGNABLE_ROLES.map(([value, label]) => (
-                          <option key={value} value={value}>
-                            {label}
-                          </option>
-                        ))}
-                      </Select>
-                    ) : (
-                      <strong className="font-semibold">
-                        {roleLabel(m.roleKey)}
-                      </strong>
-                    )}
-                    <p className="mt-1 mb-0 max-w-xs text-xs text-[var(--foreground-tertiary)]">
-                      {roleAccess(m.roleKey)}
-                    </p>
-                  </td>
-                  <td className="px-2 py-3 align-top">{m.status}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ) : null}
-
-      {permissions.has('users.invite') ? (
-        <div>
-          <div className="mb-3 flex items-center gap-2">
-            <UserPlus
-              className="h-4 w-4 text-[var(--foreground-tertiary)]"
-              aria-hidden
-            />
-            <h3 className="m-0 text-sm font-semibold">Invite someone</h3>
-          </div>
-          <form
-            onSubmit={onInvite}
-            className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-end"
-          >
-            <Field label="Email" className="sm:min-w-[14rem] sm:flex-1">
-              <Input
-                type="email"
-                value={inviteEmail}
-                onChange={(e) => setInviteEmail(e.target.value)}
-                placeholder="email@company.com"
-                required
-              />
-            </Field>
-            <Field label="Role" className="sm:w-auto sm:min-w-[10rem]">
-              <Select
-                value={inviteRole}
-                onChange={(e) => setInviteRole(e.target.value)}
-              >
-                {ASSIGNABLE_ROLES.map(([value, label]) => (
-                  <option key={value} value={value}>
-                    {label}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-            <Button type="submit">Invite</Button>
-          </form>
-          <p className="mt-2 mb-0 text-xs text-[var(--foreground-tertiary)]">
-            {roleAccess(inviteRole)}
-          </p>
-          {lastInviteUrl ? (
-            <div className="mt-3 rounded-md border border-[var(--separator-subtle)] bg-[var(--surface-secondary)] p-3">
-              <p className="m-0 mb-2 text-sm text-[var(--foreground-secondary)]">
-                Backup join link (expires in 72 hours):
-              </p>
-              <div className="flex flex-col gap-2 sm:flex-row">
-                <Input
-                  readOnly
-                  value={lastInviteUrl}
-                  aria-label="Invitation accept link"
-                  className="font-mono text-xs"
-                />
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => {
-                    void navigator.clipboard.writeText(lastInviteUrl).then(
-                      () => setNotice('Invite link copied.'),
-                      () =>
-                        setNotice(
-                          'Could not copy — select the link and copy it.',
-                        ),
-                    );
-                  }}
-                >
-                  Copy link
-                </Button>
-              </div>
-            </div>
-          ) : null}
-          {inviteRows.filter((i) => i.status === 'pending').length > 0 ? (
-            <ul className="mt-3 mb-0 list-disc pl-5 text-sm text-[var(--foreground-tertiary)]">
-              {inviteRows
-                .filter((i) => i.status === 'pending')
-                .map((i) => (
-                  <li key={i.id}>
-                    {i.email} — {roleLabel(i.roleKey)}, expires{' '}
-                    {new Date(i.expiresAt).toLocaleDateString()}
-                  </li>
-                ))}
-            </ul>
-          ) : null}
-        </div>
-      ) : null}
-    </Surface>
+      <DialogFooter>
+        {onAnother ? (
+          <Button type="button" variant="secondary" onClick={onAnother}>
+            <UserPlus aria-hidden strokeWidth={1.5} />
+            Invite someone else
+          </Button>
+        ) : null}
+        <Button type="button" onClick={onDone}>
+          Done
+        </Button>
+      </DialogFooter>
+    </div>
   );
 }

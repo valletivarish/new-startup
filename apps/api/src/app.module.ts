@@ -63,6 +63,8 @@ import {
   TOOL_REGISTRY,
   VOICE_SESSION_ADAPTER,
   VOICE_SESSION_SERVICE,
+  COST_SERVICE,
+  OWN_LOOP_SERVICE,
   JOBS_SERVICE,
   CANDIDATES_SERVICE,
 } from './tokens.more.js';
@@ -93,6 +95,12 @@ import {
   VoiceWebhookController,
 } from './providers/elevenlabs/voice.controller.js';
 import { JobsController } from './hiring/jobs.controller.js';
+import { AdminCostsController } from './costs/costs.controller.js';
+import { createCostService } from './costs/costs.service.js';
+import { createExotelClient, exotelCarrier } from './providers/exotel/exotel.js';
+import { ExotelWebhookController } from './providers/exotel/exotel-webhook.controller.js';
+import { createOwnLoopService } from './providers/own-loop/own-loop.service.js';
+import { InternalVoiceController } from './providers/own-loop/internal-voice.controller.js';
 import { CandidatesController } from './hiring/candidates.controller.js';
 import { createVoiceSessionAdapter, createStubVoiceSessionAdapter } from './providers/elevenlabs/adapter.js';
 import { createVoiceSessionService } from './providers/elevenlabs/voice-session.service.js';
@@ -141,6 +149,9 @@ export class AppModule {
         VoiceWebhookController,
         JobsController,
         CandidatesController,
+        AdminCostsController,
+        InternalVoiceController,
+        ExotelWebhookController,
       ],
       providers: [
         { provide: ENV, useValue: deps.env },
@@ -324,12 +335,38 @@ export class AppModule {
               : createStubVoiceSessionAdapter()),
         },
         {
+          provide: COST_SERVICE,
+          useFactory: () => createCostService(deps.database, deps.env),
+        },
+        {
+          provide: OWN_LOOP_SERVICE,
+          inject: [COST_SERVICE],
+          useFactory: (costs: ReturnType<typeof createCostService>) => {
+            const exotel = createExotelClient(deps.env);
+            return createOwnLoopService(
+              deps.database,
+              deps.env,
+              costs,
+              exotel.isConfigured() ? exotelCarrier(exotel) : null,
+            );
+          },
+        },
+        {
           provide: VOICE_SESSION_SERVICE,
-          inject: [AUDIT_SERVICE, VOICE_SESSION_ADAPTER],
+          inject: [AUDIT_SERVICE, VOICE_SESSION_ADAPTER, COST_SERVICE],
           useFactory: (
             audit: ReturnType<typeof createAuditService>,
             adapter: ReturnType<typeof createVoiceSessionAdapter>,
-          ) => createVoiceSessionService(deps.database, deps.env, audit, adapter),
+            costs: ReturnType<typeof createCostService>,
+          ) =>
+            createVoiceSessionService(
+              deps.database,
+              deps.env,
+              audit,
+              adapter,
+              costs,
+              createExotelClient(deps.env),
+            ),
         },
         {
           provide: JOBS_SERVICE,

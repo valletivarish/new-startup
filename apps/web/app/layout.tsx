@@ -1,37 +1,49 @@
 import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
-import { DM_Sans, Syne } from 'next/font/google';
+import { Geist, Instrument_Serif } from 'next/font/google';
 import { AppProviders } from '../components/layout/AppProviders';
+import { BRAND } from '../lib/brand';
 import './globals.css';
 
-const display = Syne({
-  subsets: ['latin'],
-  variable: '--font-syne',
+// Display and UI face, variable weight.
+const geist = Geist({
+  subsets: ['latin', 'latin-ext'],
+  variable: '--font-geist',
   display: 'swap',
-  weight: ['500', '600', '700', '800'],
 });
 
-const body = DM_Sans({
-  subsets: ['latin'],
-  variable: '--font-dm',
+// The condensed serif italic both Oripio references share (Synergos for the website, Voiceon
+// for the app): one phrase per heading (.serif-accent, .site-italic). Preloaded: the website
+// hero headline uses it above the fold.
+const accentSerif = Instrument_Serif({
+  subsets: ['latin', 'latin-ext'],
+  weight: '400',
+  style: ['italic'],
+  variable: '--font-accent',
   display: 'swap',
-  weight: ['400', '500', '600', '700'],
 });
 
 export const metadata: Metadata = {
-  title: 'Hiring desk — phone screens for every open role',
+  title: {
+    default: `Voice agents that make your business calls | ${BRAND.name}`,
+    template: `%s | ${BRAND.name}`,
+  },
   description:
-    'Create a job, add candidates, and run phone screens with that role’s description.',
+    'Give it a job. It phones every candidate, asks your questions, and returns the transcript for you to decide.',
 };
+
+// Direction contract for design review. Ships in the HTML as a comment, never rendered.
+const DIRECTION_CONTRACT =
+  '<!-- THESIS: Calm, cinematic voice-agent SaaS styled after two Oripio Dribbble shots: Synergos (L12) for the website, Voiceon (D2) for the app. Sky photography fading into near-black, glass over photos, light tight sans with one serif-italic phrase per heading. STORY: the AI hiring agent, a pearl-glass character, rises out of tall grass on its live call card and acts out a screening call; the visitor sees what comes back, plays a sample call, learns the setup, starts a pilot. FIRST VIEWPORT: full-bleed sky over grass, centred tag, two-line headline, two buttons, the next step, and the agent seated on its live call card. FORM: founder-picked style, not a copy. FINISH: every shipping raster carries its provenance (public/images/site/CREDITS.md). -->';
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html
-      lang="en"
-      className={`${display.variable} ${body.variable}`}
-      suppressHydrationWarning
-    >
-      <body className="min-h-dvh font-sans antialiased">
+    // Browser extensions (screen recorders, password managers) add classes and attributes to
+    // <html> and <body> before React loads. Ignore those two elements' own attributes only;
+    // everything inside them is still checked.
+    <html lang="en" className={`${geist.variable} ${accentSerif.variable}`} suppressHydrationWarning>
+      <body suppressHydrationWarning>
+        <div aria-hidden hidden dangerouslySetInnerHTML={{ __html: DIRECTION_CONTRACT }} />
         <AppProviders>{children}</AppProviders>
       </body>
     </html>

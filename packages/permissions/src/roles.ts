@@ -36,12 +36,12 @@ export interface SystemRoleDefinition {
 const OWNER_PERMISSIONS: readonly Permission[] = PERMISSIONS;
 
 /**
- * Administrator holds everything except the three Owner-only powers:
- * deleting the organization, managing custom roles, and changing billing.
+ * Administrator holds everything except the two Owner-only powers:
+ * deleting the organization and changing billing. Administrators manage
+ * custom roles (ADR-009), but can only grant permissions they hold.
  */
 const ADMINISTRATOR_EXCLUSIONS: readonly Permission[] = [
   'organization.delete',
-  'roles.manage',
   'billing.manage',
 ];
 

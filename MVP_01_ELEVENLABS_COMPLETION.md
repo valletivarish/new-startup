@@ -351,3 +351,37 @@ To roll back MVP-01:
 - [x] Cost warning in UI (no auto-start)
 - [x] LLM availability verified at provision time (STOP if unavailable)
 - [x] costCredits nullable throughout
+
+---
+
+## Live ElevenLabs Verification
+
+- **Date/time:** 2026-09-16 (IST morning session)
+- **Local commit:** `d2b30cb` (`checkpoint: MVP-01 ElevenLabs browser voice (local, unpushed)`) — not pushed
+- **Agent/version tested:** _none_ — local DB has **0** agents / **0** published `agent_versions`
+- **Duration:** n/a (no conversation started)
+- **Browser connection result:** n/a
+- **Knowledge result:** n/a
+- **Unknown-knowledge result:** n/a
+- **Interruption result:** n/a
+- **Stop result:** n/a
+- **Transcript/result ingestion:** n/a
+- **Usage/cost metadata availability:** n/a
+- **Issues found/fixed (preflight only):**
+  - `pnpm -C apps/web build` PASS
+  - Checkpoint commit created; `.env` not tracked; no live key material in git
+  - Applied migrations `0013`/`0014` — `voice_sessions` + `voice_provider_deployments` now present
+  - ElevenLabs API key verified (`GET /v1/user` 200; voices 200; configured voice present in account)
+  - Required LLM `gemini-3.5-flash-lite` verified available via `GET /v1/convai/llm/list`
+  - Local `.env` prepared for smoke: `ELEVENLABS_ENABLED=true`, `ELEVENLABS_DEFAULT_VOICE_ID` mapped from existing local voice id, local webhook secret generated for boot (reconcile path if webhook unreachable), caps 5 min / 10 sessions / 30 daily minutes
+  - Active voice sessions: **0**; deployments: **0**
+  - **Blocker:** no published local Agent + AgentVersion to attach the single private ElevenLabs test deployment to
+- **Final status:** **BLOCKED BEFORE SPEND**
+
+### Operator unblock (then one manual smoke)
+
+1. Start API + web with the updated local `.env` (`pnpm -C apps/api dev`, `pnpm -C apps/web dev`).
+2. Create **one** recruitment-screening agent with identity + purpose; publish a version.
+3. Optionally provision once with an approved knowledge snapshot (`POST .../voice-deployments`).
+4. Open the agent → **Test voice agent** → mic → &lt;2 minutes → end call.
+5. Reconcile if webhook does not land locally; verify session row fields; do not start a second paid session.

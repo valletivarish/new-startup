@@ -272,15 +272,21 @@ export class VoiceCallsController {
   async list(
     @Req() req: RequestWithAuth,
     @Query('candidateId') candidateIdRaw?: string,
+    @Query('jobId') jobIdRaw?: string,
   ) {
     const actor = actorOf(req);
     const candidateId =
       candidateIdRaw && candidateIdRaw.trim()
         ? parse(z.string().uuid(), candidateIdRaw.trim())
         : undefined;
+    const jobId =
+      jobIdRaw && jobIdRaw.trim()
+        ? parse(z.string().uuid(), jobIdRaw.trim())
+        : undefined;
     const sessions = await this.svc.listVoiceSessions(actor, {
       limit: 50,
       candidateId,
+      jobId,
     });
     const allow = canReadTranscript(req);
     return {
@@ -305,7 +311,7 @@ export class TelephonyStatusController {
       browserDemo: true,
       openOutbound,
       message: !outboundPhone
-        ? 'Live phone calling is not connected for this company yet. You can run a browser demo screen now. Ask us when you are ready to connect a phone line.'
+        ? 'Phone calling is not connected yet. A browser screen works after you publish a hiring voice.'
         : openOutbound
           ? 'Live phone calling is connected. Use Call phone on a candidate with a valid mobile number.'
           : 'Phone calling is connected. Finish business verification on the phone account if a dial is rejected. Browser screens still work.',

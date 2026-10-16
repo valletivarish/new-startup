@@ -205,6 +205,7 @@ const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 export type ReviewChatLlmDeps = {
   apiKey: string;
   model?: string;
+  baseUrl?: string;
   fetchFn?: typeof fetch;
 };
 
@@ -321,7 +322,7 @@ export async function answerReviewQuestionWithLlm(
 
   const model = deps.model?.trim() || DEFAULT_MODEL;
   const fetchFn = deps.fetchFn ?? fetch;
-  const url = `${GEMINI_BASE}/models/${encodeURIComponent(model)}:generateContent`;
+  const url = `${deps.baseUrl || GEMINI_BASE}/models/${encodeURIComponent(model)}:generateContent`;
 
   const response = await fetchFn(url, {
     method: 'POST',
@@ -451,7 +452,7 @@ export async function* streamReviewQuestionWithLlm(
 
   const model = deps.model?.trim() || DEFAULT_MODEL;
   const fetchFn = deps.fetchFn ?? fetch;
-  const url = `${GEMINI_BASE}/models/${encodeURIComponent(model)}:streamGenerateContent?alt=sse`;
+  const url = `${deps.baseUrl || GEMINI_BASE}/models/${encodeURIComponent(model)}:streamGenerateContent?alt=sse`;
 
   let response: Response;
   try {

@@ -65,7 +65,14 @@ reports/
 # already ignored above.
 *.m4a
 *.mp3
+# The website's sample call (provenance: apps/web/public/audio/CREDITS.md).
+!apps/web/public/audio/sample-call.mp3
 *.aac
 *.ogg
 *.webm
 .worktrees/
+.next-dev/
+.vercel
+.playwright-mcp/
+apps/web/.next-preview/
+apps/web/.impeccable/

@@ -157,6 +157,52 @@ export async function withInvitationContext<T>(
 }
 
 /**
+ * Run `fn` with only a provider conversation id in scope.
+ *
+ * Used by signature-verified provider webhooks and the internal voice routes,
+ * which know a conversation/call id but no organization. The SELECT-only
+ * policy `vs_webhook_lookup` (migration 0022) exposes exactly the one voice
+ * session carrying that id; writes still need a second transaction under the
+ * session's own organization context.
+ */
+export async function withConversationLookupContext<T>(
+  db: PostgresJsDatabase<Record<string, never>>,
+  conversationId: string,
+  fn: (tx: TenantTransaction) => Promise<T>,
+): Promise<T> {
+  if (!conversationId.trim()) {
+    throw new Error('tenant context: conversation id is required');
+  }
+  return db.transaction(async (tx) => {
+    await tx.execute(
+      sql`select set_config('app.webhook_conversation_id', ${conversationId}, true)`,
+    );
+    return fn(tx);
+  });
+}
+
+/**
+ * Run `fn` as a platform administrator (cross-organization cost reporting).
+ *
+ * The caller MUST have verified the session's user against the platform
+ * admin allowlist first. Policies that honour `app.platform_admin` are
+ * SELECT-only on tenant data (call_cost_ledger) and write-only on platform
+ * tables (cost_services); nothing else becomes visible.
+ */
+export async function withPlatformAdminContext<T>(
+  db: PostgresJsDatabase<Record<string, never>>,
+  userId: string,
+  fn: (tx: TenantTransaction) => Promise<T>,
+): Promise<T> {
+  assertUuid(userId, 'userId');
+  return db.transaction(async (tx) => {
+    await tx.execute(sql`select set_config('app.current_user_id', ${userId}, true)`);
+    await tx.execute(sql`select set_config('app.platform_admin', 'on', true)`);
+    return fn(tx);
+  });
+}
+
+/**
  * Run `fn` with NO tenant context at all.
  *
  * Reaches only the RLS-exempt identity tables (`users`, `sessions`,

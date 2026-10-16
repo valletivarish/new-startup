@@ -1,0 +1,103 @@
+# Backend-only overlay for the GCP VM (web runs on Vercel and proxies
+# /backend/* and /api/auth/* here). Use with the base file:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.gcp.yml \
+#     --profile app up -d --build postgres migrate api worker voice mailpit caddy
+#
+# Requires in .env: POSTGRES_*_PASSWORD, BETTER_AUTH_SECRET, API_HOST,
+# API_URL, WEB_URL, plus the voice / Gemini vars you want live.
+
+services:
+  postgres:
+    ports: !reset []
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}
+      POSTGRES_MIGRATOR_PASSWORD: ${POSTGRES_MIGRATOR_PASSWORD:?}
+      POSTGRES_APP_PASSWORD: ${POSTGRES_APP_PASSWORD:?}
+
+  migrate:
+    build:
+      context: .
+      target: runtime
+    environment:
+      DATABASE_MIGRATION_URL: postgresql://platform_migrator:${POSTGRES_MIGRATOR_PASSWORD:?}@postgres:5432/platform
+
+  api:
+    build:
+      context: .
+      target: runtime
+    ports: !reset []
+    environment:
+      DATABASE_URL: postgresql://platform_app:${POSTGRES_APP_PASSWORD:?}@postgres:5432/platform
+      API_URL: ${API_URL:?}
+      WEB_URL: ${WEB_URL:?}
+      COOKIE_SECURE: "true"
+      # ponytail: Mailpit catches all mail (nothing is delivered); swap SMTP_URL for a real provider to send.
+      NOTIFICATION_TRANSPORT: smtp
+      SMTP_URL: smtp://mailpit:1025
+      EMAIL_FROM: ${EMAIL_FROM:-no-reply@nexstopp.com}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_BASE_URL: ${GEMINI_BASE_URL:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash-lite}
+      PLATFORM_ADMIN_EMAILS: ${PLATFORM_ADMIN_EMAILS:-}
+      # Own voice loop (apps/voice). Off unless VOICE_OWN_LOOP_ENABLED=true.
+      VOICE_OWN_LOOP_ENABLED: ${VOICE_OWN_LOOP_ENABLED:-false}
+      VOICE_INTERNAL_TOKEN: ${VOICE_INTERNAL_TOKEN:-}
+      OWN_LOOP_SARVAM_VOICE: ${OWN_LOOP_SARVAM_VOICE:-}
+      OWN_LOOP_ELEVENLABS_VOICE_ID: ${OWN_LOOP_ELEVENLABS_VOICE_ID:-}
+      EXOTEL_ACCOUNT_SID: ${EXOTEL_ACCOUNT_SID:-}
+      EXOTEL_API_KEY: ${EXOTEL_API_KEY:-}
+      EXOTEL_API_TOKEN: ${EXOTEL_API_TOKEN:-}
+      EXOTEL_API_SUBDOMAIN: ${EXOTEL_API_SUBDOMAIN:-}
+      EXOTEL_PHONE_NUMBER: ${EXOTEL_PHONE_NUMBER:-}
+      EXOTEL_OWN_LOOP_APP_ID: ${EXOTEL_OWN_LOOP_APP_ID:-}
+
+  voice:
+    profiles: ["app"]
+    build: ./apps/voice
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      NEST_INTERNAL_URL: http://api:3001
+      VOICE_INTERNAL_TOKEN: ${VOICE_INTERNAL_TOKEN:-}
+      DEEPGRAM_API_KEY: ${DEEPGRAM_API_KEY:-}
+      SARVAM_API_KEY: ${SARVAM_API_KEY:-}
+      ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
+      ELEVENLABS_DEFAULT_VOICE_ID: ${ELEVENLABS_DEFAULT_VOICE_ID:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_BASE_URL: ${GEMINI_BASE_URL:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash-lite}
+
+  worker:
+    build:
+      context: .
+      target: runtime
+    environment:
+      DATABASE_URL: postgresql://platform_app:${POSTGRES_APP_PASSWORD:?}@postgres:5432/platform
+      API_URL: ${API_URL:?}
+      WEB_URL: ${WEB_URL:?}
+      COOKIE_SECURE: "true"
+      NOTIFICATION_TRANSPORT: smtp
+      SMTP_URL: smtp://mailpit:1025
+      EMAIL_FROM: ${EMAIL_FROM:-no-reply@nexstopp.com}
+
+  # Read caught mail: gcloud compute ssh hrvoice-vm -- -L 8025:localhost:8025
+  mailpit:
+    image: axllent/mailpit:v1.21
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8025:8025"
+
+  caddy:
+    profiles: ["app"]
+    depends_on: !override
+      api:
+        condition: service_healthy
+    environment: !override
+      API_HOST: ${API_HOST:?}
+    volumes: !override
+      - ./docker/Caddyfile.gcp:/etc/caddy/Caddyfile:ro
+      - platform-caddy-data:/data
+      - platform-caddy-config:/config

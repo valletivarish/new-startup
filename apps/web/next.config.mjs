@@ -5,6 +5,9 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // Lets `next dev` and `next build` run side by side without sharing a
+  // build directory (NEXT_DIST_DIR=.next-dev for the dev server).
+  distDir: process.env.NEXT_DIST_DIR || '.next',
   // Worktree + parent lockfiles confuse tracing; pin to this app's package root.
   outputFileTracingRoot: path.join(__dirname, '../..'),
   // Dev browser often uses 127.0.0.1 while Next binds localhost.

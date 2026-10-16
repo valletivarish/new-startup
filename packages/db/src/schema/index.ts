@@ -94,3 +94,24 @@ export { voiceProviderDeployments, voiceSessions } from './voice.js';
 export { jobs, candidates, jobCandidates } from './hiring.js';
 export type { JobScreeningQuestion } from './hiring.js';
 
+
+/** Client integration tables (migration 0032). Plain tenant RLS. */
+export const INTEGRATION_TABLES = [
+  'api_keys',
+  'idempotency_keys',
+  'call_requests',
+  'org_call_limits',
+  'webhook_endpoints',
+  'webhook_deliveries',
+  'candidate_links',
+] as const;
+
+export {
+  apiKeys,
+  idempotencyKeys,
+  callRequests,
+  orgCallLimits,
+  webhookEndpoints,
+  webhookDeliveries,
+  candidateLinks,
+} from './clientIntegrations.js';

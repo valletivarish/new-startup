@@ -1,4 +1,5 @@
 import {
+  boolean,
   check,
   index,
   jsonb,
@@ -45,6 +46,8 @@ export const jobs = pgTable(
     createdByUserId: uuid('created_by_user_id').references(() => users.id, {
       onDelete: 'set null',
     }),
+    /** Created by a test-mode API key (migration 0032). */
+    isTest: boolean('is_test').notNull().default(false),
     createdAt: timestamp('created_at', { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -88,6 +91,11 @@ export const candidates = pgTable(
     resumeText: text('resume_text'),
     source: text('source').notNull().default('manual'),
     screeningStatus: text('screening_status').notNull().default('new'),
+    /** The customer's own id for this candidate (migration 0032). */
+    externalId: text('external_id'),
+    consentAt: timestamp('consent_at', { withTimezone: true }),
+    consentSource: text('consent_source'),
+    isTest: boolean('is_test').notNull().default(false),
     createdAt: timestamp('created_at', { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -104,6 +112,13 @@ export const candidates = pgTable(
       'candidates_screening_status_check',
       sql`${t.screeningStatus} in ('new', 'screening', 'reviewed')`,
     ),
+    check(
+      'candidates_consent_source_check',
+      sql`${t.consentSource} is null or ${t.consentSource} in ('customer', 'candidate')`,
+    ),
+    uniqueIndex('candidates_org_job_external_unique')
+      .on(t.organizationId, t.jobId, t.externalId)
+      .where(sql`${t.externalId} is not null`),
     uniqueIndex('candidates_job_phone_unique')
       .on(t.jobId, t.phone)
       .where(sql`${t.phone} is not null`),

@@ -7,6 +7,8 @@
  *                              also fails the build, but the guard does not
  *                              rely on that.
  *   3. No valid session      → 401.
+ *   3b. Company API key      → allowed only on /v1/* permission routes;
+ *                              anything else (including @Authenticated) → 403.
  *   4. @Authenticated        → allow.
  *   5. @RequirePermission / @RequireAnyPermission → require an active
  *                              organization whose live membership holds the
@@ -42,6 +44,11 @@ import { AUDIT_SERVICE, AUTH_CONTEXT_SERVICE } from '../tokens.js';
 
 export interface RequestWithAuth extends FastifyRequest {
   authContext?: AuthContext;
+}
+
+/** Audit metadata naming the API key, when one made the request. */
+function apiKeyMeta(ctx: AuthContext): Record<string, string> {
+  return ctx.apiKey ? { apiKeyId: ctx.apiKey.id, apiKeyMode: ctx.apiKey.mode } : {};
 }
 
 function headersFromRequest(req: FastifyRequest): Headers {
@@ -84,6 +91,15 @@ export class AuthzGuard implements CanActivate {
     const ctx = await this.authContext.resolve(headersFromRequest(request));
     if (!ctx) throw ApiError.unauthorized();
     request.authContext = ctx;
+
+    // Keys reach the public client API only, and only through a permission
+    // check — never account, org-switching, invitation or admin routes.
+    if (ctx.apiKey) {
+      const path = (request.url ?? '').split('?')[0] ?? '';
+      if (!path.startsWith('/v1/') || mode !== 'permission') {
+        throw ApiError.forbidden();
+      }
+    }
 
     if (mode === 'authenticated') return true;
 
@@ -129,6 +145,7 @@ export class AuthzGuard implements CanActivate {
           role: ctx.organization.roleKey,
           method: request.method,
           url: request.url,
+          ...apiKeyMeta(ctx),
         },
       });
       throw ApiError.forbidden();
@@ -140,7 +157,12 @@ export class AuthzGuard implements CanActivate {
         organizationId: ctx.organization.organizationId,
         actorUserId: ctx.userId,
         eventType: 'authz.sensitive_access',
-        metadata: { permission: granted, method: request.method, url: request.url },
+        metadata: {
+          permission: granted,
+          method: request.method,
+          url: request.url,
+          ...apiKeyMeta(ctx),
+        },
       });
     }
 

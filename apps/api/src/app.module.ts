@@ -384,7 +384,9 @@ export class AppModule {
         },
         {
           provide: API_KEYS_SERVICE,
-          useFactory: () => createApiKeysService(deps.database),
+          inject: [AUDIT_SERVICE],
+          useFactory: (audit: ReturnType<typeof createAuditService>) =>
+            createApiKeysService(deps.database, audit),
         },
       ],
     };

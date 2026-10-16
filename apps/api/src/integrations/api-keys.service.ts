@@ -8,6 +8,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { sql, withTenantContext, type Database } from '@platform/db';
 
 import { ApiError } from '../errors.js';
+import type { AuditService } from '../audit/audit.service.js';
 import type { ApiScope } from './scopes.js';
 
 export interface Actor {
@@ -61,7 +62,30 @@ function iso(value: unknown): string | null {
   return value instanceof Date ? value.toISOString() : new Date(String(value)).toISOString();
 }
 
-export function createApiKeysService(database: Database): ApiKeysService {
+export function createApiKeysService(
+  database: Database,
+  audit: AuditService,
+): ApiKeysService {
+  // Never the key or its hash.
+  const recordKeyEvent = (
+    actor: Actor,
+    eventType: 'integrations.api_key_created' | 'integrations.api_key_revoked',
+    key: { id: string; prefix: string; mode: string; scopes: readonly string[] },
+  ) =>
+    audit.record({
+      organizationId: actor.organizationId,
+      actorUserId: actor.userId,
+      eventType,
+      resourceType: 'api_key',
+      resourceId: key.id,
+      metadata: {
+        apiKeyId: key.id,
+        prefix: key.prefix,
+        mode: key.mode,
+        scopes: key.scopes.join(','),
+      },
+    });
+
   return {
     hashKey,
 
@@ -83,6 +107,7 @@ export function createApiKeysService(database: Database): ApiKeysService {
       );
       const id = rows[0]?.id;
       if (!id) throw new Error('api key insert returned no row');
+      await recordKeyEvent(actor, 'integrations.api_key_created', { id, prefix, mode, scopes });
       return { id, key, prefix };
     },
 
@@ -121,13 +146,15 @@ export function createApiKeysService(database: Database): ApiKeysService {
 
     async revoke(actor, id) {
       const rows = await withTenantContext(database.db, actor, (tx) =>
-        tx.execute<{ id: string }>(sql`
+        tx.execute<{ id: string; prefix: string; mode: string; scopes: string[] }>(sql`
           update api_keys set revoked_at = coalesce(revoked_at, now())
           where id = ${id} and organization_id = ${actor.organizationId}
-          returning id
+          returning id, prefix, mode, scopes
         `),
       );
-      if (rows.length === 0) throw ApiError.notFound('API key');
+      const revoked = rows[0];
+      if (!revoked) throw ApiError.notFound('API key');
+      await recordKeyEvent(actor, 'integrations.api_key_revoked', revoked);
     },
   };
 }

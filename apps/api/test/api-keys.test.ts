@@ -20,13 +20,37 @@ import {
 import { superDatabase } from './setup/fixtures.js';
 import { createKeyRateLimiter } from '../src/integrations/api-keys.service.js';
 import { ApiError } from '../src/errors.js';
+import { AuthzGuard } from '../src/authz/authz.guard.js';
+import type { AuthContext } from '../src/authz/auth-context.js';
+import type { AuditRecord } from '../src/audit/audit.service.js';
+
+const PLATFORM_ADMIN_EMAIL = `keys-platform-admin-${Date.now()}@example.test`;
 
 let api: ApiHarness;
 let owner: TestActor;
 let orgId: string;
 
+/** Superuser read for assertions (bypasses RLS; tests only). */
+async function superQuery<T extends Record<string, unknown>>(
+  query: ReturnType<typeof sql>,
+): Promise<T[]> {
+  const db = superDatabase();
+  try {
+    return [...(await withoutTenantContext(db.db, (tx) => tx.execute(query)))] as T[];
+  } finally {
+    await db.close();
+  }
+}
+
+async function auditFor(eventType: string, apiKeyId: string) {
+  return superQuery<{ actor_user_id: string; metadata: Record<string, unknown> }>(sql`
+    select actor_user_id, metadata from audit_events
+    where event_type = ${eventType} and metadata->>'apiKeyId' = ${apiKeyId}
+  `);
+}
+
 beforeAll(async () => {
-  api = await startApi();
+  api = await startApi({ PLATFORM_ADMIN_EMAILS: PLATFORM_ADMIN_EMAIL });
   owner = await registerUser(api, 'keys-owner');
   orgId = await createOrganization(api, owner, 'Keys Co');
 }, 120_000);
@@ -183,19 +207,12 @@ describe('company API keys', () => {
 
   it('last_used_at is set', async () => {
     const created = await createKey(owner);
-    const lastUsed = async () => {
-      const db = superDatabase();
-      try {
-        const rows = await withoutTenantContext(db.db, (tx) =>
-          tx.execute<{ last_used_at: string | null }>(
-            sql`select last_used_at from api_keys where id = ${created.id}`,
-          ),
-        );
-        return rows[0]?.last_used_at ?? null;
-      } finally {
-        await db.close();
-      }
-    };
+    const lastUsed = async () =>
+      (
+        await superQuery<{ last_used_at: string | null }>(
+          sql`select last_used_at from api_keys where id = ${created.id}`,
+        )
+      )[0]?.last_used_at ?? null;
     expect(await lastUsed()).toBeNull();
     expect((await ping(created.key)).statusCode).toBe(200);
     const first = await lastUsed();
@@ -222,5 +239,135 @@ describe('company API keys', () => {
     expect(() => limiter.check('key-b')).not.toThrow();
     now += 60_000;
     expect(() => limiter.check('key-a')).not.toThrow();
+  });
+
+  it('keys work only on /v1 permission routes, never account or admin routes', async () => {
+    const signUp = await api.request({
+      method: 'POST',
+      url: '/api/auth/sign-up/email',
+      payload: {
+        email: PLATFORM_ADMIN_EMAIL,
+        password: 'correct-horse-battery-staple',
+        name: 'platform-admin',
+      },
+    });
+    expect(signUp.statusCode).toBe(200);
+    const cookie = (Array.isArray(signUp.headers['set-cookie'])
+      ? signUp.headers['set-cookie']
+      : [signUp.headers['set-cookie'] ?? '']
+    )
+      .map((c) => c.split(';')[0] ?? '')
+      .filter((c) => c.includes('session_token'))
+      .join('; ');
+    const me = JSON.parse(
+      (await api.request({ method: 'GET', url: '/auth/me', cookie })).body,
+    ) as { user: { id: string } };
+    const admin: TestActor = { email: PLATFORM_ADMIN_EMAIL, cookie, userId: me.user.id };
+    const adminOrg = await createOrganization(api, admin, 'Platform Admin Co');
+
+    // The creator really is a platform admin: the cookie session gets in.
+    const summary = await api.request({ method: 'GET', url: '/admin/costs/summary', cookie });
+    expect(summary.statusCode).toBe(200);
+
+    const created = await createKey(admin, ['jobs', 'candidates', 'calls', 'results', 'webhooks', 'usage']);
+    const headers = { authorization: `Bearer ${created.key}` };
+    const attempts = [
+      { method: 'POST', url: '/organizations', payload: { name: 'Key Made Co' } },
+      { method: 'POST', url: '/organizations/ensure', payload: {} },
+      { method: 'GET', url: '/auth/me' },
+      { method: 'GET', url: '/auth/organizations' },
+      { method: 'POST', url: '/auth/switch-organization', payload: { organizationId: orgId } },
+      { method: 'POST', url: '/invitations/accept', payload: { token: 'x'.repeat(32) } },
+      { method: 'GET', url: '/admin/costs/summary' },
+      { method: 'GET', url: '/admin/costs/services' },
+      { method: 'GET', url: '/organization/members' },
+      { method: 'GET', url: '/organization' },
+    ] as const;
+    for (const attempt of attempts) {
+      const res = await api.request({ ...attempt, headers });
+      expect(res.statusCode, `${attempt.method} ${attempt.url}`).toBe(403);
+      expect(JSON.parse(res.body)).toMatchObject({
+        code: 'forbidden',
+        message: 'You do not have permission to do this',
+      });
+    }
+
+    const ok = await ping(created.key);
+    expect(ok.statusCode).toBe(200);
+    expect(JSON.parse(ok.body).organizationId).toBe(adminOrg);
+  });
+
+  it('audits key creation and revocation without the key or its hash', async () => {
+    const created = await createKey(owner, ['jobs', 'usage'], 'test');
+    await api.request({
+      method: 'DELETE',
+      url: `/organization/api-keys/${created.id}`,
+      cookie: owner.cookie,
+    });
+    for (const eventType of ['integrations.api_key_created', 'integrations.api_key_revoked']) {
+      const rows = await auditFor(eventType, created.id);
+      expect(rows, eventType).toHaveLength(1);
+      expect(rows[0]?.actor_user_id).toBe(owner.userId);
+      expect(rows[0]?.metadata).toEqual({
+        apiKeyId: created.id,
+        prefix: created.prefix,
+        mode: 'test',
+        scopes: 'jobs,usage',
+      });
+      const raw = JSON.stringify(rows[0]);
+      expect(raw).not.toContain(created.key);
+      expect(raw).not.toMatch(/[a-f0-9]{64}/);
+    }
+  });
+
+  it("a key's permission denial is audited with the key id", async () => {
+    const created = await createKey(owner, ['usage']);
+    expect((await ping(created.key)).statusCode).toBe(403);
+    const rows = await auditFor('authz.denied', created.id);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.actor_user_id).toBe(owner.userId);
+    expect(rows[0]?.metadata).toMatchObject({ apiKeyId: created.id, apiKeyMode: 'live' });
+  });
+
+  it("a key's sensitive-permission use is audited with the key id", async () => {
+    // No /v1 route uses a sensitive permission yet, so drive the guard directly.
+    const records: AuditRecord[] = [];
+    const ctx: AuthContext = {
+      userId: '11111111-1111-1111-1111-111111111111',
+      userEmail: 'creator@example.test',
+      userName: 'creator',
+      emailVerified: true,
+      sessionToken: '',
+      organization: {
+        organizationId: '22222222-2222-2222-2222-222222222222',
+        membershipId: 'm',
+        roleId: 'r',
+        roleKey: 'owner',
+        permissions: new Set(['candidates.read_pii']),
+      },
+      apiKey: { id: 'key-1', name: 'ATS', mode: 'test' },
+    };
+    const meta: Record<string, unknown> = {
+      'authz:mode': 'permission',
+      'authz:permission': 'candidates.read_pii',
+    };
+    const guard = new AuthzGuard(
+      { getAllAndOverride: (k: string) => meta[k] } as never,
+      { resolve: async () => ctx },
+      { record: async (r: AuditRecord) => void records.push(r) },
+    );
+    const request = { method: 'GET', url: '/v1/candidates/x', headers: {} };
+    const execution = {
+      getHandler: () => undefined,
+      getClass: () => undefined,
+      switchToHttp: () => ({ getRequest: () => request }),
+    };
+    await expect(guard.canActivate(execution as never)).resolves.toBe(true);
+    expect(records).toHaveLength(1);
+    expect(records[0]).toMatchObject({
+      eventType: 'authz.sensitive_access',
+      actorUserId: ctx.userId,
+      metadata: { permission: 'candidates.read_pii', apiKeyId: 'key-1', apiKeyMode: 'test' },
+    });
   });
 });

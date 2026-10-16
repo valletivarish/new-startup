@@ -113,6 +113,7 @@ import { createJobsService } from './hiring/jobs.service.js';
 import { createCandidatesService } from './hiring/candidates.service.js';
 import { createApiKeysService } from './integrations/api-keys.service.js';
 import { ApiKeysController } from './integrations/api-keys.controller.js';
+import { OpenApiController } from './integrations/openapi.controller.js';
 import { V1PingController } from './integrations/v1-ping.controller.js';
 import { V1JobsController } from './integrations/v1-jobs.controller.js';
 import { V1CallsController } from './integrations/v1-calls.controller.js';
@@ -178,6 +179,7 @@ export class AppModule {
         ExotelWebhookController,
         ApiKeysController,
         V1PingController,
+        OpenApiController,
         V1JobsController,
         V1CallsController,
         V1UsageController,

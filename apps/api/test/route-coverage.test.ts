@@ -45,6 +45,7 @@ import {
 import { JobsController } from '../src/hiring/jobs.controller.js';
 import { CandidatesController } from '../src/hiring/candidates.controller.js';
 import { ApiKeysController } from '../src/integrations/api-keys.controller.js';
+import { OpenApiController } from '../src/integrations/openapi.controller.js';
 import { V1PingController } from '../src/integrations/v1-ping.controller.js';
 import { V1JobsController } from '../src/integrations/v1-jobs.controller.js';
 import { V1CallsController } from '../src/integrations/v1-calls.controller.js';
@@ -80,6 +81,7 @@ const CONTROLLERS = [
   CandidatesController,
   ApiKeysController,
   V1PingController,
+  OpenApiController,
   V1JobsController,
   V1CallsController,
   V1WebhooksController,
@@ -173,6 +175,7 @@ describe('every route declares its authorization requirement', () => {
     expect(publicRoutes).toEqual([
       'AuthController.consoleResetLink',
       'HealthController.health',
+      'OpenApiController.get',
       'PublicCandidateLinksController.get',
       'PublicCandidateLinksController.submit',
       'VoiceWebhookController.webhook',

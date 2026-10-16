@@ -43,6 +43,18 @@ describe('OpenAPI document', () => {
     expect(JSON.stringify(doc)).toContain('Idempotency-Key');
   });
 
+  it('matches the code: links answer 404 (never 410), queuing a call can be 503, resend re-queues', () => {
+    const responses = (path: string, method: string) =>
+      Object.keys((doc.paths[path]![method] as { responses: object }).responses);
+    for (const method of ['get', 'post']) {
+      expect(responses('/public/candidate-links/{token}', method)).not.toContain('410');
+    }
+    expect(JSON.stringify(doc)).not.toContain('"410"');
+    expect(responses('/v1/jobs/{jobId}/candidates/{id}/calls', 'post')).toContain('503');
+    const resend = doc.paths['/v1/webhook-deliveries/{id}/resend']!['post'] as { summary: string };
+    expect(resend.summary).toMatch(/same delivery/);
+  });
+
   it('documents every /v1 and /public/candidate-links route', () => {
     const routes = registeredRoutes().filter(([, p]) => /^\/(v1\/|public\/candidate-links)/.test(p));
     expect(routes.length).toBeGreaterThanOrEqual(15);

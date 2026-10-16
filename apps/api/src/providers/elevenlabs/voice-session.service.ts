@@ -1185,13 +1185,22 @@ export function createVoiceSessionService(
         async (tx) => {
           const counts = await countVoiceUsage(tx, actor.organizationId);
           if (!isTest && counts.activePhone >= env.ELEVENLABS_MAX_CONCURRENT_PHONE) {
-            throw ApiError.conflict(
+            // resetsAt lets the /v1 call worker hold the call instead of failing it.
+            throw new ApiError(
+              'conflict',
               `This company already has ${env.ELEVENLABS_MAX_CONCURRENT_PHONE} live phone screens in progress. End one on Calls before starting another.`,
+              undefined,
+              { resetsAt: new Date(Date.now() + 60_000).toISOString() },
             );
           }
           if (!isTest && counts.todayPhone >= env.ELEVENLABS_DAILY_PHONE_SESSIONS) {
-            throw ApiError.conflict(
+            // Counted from the database's current_date (UTC): resets at the next UTC midnight.
+            const d = new Date();
+            throw new ApiError(
+              'conflict',
               `Daily live phone screen limit (${env.ELEVENLABS_DAILY_PHONE_SESSIONS}) reached. Try again tomorrow.`,
+              undefined,
+              { resetsAt: new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 1)).toISOString() },
             );
           }
 

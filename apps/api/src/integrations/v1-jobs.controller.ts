@@ -69,6 +69,20 @@ export class V1JobsController {
     return out.body;
   }
 
+  /** Writes stay in the key's mode: a test key sees a live job (and vice versa) as missing. */
+  private async assertJobMode(a: ReturnType<typeof actorOf>, jobId: string) {
+    const rows = await withTenantContext(
+      this.database.db,
+      { organizationId: a.organizationId, userId: a.userId },
+      (tx) =>
+        tx.execute(sql`
+          select 1 from jobs
+          where id = ${jobId} and organization_id = ${a.organizationId} and is_test = ${a.isTest}
+        `),
+    );
+    if (rows.length === 0) throw ApiError.notFound('Job');
+  }
+
   @Get()
   @RequirePermission('jobs.read')
   async list(@Req() req: RequestWithAuth) {
@@ -116,6 +130,7 @@ export class V1JobsController {
     const input = parse(V1JobPatch, body);
     const a = actorOf(req);
     return this.write(req, reply, async () => {
+      await this.assertJobMode(a, id);
       await this.jobs.update(a, id, {
         ...(input.title !== undefined ? { title: input.title } : {}),
         ...(input.description !== undefined ? { description: input.description } : {}),
@@ -145,6 +160,7 @@ export class V1JobsController {
     const a = actorOf(req);
 
     return this.write(req, reply, async () => {
+      await this.assertJobMode(a, jobId);
       const results = await this.candidates.createBatch(
         a,
         items.map((c) => ({

@@ -41,7 +41,12 @@ function toCall(raw: unknown): ExotelCall {
   };
 }
 
-export function createExotelClient(env: Env, fetchFn: typeof fetch = fetch): ExotelClient {
+/** A hung Exotel request must not block the call worker: each one gives up after `timeoutMs`. */
+export function createExotelClient(
+  env: Env,
+  fetchFn: typeof fetch = fetch,
+  timeoutMs = 15_000,
+): ExotelClient {
   const base = () =>
     `https://${env.EXOTEL_API_SUBDOMAIN}/v1/Accounts/${encodeURIComponent(env.EXOTEL_ACCOUNT_SID)}`;
   const auth = () =>
@@ -75,6 +80,7 @@ export function createExotelClient(env: Env, fetchFn: typeof fetch = fetch): Exo
         method: 'POST',
         headers: { authorization: auth(), 'content-type': 'application/x-www-form-urlencoded' },
         body: form.toString(),
+        signal: AbortSignal.timeout(timeoutMs),
       });
       const body = (await res.json().catch(() => null)) as unknown;
       if (!res.ok) {
@@ -94,6 +100,7 @@ export function createExotelClient(env: Env, fetchFn: typeof fetch = fetch): Exo
     async getCall(callSid) {
       const res = await fetchFn(`${base()}/Calls/${encodeURIComponent(callSid)}.json`, {
         headers: { authorization: auth() },
+        signal: AbortSignal.timeout(timeoutMs),
       });
       if (!res.ok) throw new Error(`Exotel call lookup failed: HTTP ${res.status}`);
       return toCall(await res.json());

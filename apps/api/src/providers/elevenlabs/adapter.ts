@@ -478,10 +478,12 @@ export function createVoiceSessionAdapter(env: Env): VoiceSessionAdapter {
       // Carrier choice stays inside this adapter. `india` → Exotel path; else Twilio.
       const useIndiaPath = env.ELEVENLABS_OUTBOUND_PROVIDER === 'india';
       const path = useIndiaPath ? 'india' : 'primary';
+      // A hung dial must not block the call worker. No retries: a retried POST could ring twice.
+      const opts = { timeoutInSeconds: 15, maxRetries: 0 };
       try {
         const result = useIndiaPath
-          ? await cl.conversationalAi.exotel.outboundCall(body)
-          : await cl.conversationalAi.twilio.outboundCall(body);
+          ? await cl.conversationalAi.exotel.outboundCall(body, opts)
+          : await cl.conversationalAi.twilio.outboundCall(body, opts);
 
         const accepted = Boolean(result.success);
         if (!accepted) {

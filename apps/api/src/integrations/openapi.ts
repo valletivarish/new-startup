@@ -31,12 +31,12 @@ const idemKey = { $ref: '#/components/parameters/IdempotencyKey' };
 const ERRORS: Record<string, string> = {
   '401': 'unauthorized: missing or invalid API key.',
   '403': 'forbidden: the key lacks the scope for this route.',
-  '404': 'not_found.',
+  '404': 'not_found (for a candidate link: unknown, used or expired).',
   '409': 'conflict, agent_required, idempotency_in_progress, delivery_in_progress or link_phone_conflict.',
-  '410': 'gone: the link expired or was already used.',
   '422': 'validation_failed, or consent_required when a candidate is created without "consent": true.',
   '429': 'rate_limited, or call_limit_reached / test_call_limit_reached (details.resetsAt is an ISO time).',
   '500': 'internal.',
+  '503': 'service_unavailable: the call could not be queued. Retry shortly.',
 };
 const errorResponses = (...codes: string[]) =>
   Object.fromEntries(codes.map((c) => [c, err(ERRORS[c]!)]));
@@ -153,7 +153,7 @@ export function buildOpenApi(): object {
       '/v1/jobs/{jobId}/candidates/{id}/calls': {
         post: op({ summary: 'Queue a screening call.', tag: 'Calls', params: [jobId, id], write: true,
           ok: ok('202', 'Accepted; poll GET /v1/calls/{id} or use webhooks', ref('Call')),
-          errors: ['404', '409', '422', '429'] }),
+          errors: ['404', '409', '422', '429', '503'] }),
       },
       '/v1/calls/{id}': {
         get: op({ summary: 'Get a call and its result.', tag: 'Calls', params: [id],
@@ -186,7 +186,7 @@ export function buildOpenApi(): object {
           ok: ok('200', 'OK', obj({ deliveries: arrayOf('WebhookDelivery') })), errors: ['422'] }),
       },
       '/v1/webhook-deliveries/{id}/resend': {
-        post: op({ summary: 'Send a delivery again as a new delivery.', tag: 'Webhooks', params: [id], write: true,
+        post: op({ summary: 'Re-queue the same delivery for another round of attempts.', tag: 'Webhooks', params: [id], write: true,
           ok: ok('201', 'Queued', ref('WebhookDelivery')), errors: ['404', '409'] }),
       },
       '/v1/jobs/{jobId}/candidate-links': {
@@ -197,11 +197,11 @@ export function buildOpenApi(): object {
       '/public/candidate-links/{token}': {
         get: op({ summary: 'Describe a link (no auth, rate limited).', tag: 'Candidate links', noAuth: true,
           params: [token], ok: ok('200', 'OK', obj({ companyName: str, jobTitle: str, fullName: nullableStr, expiresAt: str })),
-          errors: ['404', '410', '429'] }),
+          errors: ['404', '429'] }),
         post: op({ summary: 'Candidate submits number and consent; a call is queued (no auth, rate limited).',
           tag: 'Candidate links', noAuth: true, params: [token], body: ref('CandidateLinkSubmit'),
           ok: ok('201', 'Accepted', obj({ scheduledFor: nullableStr })),
-          errors: ['404', '409', '410', '422', '429'] }),
+          errors: ['404', '409', '422', '429', '503'] }),
       },
     },
     webhooks: { 'call.completed': webhookOp('call.completed'), 'call.failed': webhookOp('call.failed') },

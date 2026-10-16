@@ -203,6 +203,18 @@ describe('/v1 jobs and candidates', () => {
     expect(all.filter((c: { fullName: string }) => c.fullName === 'Idem')).toHaveLength(1);
   });
 
+  it('scopes Idempotency-Key per API key: another key never gets the first key\'s body', async () => {
+    const path = `/v1/jobs/${jobId}/candidates`;
+    const headers = { 'idempotency-key': 'idem-shared' };
+    const secondKey = await mintKey(owner, 'live');
+    const a = await v1(liveKey, 'POST', path, { fullName: 'Key One', phone: '9000000210', consent: true }, headers);
+    const b = await v1(secondKey, 'POST', path, { fullName: 'Key Two', phone: '9000000211', consent: true }, headers);
+    expect(a.statusCode, a.body).toBe(201);
+    expect(b.statusCode, b.body).toBe(201);
+    expect(JSON.parse(b.body).fullName).toBe('Key Two');
+    expect(JSON.parse(b.body).id).not.toBe(JSON.parse(a.body).id);
+  });
+
   it('creates nothing when one batch item fails, and a corrected retry creates all', async () => {
     const path = `/v1/jobs/${jobId}/candidates`;
     const mk = (n: number, phone: string) => ({ fullName: `Atomic ${n}`, phone, consent: true });

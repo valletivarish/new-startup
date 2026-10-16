@@ -222,6 +222,21 @@ describe('/v1 call requests', () => {
     expect(rows).toEqual([{ status: 'failed', reason: 'enqueue_failed' }]);
   });
 
+  it('fails a queued call whose requester left the company (creator_inactive)', async () => {
+    clock = todayAtIst(10);
+    const org = await setupOrg('calls-left');
+    const cand = await candidate(org);
+    const res = await v1(org, 'POST', `/v1/jobs/${org.jobId}/candidates/${cand}/calls`);
+    const id = JSON.parse(res.body).id as string;
+    await superSql(sql`
+      update organization_memberships set status = 'suspended' where organization_id = ${org.orgId}`);
+    await makeService().place({ organizationId: org.orgId, userId: org.owner.userId, callRequestId: id });
+    const [row] = await superSql<{ status: string; reason: string }>(
+      sql`select status, reason from call_requests where id = ${id}`,
+    );
+    expect(row).toEqual({ status: 'failed', reason: 'creator_inactive' });
+  });
+
   it('sweeps rows stuck in placing for over 10 minutes', async () => {
     const [stale, fresh] = [await candidate(shared), await candidate(shared)];
     const ins = await superSql<{ id: string }>(sql`
@@ -264,6 +279,34 @@ describe('call limits', () => {
     await setLimits(org.orgId, { concurrent: 1 });
     expect(await requestAndPlace(org, await candidate(org))).toMatchObject({ status: 'placed' });
     await expectLimited(org, /^\d{4}-\d\d-\d\dT/);
+  });
+
+  it('a limit hit at place time holds the call (scheduled at resetsAt), never fails it', async () => {
+    clock = todayAtIst(10);
+    const org = await setupOrg('calls-throttle');
+    await setLimits(org.orgId, { concurrent: 1 });
+    const ids: string[] = [];
+    // All three pass the request-time check: nothing is live yet.
+    for (let i = 0; i < 3; i++) {
+      const res = await v1(org, 'POST', `/v1/jobs/${org.jobId}/candidates/${await candidate(org)}/calls`);
+      expect(res.statusCode, res.body).toBe(202);
+      ids.push(JSON.parse(res.body).id);
+    }
+    const service = makeService();
+    const before = enqueued.length;
+    for (const id of ids) {
+      await service.place({ organizationId: org.orgId, userId: org.owner.userId, callRequestId: id });
+    }
+    const rows = await superSql<{ id: string; status: string; not_before: string | null }>(sql`
+      select id, status, not_before from call_requests where job_id = ${org.jobId}`);
+    expect(rows.filter((r) => r.status === 'placed')).toHaveLength(1);
+    const held = rows.filter((r) => r.status === 'scheduled');
+    expect(held).toHaveLength(2);
+    // Concurrency resets a minute after the place-time clock.
+    for (const r of held) expect(new Date(r.not_before!).getTime()).toBe(clock.getTime() + 60_000);
+    const requeued = enqueued.slice(before);
+    expect(requeued.map((e) => e.job.callRequestId).sort()).toEqual(held.map((r) => r.id).sort());
+    for (const e of requeued) expect(e.startAfter!.getTime()).toBeGreaterThan(Date.now());
   });
 
   it('monthly_cap: 429 with resetsAt at the 1st of next IST month', async () => {

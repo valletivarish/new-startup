@@ -8,6 +8,7 @@
 import { sql, withTenantContext, type Database } from '@platform/db';
 import type { FastifyRequest } from 'fastify';
 
+import type { RequestWithAuth } from '../authz/authz.guard.js';
 import { ApiError } from '../errors.js';
 
 export interface IdempotencyResult {
@@ -22,13 +23,16 @@ export async function withIdempotency(
   handler: () => Promise<IdempotencyResult>,
 ): Promise<IdempotencyResult> {
   const header = req.headers['idempotency-key'];
-  const key = Array.isArray(header) ? header[0] : header;
-  if (!key) return handler();
-  if (key.length > 255) {
+  const clientKey = Array.isArray(header) ? header[0] : header;
+  if (!clientKey) return handler();
+  if (clientKey.length > 255) {
     throw ApiError.validation([
       { field: 'Idempotency-Key', message: 'Idempotency-Key must be at most 255 characters' },
     ]);
   }
+  // Scoped per caller, so two API keys of one company never replay each other's bodies.
+  const auth = (req as RequestWithAuth).authContext;
+  const key = `${auth?.apiKey ? `key:${auth.apiKey.id}` : `user:${ctx.userId}`}:${clientKey}`;
   const method = req.method;
   const path = req.url.split('?')[0]!;
 

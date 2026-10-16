@@ -376,6 +376,59 @@ describe('call events and signed webhooks', () => {
     expect(JSON.parse((await v1(orgB, 'GET', '/v1/webhook-endpoints')).body).endpoints).toEqual([]);
   });
 
+  it('a request skipped before any call (no_consent) still sends call.failed, once', async () => {
+    const cand = await v1(orgA, 'POST', `/v1/jobs/${orgA.jobId}/candidates`, {
+      fullName: 'No Consent',
+      phone: `9000001${++phoneSeq}`,
+      consent: true,
+    });
+    const candidateId = JSON.parse(cand.body).id as string;
+    await superSql(sql`update candidates set consent_at = null where id = ${candidateId}`);
+    const req = await v1(orgA, 'POST', `/v1/jobs/${orgA.jobId}/candidates/${candidateId}/calls`);
+    const callId = JSON.parse(req.body).id as string;
+    const app = api.built.app;
+    const service = createCallRequestsService({
+      database: api.built.database,
+      voice: app.get(VOICE_SESSION_SERVICE),
+      jobs: app.get(JOBS_SERVICE),
+      queue: { enqueueCall: async () => {}, ...queue },
+      now: () => new Date(istMidnight(new Date()).getTime() + 10 * 3_600_000),
+    });
+    const before = enqueued.length;
+    const job = { organizationId: orgA.orgId, userId: orgA.owner.userId, callRequestId: callId };
+    await service.place(job);
+    await service.place(job); // not picked up again, so no second event
+    const jobs = enqueued.slice(before);
+    expect(jobs).toHaveLength(1);
+    const [row] = await superSql<{ event: string; payload: { data: Record<string, unknown> } }>(
+      sql`select event, payload from webhook_deliveries where id = ${jobs[0]!.deliveryId}`,
+    );
+    expect(row!.event).toBe('call.failed');
+    expect(row!.payload.data).toMatchObject({
+      callId,
+      candidateId,
+      jobId: orgA.jobId,
+      result: { status: 'failed', failureReason: 'no_consent' },
+    });
+  });
+
+  it('subscribing an endpoint needs the results scope (events carry transcripts)', async () => {
+    const minted = await api.request({
+      method: 'POST',
+      url: '/organization/api-keys',
+      cookie: orgA.owner.cookie,
+      payload: { name: 'No results', mode: 'live', scopes: ['webhooks'] },
+    });
+    expect(minted.statusCode, minted.body).toBe(201);
+    const res = await api.request({
+      method: 'POST',
+      url: '/v1/webhook-endpoints',
+      headers: { authorization: `Bearer ${JSON.parse(minted.body).key}` },
+      payload: { url: `${baseUrl}/hook`, events: ['call.completed'] },
+    });
+    expect(res.statusCode, res.body).toBe(403);
+  });
+
   it('non-https url rejected in production mode', async () => {
     expect(() => assertWebhookUrl('http://127.0.0.1:9/hook', true)).toThrow(/https/);
     expect(() => assertWebhookUrl('http://example.com/hook', true)).toThrow(/https/);

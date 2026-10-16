@@ -41,6 +41,8 @@ services:
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash-lite}
       PLATFORM_ADMIN_EMAILS: ${PLATFORM_ADMIN_EMAILS:-}
       # Own voice loop (apps/voice). Off unless VOICE_OWN_LOOP_ENABLED=true.
+      # /v1 test keys (hrv_test_) place calls only on the own loop: they need
+      # VOICE_OWN_LOOP_ENABLED=true and VOICE_INTERNAL_TOKEN set, else test calls fail.
       VOICE_OWN_LOOP_ENABLED: ${VOICE_OWN_LOOP_ENABLED:-false}
       VOICE_INTERNAL_TOKEN: ${VOICE_INTERNAL_TOKEN:-}
       VOICE_SERVICE_URL: http://voice:8765

@@ -99,7 +99,9 @@ export function createCandidateLinksService(deps: {
       const expiresAt = new Date(now().getTime() + LINK_TTL_MS);
       await tenant(actor, async (tx) => {
         const job = await tx.execute(sql`
-          select 1 from jobs where id = ${jobId} and organization_id = ${actor.organizationId}`);
+          select 1 from jobs
+          where id = ${jobId} and organization_id = ${actor.organizationId}
+            and is_test = ${actor.isTest}`);
         if (job.length === 0) throw ApiError.notFound('Job');
         if (input.candidateId) {
           const cand = await tx.execute(sql`
@@ -201,6 +203,12 @@ export function createCandidateLinksService(deps: {
             if (error instanceof ApiError && error.code === 'conflict') throw phoneConflict();
             throw error;
           }
+          // Bind the link now, so a retry after a failed call request reuses this candidate.
+          await tenant(a, (tx) =>
+            tx.execute(sql`
+              update candidate_links set candidate_id = ${id}
+              where id = ${link.id} and organization_id = ${link.organization_id}`),
+          );
         }
 
         await calls.request(

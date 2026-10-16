@@ -15,6 +15,7 @@ import type { VoiceSessionService } from '../providers/elevenlabs/voice-session.
 import { assertWithinLimits } from './call-limits.js';
 import { nextCallingTime } from './calling-hours.js';
 import { createNoopDndChecker, type DndChecker } from './dnd.js';
+import { emitRequestFailed } from './events.js';
 import { recordingLink, toV1Result, type V1Result } from './public-mappers.js';
 
 export interface CallActor {
@@ -53,7 +54,8 @@ export interface CallRequestsDeps {
   database: Database;
   voice: Pick<VoiceSessionService, 'startOutboundPhoneCall'>;
   jobs: Pick<JobsService, 'get' | 'getCandidateResults'>;
-  queue: Pick<JobQueue, 'enqueueCall'> | null;
+  /** enqueueWebhook delivers `call.failed` for requests that end without a call. */
+  queue: (Pick<JobQueue, 'enqueueCall'> & Partial<Pick<JobQueue, 'enqueueWebhook'>>) | null;
   dnd?: DndChecker;
   now?: () => Date;
   /** Public API base URL, for recording links. */
@@ -108,22 +110,32 @@ export function createCallRequestsService(deps: CallRequestsDeps): CallRequestsS
   const tenant = <T>(a: CallActor, fn: Parameters<typeof withTenantContext<T>>[2]) =>
     withTenantContext(database.db, { organizationId: a.organizationId, userId: a.userId }, fn);
 
+  const emitFailed = (organizationId: string, id: string, reason: string) =>
+    emitRequestFailed(database, queue, organizationId, id, reason, {
+      error: (obj, msg) => deps.logger?.warn(obj, msg),
+    });
+
   async function finish(
     a: CallActor,
     id: string,
     status: string,
     fields: { reason?: string; notBefore?: Date; voiceSessionId?: string } = {},
   ) {
-    await tenant(a, (tx) =>
-      tx.execute(sql`
+    const rows = await tenant(a, (tx) =>
+      tx.execute<{ voice_session_id: string | null }>(sql`
         update call_requests
         set status = ${status}, reason = ${fields.reason ?? null},
             not_before = ${fields.notBefore?.toISOString() ?? null},
             voice_session_id = coalesce(${fields.voiceSessionId ?? null}::uuid, voice_session_id),
             updated_at = now()
         where id = ${id} and organization_id = ${a.organizationId}
+        returning voice_session_id
       `),
     );
+    // A request that ends with no call never reaches the call-end paths: report it here.
+    if ((status === 'skipped' || status === 'failed') && rows[0] && !rows[0].voice_session_id) {
+      await emitFailed(a.organizationId, id, fields.reason ?? 'internal');
+    }
   }
 
   return {
@@ -134,10 +146,11 @@ export function createCallRequestsService(deps: CallRequestsDeps): CallRequestsS
       if (!actor.isTest) await assertWithinLimits(database, actor.organizationId, now());
 
       const row = await tenant(actor, async (tx) => {
+        // A test key only calls test jobs and a live key only live ones.
         const cand = await tx.execute(sql`
-          select 1 from candidates
-          where id = ${input.candidateId} and job_id = ${input.jobId}
-            and organization_id = ${actor.organizationId}
+          select 1 from candidates c join jobs j on j.id = c.job_id
+          where c.id = ${input.candidateId} and c.job_id = ${input.jobId}
+            and c.organization_id = ${actor.organizationId} and j.is_test = ${actor.isTest}
         `);
         if (cand.length === 0) throw ApiError.notFound('Candidate');
         const rows = await tx.execute<Row>(sql`
@@ -187,6 +200,16 @@ export function createCallRequestsService(deps: CallRequestsDeps): CallRequestsS
       if (!row) return;
 
       try {
+        // Calls run in the requester's name; one who left the company must not dial.
+        const member = await tenant(a, (tx) =>
+          tx.execute(sql`
+            select 1 from organization_memberships
+            where organization_id = ${a.organizationId} and user_id = ${a.userId}
+              and status = 'active'
+          `),
+        );
+        if (member.length === 0) return await finish(a, id, 'failed', { reason: 'creator_inactive' });
+
         if (!row.consented) return await finish(a, id, 'skipped', { reason: 'no_consent' });
 
         const e164 = row.phone ? toE164Phone(row.phone) : null;
@@ -225,6 +248,15 @@ export function createCallRequestsService(deps: CallRequestsDeps): CallRequestsS
         });
         await finish(a, id, 'placed', { voiceSessionId: placed.voiceSessionId });
       } catch (error) {
+        // A limit hit is a throttle: hold the call until the limit resets, then retry.
+        const resetsAt = error instanceof ApiError ? error.details?.['resetsAt'] : undefined;
+        if (typeof resetsAt === 'string') {
+          const at = new Date(resetsAt);
+          await finish(a, id, 'scheduled', { notBefore: at });
+          // Never sooner than a minute in real time, so a fixed clock cannot spin.
+          await queue?.enqueueCall(job, new Date(Math.max(at.getTime(), Date.now() + 60_000)));
+          return;
+        }
         const reason = error instanceof ApiError ? error.code : 'internal';
         await finish(a, id, 'failed', { reason });
       }
@@ -240,7 +272,7 @@ export function createCallRequestsService(deps: CallRequestsDeps): CallRequestsS
       // ponytail: one transaction per org; a security-definer sweep function if org count grows large.
       for (const org of orgs) {
         const rows = await tenant({ organizationId: org.id, userId: SYSTEM_USER }, (tx) =>
-          tx.execute(sql`
+          tx.execute<{ id: string }>(sql`
             update call_requests
             set status = 'failed', reason = 'internal_error', updated_at = now()
             where organization_id = ${org.id} and status = 'placing'
@@ -248,6 +280,7 @@ export function createCallRequestsService(deps: CallRequestsDeps): CallRequestsS
             returning id
           `),
         );
+        for (const r of rows) await emitFailed(org.id, r.id, 'internal_error');
         swept += rows.length;
       }
       return swept;

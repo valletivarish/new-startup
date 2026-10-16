@@ -179,6 +179,29 @@ describe('ask-the-candidate link', () => {
     expect((await submit(link.token, { ...answer, phone: '9000055556', when: 'now' })).statusCode).toBe(201);
   });
 
+  it('unbound link: a retry after a failed call request reuses the candidate it created', async () => {
+    const link = await mintLink();
+    const phone = '9000012345';
+    // calls_per_day 0: the call request after candidate creation is refused.
+    await superSql(sql`
+      insert into org_call_limits (organization_id, calls_per_day) values (${orgId}, 0)
+      on conflict (organization_id) do update set calls_per_day = 0`);
+    try {
+      const first = await submit(link.token, { ...answer, phone, when: 'now' });
+      expect(first.statusCode, first.body).toBe(429);
+    } finally {
+      await superSql(sql`update org_call_limits set calls_per_day = 50 where organization_id = ${orgId}`);
+    }
+    const [created] = await candidateOf(phone);
+    expect(created).toBeTruthy();
+
+    const retry = await submit(link.token, { ...answer, phone, when: 'now' });
+    expect(retry.statusCode, retry.body).toBe(201);
+    const all = await candidateOf(phone);
+    expect(all.map((c) => c.id)).toEqual([created!.id]);
+    expect(await requestsFor(created!.id)).toHaveLength(1);
+  });
+
   it('bound link: updates only its candidate (phone, consent; name only if empty)', async () => {
     const mk = async (fullName: string, phone: string) => {
       const r = await api.request({

@@ -277,10 +277,10 @@ describe('test mode', () => {
       status: 'placed',
     });
 
-    // ...and the live call does not take a test slot either: the 4th test call is refused by the test cap.
+    // ...and the live call does not take a test slot either: the 4th test call is held by the test cap.
     expect(await requestAndPlace(org, key, jobId, candidateIds[3]!, line.calls)).toMatchObject({
-      status: 'failed',
-      reason: 'test_call_limit_reached',
+      status: 'scheduled',
+      reason: null,
     });
   });
 
@@ -299,5 +299,59 @@ describe('test mode', () => {
     `);
     expect(sessions).toHaveLength(2);
     for (const s of sessions) expect(s).toMatchObject({ status: 'failed', failure_reason: 'engine_error' });
+  });
+});
+
+describe('test/live isolation', () => {
+  it('a key writes and calls only within its own mode; reads stay open', async () => {
+    const org = await setupOrg('testmode-isolation');
+    const [test, live] = [await org.key('test'), await org.key('live')];
+    const testJob = await jobWithCandidates(test, 1);
+    const liveJob = await jobWithCandidates(live, 1);
+
+    for (const [key, other] of [
+      [test, liveJob],
+      [live, testJob],
+    ] as const) {
+      const add = await v1(key, 'POST', `/v1/jobs/${other.jobId}/candidates`, {
+        fullName: 'Cross',
+        phone: `9000000${++phoneSeq}`,
+        consent: true,
+      });
+      expect(add.statusCode, add.body).toBe(404);
+      const batch = await v1(key, 'POST', `/v1/jobs/${other.jobId}/candidates`, {
+        candidates: [{ fullName: 'Cross', phone: `9000000${++phoneSeq}`, consent: true }],
+      });
+      expect(batch.statusCode, batch.body).toBe(404);
+      const link = await v1(key, 'POST', `/v1/jobs/${other.jobId}/candidate-links`, {});
+      expect(link.statusCode, link.body).toBe(404);
+      const call = await v1(key, 'POST', `/v1/jobs/${other.jobId}/candidates/${other.candidateIds[0]}/calls`);
+      expect(call.statusCode, call.body).toBe(404);
+      expect((await v1(key, 'GET', `/v1/jobs/${other.jobId}`)).statusCode).toBe(200);
+    }
+  });
+
+  it('a test key cannot upsert onto a live candidate by externalId', async () => {
+    const org = await setupOrg('testmode-upsert');
+    const [test, live] = [await org.key('test'), await org.key('live')];
+    const job = await v1(live, 'POST', '/v1/jobs', { title: 'Live job' });
+    const jobId = JSON.parse(job.body).id as string;
+    const created = await v1(live, 'POST', `/v1/jobs/${jobId}/candidates`, {
+      fullName: 'Real Person',
+      phone: `9000000${++phoneSeq}`,
+      externalId: 'ats-live-1',
+      consent: true,
+    });
+    expect(created.statusCode, created.body).toBe(201);
+    const upsert = await v1(test, 'POST', `/v1/jobs/${jobId}/candidates`, {
+      fullName: 'Overwritten',
+      phone: `9000000${++phoneSeq}`,
+      externalId: 'ats-live-1',
+      consent: true,
+    });
+    expect(upsert.statusCode, upsert.body).toBe(404);
+    const [row] = await superSql<{ full_name: string; is_test: boolean }>(sql`
+      select full_name, is_test from candidates where id = ${JSON.parse(created.body).id}`);
+    expect(row).toEqual({ full_name: 'Real Person', is_test: false });
   });
 });

@@ -12,6 +12,7 @@ export type ApiErrorCode =
   | 'validation_failed'
   | 'consent_required'
   | 'agent_required'
+  | 'idempotency_in_progress'
   | 'rate_limited'
   | 'internal';
 
@@ -24,6 +25,7 @@ const STATUS: Record<ApiErrorCode, number> = {
   validation_failed: 422,
   consent_required: 422,
   agent_required: 409,
+  idempotency_in_progress: 409,
   rate_limited: 429,
   internal: 500,
 };

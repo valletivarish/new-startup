@@ -223,7 +223,7 @@ describe('/v1 jobs and candidates', () => {
     expect(await count()).toBe(3);
   });
 
-  it('runs concurrent requests with one Idempotency-Key once', async () => {
+  it('never creates twice for concurrent requests with one Idempotency-Key', async () => {
     const path = `/v1/jobs/${jobId}/candidates`;
     const headers = { 'idempotency-key': 'idem-race' };
     const payload = { fullName: 'Race', phone: '9000000500', consent: true };
@@ -231,8 +231,37 @@ describe('/v1 jobs and candidates', () => {
       v1(liveKey, 'POST', path, payload, headers),
       v1(liveKey, 'POST', path, payload, headers),
     ]);
-    expect([a.statusCode, b.statusCode]).toEqual([201, 201]);
-    expect(JSON.parse(a.body).id).toBe(JSON.parse(b.body).id);
+    const ok = [a, b].filter((r) => r.statusCode === 201);
+    expect(ok.length).toBeGreaterThanOrEqual(1);
+    for (const r of [a, b]) {
+      if (r.statusCode !== 201) {
+        expect(r.statusCode).toBe(409);
+        expect(JSON.parse(r.body).code).toBe('idempotency_in_progress');
+      }
+    }
+    if (ok.length === 2) expect(JSON.parse(a.body).id).toBe(JSON.parse(b.body).id);
+    const all = JSON.parse((await v1(liveKey, 'GET', `${path}?limit=200`)).body).candidates;
+    expect(all.filter((c: { fullName: string }) => c.fullName === 'Race')).toHaveLength(1);
+  });
+
+  it('lets a retry with the same key run again after the handler failed', async () => {
+    const path = `/v1/jobs/${jobId}/candidates`;
+    const headers = { 'idempotency-key': 'idem-fail' };
+    const dup = await v1(liveKey, 'POST', path, { fullName: 'F', phone: '9000000200', consent: true }, headers);
+    expect(dup.statusCode).toBe(409);
+    const fixed = await v1(liveKey, 'POST', path, { fullName: 'F', phone: '9000000700', consent: true }, headers);
+    expect(fixed.statusCode, fixed.body).toBe(201);
+  });
+
+  it('completes a 12-way burst of different keys', async () => {
+    const path = `/v1/jobs/${jobId}/candidates`;
+    const rs = await Promise.all(
+      Array.from({ length: 12 }, (_, i) =>
+        v1(liveKey, 'POST', path, { fullName: `Burst ${i}`, phone: `90000008${String(i).padStart(2, '0')}`, consent: true },
+          { 'idempotency-key': `burst-${i}` }),
+      ),
+    );
+    expect(rs.map((r) => r.statusCode)).toEqual(Array(12).fill(201));
   });
 
   it('hides phone, email and country code from a key whose creator lacks candidates.read_pii', async () => {

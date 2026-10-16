@@ -4,7 +4,12 @@
  */
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { sql, withTenantContext, type Database } from '@platform/db';
+import {
+  sql,
+  schema,
+  withTenantContext,
+  type Database,
+} from '@platform/db';
 
 import {
   appDatabase,
@@ -24,6 +29,8 @@ interface World {
   keyHash: string;
   linkHash: string;
 }
+
+const { voiceProviderDeployments, voiceSessions } = schema;
 
 const TABLES = [
   'api_keys',
@@ -132,5 +139,14 @@ describe('client integration tables', () => {
           values (${a.org.organizationId}, ${a.jobId}, 'dup', 'ext-1')`),
       /candidates_org_job_external_unique|duplicate key/i,
     );
+  });
+
+  it('Drizzle voice schema matches the migrated columns', async () => {
+    await su.db.select({ isTest: voiceSessions.isTest }).from(voiceSessions).limit(1);
+    await su.db.select().from(voiceProviderDeployments).limit(1);
+    const cols = await su.db.execute<{ column_name: string }>(sql`
+      select column_name from information_schema.columns
+      where table_name = 'voice_provider_deployments' and column_name = 'is_test'`);
+    expect(cols.length).toBe(0);
   });
 });

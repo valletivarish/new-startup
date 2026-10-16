@@ -65,7 +65,10 @@ export const idempotencyKeys = pgTable(
     body: jsonb('body'),
     createdAt: tstz('created_at').notNull().defaultNow(),
   },
-  (t) => [primaryKey({ columns: [t.organizationId, t.key, t.method, t.path] })],
+  (t) => [
+    primaryKey({ columns: [t.organizationId, t.key, t.method, t.path] }),
+    index('idempotency_keys_created_idx').on(t.createdAt),
+  ],
 );
 
 export const callRequests = pgTable(

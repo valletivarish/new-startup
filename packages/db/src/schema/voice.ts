@@ -44,7 +44,6 @@ export const voiceProviderDeployments = pgTable(
       .notNull()
       .references(() => agentVersions.id, { onDelete: 'restrict' }),
     /** The provider this deployment belongs to. Only 'elevenlabs' for MVP-01. */
-    isTest: boolean('is_test').notNull().default(false),
     provider: text('provider').notNull().default('elevenlabs'),
     /** 'test' for the test environment; 'production' reserved for later. */
     environment: text('environment').notNull().default('test'),
@@ -87,6 +86,7 @@ export const voiceSessions = pgTable(
     candidateId: uuid('candidate_id').references(() => candidates.id, {
       onDelete: 'set null',
     }),
+    isTest: boolean('is_test').notNull().default(false),
     provider: text('provider').notNull().default('elevenlabs'),
     /** Provider-side conversation ID. NULL until the session actually starts. */
     externalConversationId: text('external_conversation_id'),

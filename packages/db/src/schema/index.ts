@@ -94,7 +94,6 @@ export { voiceProviderDeployments, voiceSessions } from './voice.js';
 export { jobs, candidates, jobCandidates } from './hiring.js';
 export type { JobScreeningQuestion } from './hiring.js';
 
-
 /** Client integration tables (migration 0032). Plain tenant RLS. */
 export const INTEGRATION_TABLES = [
   'api_keys',

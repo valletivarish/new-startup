@@ -38,6 +38,8 @@ CREATE TABLE "idempotency_keys" (
   PRIMARY KEY ("organization_id", "key", "method", "path")
 );
 --> statement-breakpoint
+CREATE INDEX "idempotency_keys_created_idx" ON "idempotency_keys" ("created_at");
+--> statement-breakpoint
 
 CREATE TABLE "org_call_limits" (
   "organization_id" uuid PRIMARY KEY NOT NULL REFERENCES "organizations"("id") ON DELETE CASCADE,

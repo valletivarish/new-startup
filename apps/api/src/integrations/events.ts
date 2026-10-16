@@ -10,7 +10,7 @@ import { sql, withTenantContext, type Database } from '@platform/db';
 import { callOutcome } from '../costs/costs.service.js';
 import { createJobsService } from '../hiring/jobs.service.js';
 import type { JobQueue } from '../jobs/queue.js';
-import { toV1Result } from './public-mappers.js';
+import { recordingLink, toV1Result } from './public-mappers.js';
 
 export const WEBHOOK_EVENTS = ['call.completed', 'call.failed'] as const;
 export type WebhookEvent = (typeof WEBHOOK_EVENTS)[number];
@@ -26,6 +26,7 @@ export async function emitCallEvent(
   organizationId: string,
   voiceSessionId: string,
   logger: Logger = { error: (obj, msg) => console.error(msg, obj) },
+  apiUrl?: string,
 ): Promise<void> {
   try {
     const a = { organizationId, userId: SYSTEM_USER };
@@ -94,7 +95,10 @@ export async function emitCallEvent(
           candidateId,
           externalId: vs.external_id,
           isTest: vs.is_test,
-          result: toV1Result(session, true, true, { questions: job.screeningQuestions }),
+          result: toV1Result(session, true, true, {
+            questions: job.screeningQuestions,
+            ...(apiUrl ? { recordingUrl: recordingLink(apiUrl, callId) } : {}),
+          }),
         },
       };
       const rows = await tx.execute<{ id: string }>(sql`

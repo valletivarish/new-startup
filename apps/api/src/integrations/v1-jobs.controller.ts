@@ -3,7 +3,8 @@
 import { Body, Controller, Get, Inject, Param, Patch, Post, Query, Req, Res } from '@nestjs/common';
 import type { FastifyReply } from 'fastify';
 import { z } from 'zod';
-import type { Database } from '@platform/db';
+import { sql, withTenantContext, type Database } from '@platform/db';
+import type { Env } from '../config.js';
 
 import { RequirePermission } from '../authz/decorators.js';
 import { requireOrganization } from '../authz/auth-context.js';
@@ -14,12 +15,12 @@ import type { JobsService } from '../hiring/jobs.service.js';
 import { PaginationQuery } from '../pagination.js';
 import { DATABASE } from '../tokens.js';
 import { CANDIDATES_SERVICE, JOBS_SERVICE, VOICE_SESSION_SERVICE } from '../tokens.more.js';
-import { AUDIT_SERVICE } from '../tokens.js';
+import { AUDIT_SERVICE, ENV } from '../tokens.js';
 import type { AuditService } from '../audit/audit.service.js';
 import type { VoiceSessionService } from '../providers/elevenlabs/voice-session.service.js';
 import { parse } from '../validate.js';
 import { withIdempotency } from './idempotency.js';
-import { toV1Candidate, toV1Job, toV1Result } from './public-mappers.js';
+import { recordingLink, toV1Candidate, toV1Job, toV1Result } from './public-mappers.js';
 import { V1CandidateBatch, V1CandidateCreate, V1JobCreate, V1JobPatch } from './v1-schemas.js';
 
 const Id = z.string().uuid();
@@ -53,6 +54,7 @@ export class V1JobsController {
     @Inject(CANDIDATES_SERVICE) private readonly candidates: CandidatesService,
     @Inject(VOICE_SESSION_SERVICE) private readonly voice: VoiceSessionService,
     @Inject(AUDIT_SERVICE) private readonly audit: AuditService,
+    @Inject(ENV) private readonly env: Env,
   ) {}
 
   /** Runs `handler` under the Idempotency-Key header and writes the status it returns. */
@@ -240,8 +242,24 @@ export class V1JobsController {
       });
     }
     const job = await this.jobs.get(a, jobId);
+    // Clients know a /v1 call by its call request id; dashboard calls only have the session id.
+    const vsId = packet.results.voiceSessionId;
+    const callId = vsId
+      ? ((
+          await withTenantContext(
+            this.database.db,
+            { organizationId: a.organizationId, userId: a.userId },
+            (tx) =>
+              tx.execute<{ id: string }>(sql`
+                select id from call_requests
+                where voice_session_id = ${vsId} and organization_id = ${a.organizationId} limit 1
+              `),
+          )
+        )[0]?.id ?? vsId)
+      : null;
     return toV1Result(packet.results, a.allowTranscript, a.allowRecording, {
       questions: job.screeningQuestions,
+      ...(callId ? { recordingUrl: recordingLink(this.env.API_URL, callId) } : {}),
     });
   }
 }

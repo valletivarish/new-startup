@@ -15,7 +15,7 @@ import type { VoiceSessionService } from '../providers/elevenlabs/voice-session.
 import { assertWithinLimits } from './call-limits.js';
 import { nextCallingTime } from './calling-hours.js';
 import { createNoopDndChecker, type DndChecker } from './dnd.js';
-import { toV1Result, type V1Result } from './public-mappers.js';
+import { recordingLink, toV1Result, type V1Result } from './public-mappers.js';
 
 export interface CallActor {
   readonly organizationId: string;
@@ -56,6 +56,8 @@ export interface CallRequestsDeps {
   queue: Pick<JobQueue, 'enqueueCall'> | null;
   dnd?: DndChecker;
   now?: () => Date;
+  /** Public API base URL, for recording links. */
+  apiUrl?: string;
   logger?: { warn(obj: object, msg: string): void };
   /** Task 8: test-key placement on the fake line. Unwired → `test_mode_unavailable`. */
   placeTest?: (
@@ -268,6 +270,7 @@ export function createCallRequestsService(deps: CallRequestsDeps): CallRequestsS
         session
           ? toV1Result(session, actor.allowTranscript, actor.allowRecording, {
               questions: job.screeningQuestions,
+              ...(deps.apiUrl ? { recordingUrl: recordingLink(deps.apiUrl, row.id) } : {}),
             })
           : null,
       );

@@ -51,8 +51,12 @@ const LimitsBody = z
   })
   .strict();
 
-const csvCell = (v: string | number | null): string =>
-  v === null ? '' : /[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : String(v);
+/** Quotes as needed; a leading = + - @ tab or CR gets a ' so spreadsheets don't run it as a formula. */
+const csvCell = (v: string | number | null): string => {
+  if (v === null) return '';
+  const s = /^[=+\-@\t\r]/.test(String(v)) && typeof v === 'string' ? `'${v}` : String(v);
+  return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+};
 
 function currentMonth(): string {
   return new Date().toISOString().slice(0, 7);
@@ -151,12 +155,13 @@ export class AdminCostsController {
     @Res({ passthrough: true }) reply: FastifyReply,
   ) {
     const userId = this.adminUserId(req);
-    const month = parse(MonthQuery, query).month ?? currentMonth();
+    const month =
+      parse(MonthQuery, query).month ?? new Date(Date.now() + 330 * 60_000).toISOString().slice(0, 7);
     const lines = ['organization,month,completed_screens,price_per_screen_inr,amount_inr'];
     for (const org of await this.costs.adminListOrganizations(userId)) {
       const u = await this.usage.month(org.id, month);
       lines.push(
-        [org.name, month, u.completedScreens, u.pricePerScreenInr, u.amountInr].map(csvCell).join(','),
+        [org.name, month, u.completedScreens, u.pricePerScreenInr?.toFixed(2) ?? null, u.amountInr?.toFixed(2) ?? null].map(csvCell).join(','),
       );
     }
     void reply.header('content-type', 'text/csv; charset=utf-8');

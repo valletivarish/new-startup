@@ -58,9 +58,9 @@ function v1(key: string, url: string) {
 }
 
 /** A company with a published agent, a job (via /v1) and one candidate. */
-async function setupOrg(label: string) {
+async function setupOrg(label: string, orgName = `${label} Co`) {
   const owner = await registerUser(api, label);
-  const orgId = await createOrganization(api, owner, `${label} Co`);
+  const orgId = await createOrganization(api, owner, orgName);
   const agentRes = await api.request({
     method: 'POST',
     url: '/agents',
@@ -96,7 +96,7 @@ async function setupOrg(label: string) {
 /** A phone voice session on the org's agent, shaped by `fields`; optionally with a ledger row. */
 async function seedSession(
   org: Awaited<ReturnType<typeof setupOrg>>,
-  o: { outcome: 'completed' | 'short'; isTest?: boolean; seconds: number; candidate?: boolean },
+  o: { outcome: 'completed' | 'short'; isTest?: boolean; seconds: number; candidate?: boolean; recording?: boolean },
 ) {
   const start = await api.request({
     method: 'POST',
@@ -117,6 +117,7 @@ async function seedSession(
     update voice_sessions set is_test = ${o.isTest ?? false}, duration_seconds = ${o.seconds},
       status = 'ended', transcript = ${transcript}::jsonb, summary = 'Candidate is available in 30 days. Strong hire.',
       structured_answers = '{"notice_period":"30 days"}'::jsonb,
+      external_conversation_id = ${o.recording ? `conv-${Math.random().toString(36).slice(2)}` : null},
       job_id = ${o.candidate ? org.jobId : null}, candidate_id = ${o.candidate ? org.candidateId : null}
     where id = ${vsId}
   `);
@@ -183,6 +184,30 @@ describe('/v1 results', () => {
   });
 });
 
+describe('/v1 recording', () => {
+  it('serves with the results scope; 403 without calls.read_recording; 404 for another org', async () => {
+    const org = await setupOrg('usage-rec');
+    const other = await setupOrg('usage-rec-other');
+    const vsId = await seedSession(org, { outcome: 'completed', seconds: 61, candidate: true, recording: true });
+    const results = JSON.parse(
+      (await v1(org.key, `/v1/jobs/${org.jobId}/candidates/${org.candidateId}/results`)).body,
+    );
+    expect(results.recordingUrl).toMatch(new RegExp(`/v1/calls/${vsId}/recording$`));
+    const path = new URL(results.recordingUrl).pathname;
+
+    const ok = await v1(org.key, path);
+    expect(ok.statusCode).toBe(200);
+    expect(ok.headers['content-type']).toContain('audio/mpeg');
+
+    const noScope = await mintKey(org.owner, ['jobs', 'candidates', 'calls']);
+    expect((await v1(noScope, path)).statusCode).toBe(403);
+    expect((await v1(other.key, path)).statusCode).toBe(404);
+
+    const noRec = await seedSession(other, { outcome: 'completed', seconds: 61 });
+    expect((await v1(other.key, `/v1/calls/${noRec}/recording`)).statusCode).toBe(404);
+  });
+});
+
 describe('admin limits and invoice', () => {
   it('admin sets limits and price; non-admin gets 404', async () => {
     const org = await setupOrg('usage-admin');
@@ -210,7 +235,7 @@ describe('admin limits and invoice', () => {
   });
 
   it('invoice.csv has one row per org with amount = screens x price', async () => {
-    const org = await setupOrg('usage-invoice');
+    const org = await setupOrg('usage-invoice', '=1+1');
     await seedSession(org, { outcome: 'completed', seconds: 61 });
     await seedSession(org, { outcome: 'completed', seconds: 80 });
     await seedSession(org, { outcome: 'completed', seconds: 80 });
@@ -230,7 +255,7 @@ describe('admin limits and invoice', () => {
     expect(res.headers['content-type']).toContain('text/csv');
     const lines = res.body.trim().split('\n');
     expect(lines[0]).toBe('organization,month,completed_screens,price_per_screen_inr,amount_inr');
-    const mine = lines.filter((l) => l.startsWith('usage-invoice Co,'));
-    expect(mine).toEqual([`usage-invoice Co,${month},3,12.5,37.5`]);
+    // A formula-looking org name is neutralised with a leading '.
+    expect(lines).toContain(`'=1+1,${month},3,12.50,37.50`);
   });
 });

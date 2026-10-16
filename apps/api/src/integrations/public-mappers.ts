@@ -25,6 +25,11 @@ export interface V1Result {
   failureReason?: string;
 }
 
+/** Client-facing recording link; the client fetches it with its API key. */
+export function recordingLink(apiUrl: string, callId: string): string {
+  return `${apiUrl.replace(/\/$/, '')}/v1/calls/${callId}/recording`;
+}
+
 export function toV1Job(row: JobRow): V1Job {
   return {
     id: row.id,

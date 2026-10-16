@@ -143,7 +143,7 @@ export interface AppDeps {
 export class AppModule {
   static forRoot(deps: AppDeps): DynamicModule {
     const onCallEnded = (organizationId: string, voiceSessionId: string) =>
-      emitCallEvent(deps.database, deps.jobs, organizationId, voiceSessionId, deps.logger);
+      emitCallEvent(deps.database, deps.jobs, organizationId, voiceSessionId, deps.logger, deps.env.API_URL);
     return {
       module: AppModule,
       controllers: [
@@ -436,6 +436,7 @@ export class AppModule {
               jobs,
               queue: deps.jobs,
               logger: deps.logger,
+              apiUrl: deps.env.API_URL,
             });
             if (!deps.jobs) return service;
             await deps.jobs.boss.work<CallJob>(CALL_QUEUE, async (batch) => {

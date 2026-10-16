@@ -129,6 +129,10 @@ CREATE TABLE "candidate_links" (
   "organization_id" uuid NOT NULL REFERENCES "organizations"("id") ON DELETE CASCADE,
   "job_id" uuid NOT NULL REFERENCES "jobs"("id") ON DELETE CASCADE,
   "candidate_id" uuid REFERENCES "candidates"("id") ON DELETE CASCADE,
+  "created_by_user_id" uuid NOT NULL REFERENCES "users"("id"),
+  "is_test" boolean DEFAULT false NOT NULL,
+  "full_name" text,
+  "email" text,
   "token_hash" text NOT NULL UNIQUE,
   "expires_at" timestamp with time zone NOT NULL,
   "used_at" timestamp with time zone,
@@ -230,6 +234,7 @@ GRANT EXECUTE ON FUNCTION resolve_api_key(text) TO platform_app;
 
 CREATE FUNCTION resolve_candidate_link(p_hash text)
 RETURNS TABLE (id uuid, organization_id uuid, job_id uuid, candidate_id uuid,
+               created_by_user_id uuid, is_test boolean, full_name text, email text,
                expires_at timestamp with time zone, used_at timestamp with time zone)
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -238,7 +243,8 @@ AS $$
 BEGIN
   PERFORM set_config('app.lookup_link_hash', p_hash, true);
   RETURN QUERY
-    SELECT l.id, l.organization_id, l.job_id, l.candidate_id, l.expires_at, l.used_at
+    SELECT l.id, l.organization_id, l.job_id, l.candidate_id, l.created_by_user_id,
+           l.is_test, l.full_name, l.email, l.expires_at, l.used_at
     FROM candidate_links l WHERE l.token_hash = p_hash;
   PERFORM set_config('app.lookup_link_hash', '', true);
 END;

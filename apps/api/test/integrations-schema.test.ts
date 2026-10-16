@@ -71,8 +71,8 @@ async function build(label: string): Promise<World> {
     insert into webhook_deliveries (organization_id, endpoint_id, event, payload, status)
     values (${o}, ${endpointId}, 'call.completed', '{}'::jsonb, 'pending')`);
   await su.db.execute(sql`
-    insert into candidate_links (organization_id, job_id, token_hash, expires_at)
-    values (${o}, ${jobId}, ${linkHash}, now() + interval '1 day')`);
+    insert into candidate_links (organization_id, job_id, created_by_user_id, token_hash, expires_at)
+    values (${o}, ${jobId}, ${org.ownerUserId}, ${linkHash}, now() + interval '1 day')`);
   return { org, jobId, candidateId, keyHash, linkHash };
 }
 

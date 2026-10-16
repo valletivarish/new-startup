@@ -39,3 +39,4 @@ export const WEBHOOKS_SERVICE = Symbol('WEBHOOKS_SERVICE');
 
 /** Monthly usage, per-company limits and price. */
 export const USAGE_SERVICE = Symbol('USAGE_SERVICE');
+export const CANDIDATE_LINKS_SERVICE = Symbol('CANDIDATE_LINKS_SERVICE');

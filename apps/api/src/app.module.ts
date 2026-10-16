@@ -69,6 +69,7 @@ import {
   CANDIDATES_SERVICE,
   API_KEYS_SERVICE,
   CALL_REQUESTS_SERVICE,
+  CANDIDATE_LINKS_SERVICE,
   WEBHOOKS_SERVICE,
   USAGE_SERVICE,
 } from './tokens.more.js';
@@ -115,6 +116,11 @@ import { ApiKeysController } from './integrations/api-keys.controller.js';
 import { V1PingController } from './integrations/v1-ping.controller.js';
 import { V1JobsController } from './integrations/v1-jobs.controller.js';
 import { V1CallsController } from './integrations/v1-calls.controller.js';
+import {
+  PublicCandidateLinksController,
+  V1CandidateLinksController,
+} from './integrations/candidate-links.controller.js';
+import { createCandidateLinksService } from './integrations/candidate-links.service.js';
 import { V1UsageController } from './integrations/v1-usage.controller.js';
 import { createUsageService } from './integrations/usage.service.js';
 import { V1WebhooksController } from './integrations/v1-webhooks.controller.js';
@@ -175,6 +181,8 @@ export class AppModule {
         V1JobsController,
         V1CallsController,
         V1UsageController,
+        V1CandidateLinksController,
+        PublicCandidateLinksController,
         V1WebhooksController,
       ],
       providers: [
@@ -420,6 +428,14 @@ export class AppModule {
           inject: [AUDIT_SERVICE],
           useFactory: (audit: ReturnType<typeof createAuditService>) =>
             createApiKeysService(deps.database, audit),
+        },
+        {
+          provide: CANDIDATE_LINKS_SERVICE,
+          inject: [CANDIDATES_SERVICE, CALL_REQUESTS_SERVICE],
+          useFactory: (
+            candidates: ReturnType<typeof createCandidatesService>,
+            calls: ReturnType<typeof createCallRequestsService>,
+          ) => createCandidateLinksService({ database: deps.database, candidates, calls }),
         },
         {
           // The API process runs the call worker: placing a call needs the

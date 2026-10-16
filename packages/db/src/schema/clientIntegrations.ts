@@ -176,6 +176,14 @@ export const candidateLinks = pgTable(
     candidateId: uuid('candidate_id').references(() => candidates.id, {
       onDelete: 'cascade',
     }),
+    /** The link creator: acts as the user for the candidate's call. */
+    createdByUserId: uuid('created_by_user_id')
+      .notNull()
+      .references(() => users.id),
+    isTest: boolean('is_test').notNull().default(false),
+    /** Optional prefill from the company, shown to the candidate. */
+    fullName: text('full_name'),
+    email: text('email'),
     tokenHash: text('token_hash').notNull().unique(),
     expiresAt: tstz('expires_at').notNull(),
     usedAt: tstz('used_at'),

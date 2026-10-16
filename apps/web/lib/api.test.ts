@@ -122,7 +122,7 @@ describe('401 handling', () => {
     expect(store.size).toBe(0);
   });
 
-  it.each(['/login', '/', '/reset-password', '/invitations/accept'])('does not redirect from public page %s', async (page) => {
+  it.each(['/login', '/', '/reset-password', '/invitations/accept', '/c/abc'])('does not redirect from public page %s', async (page) => {
     const api = await load();
     location.pathname = page;
     fetchMock.mockResolvedValue(json(401, { code: 'unauthorized', message: 'Authentication required' }));

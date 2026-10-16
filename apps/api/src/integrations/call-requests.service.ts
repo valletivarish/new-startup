@@ -37,7 +37,7 @@ export interface V1CallRequest {
 export interface CallRequestsService {
   request(
     actor: CallActor & { apiKeyId: string | null; isTest: boolean },
-    input: { jobId: string; candidateId: string; source: CallSource },
+    input: { jobId: string; candidateId: string; source: CallSource; notBefore?: Date },
   ): Promise<V1CallRequest>;
   /** Worker side. Safe to run twice: only a queued/scheduled row is picked up. */
   place(job: CallJob): Promise<void>;
@@ -142,9 +142,12 @@ export function createCallRequestsService(deps: CallRequestsDeps): CallRequestsS
         if (cand.length === 0) throw ApiError.notFound('Candidate');
         const rows = await tx.execute<Row>(sql`
           insert into call_requests
-            (organization_id, job_id, candidate_id, source, is_test, created_by_key_id)
+            (organization_id, job_id, candidate_id, source, is_test, created_by_key_id,
+             status, not_before)
           values (${actor.organizationId}, ${input.jobId}, ${input.candidateId},
-                  ${input.source}, ${actor.isTest}, ${actor.apiKeyId})
+                  ${input.source}, ${actor.isTest}, ${actor.apiKeyId},
+                  ${input.notBefore ? 'scheduled' : 'queued'},
+                  ${input.notBefore?.toISOString() ?? null})
           returning ${COLUMNS}
         `);
         return rows[0]!;
@@ -155,7 +158,7 @@ export function createCallRequestsService(deps: CallRequestsDeps): CallRequestsS
           organizationId: actor.organizationId,
           userId: actor.userId,
           callRequestId: row.id,
-        });
+        }, input.notBefore);
       } catch {
         await finish(actor, row.id, 'failed', { reason: 'enqueue_failed' });
         throw new ApiError('service_unavailable', 'Could not queue the call. Retry shortly.');
@@ -191,7 +194,7 @@ export function createCallRequestsService(deps: CallRequestsDeps): CallRequestsS
           return await finish(a, id, 'skipped', { reason: 'dnd' });
         }
 
-        if (row.source === 'api') {
+        if (row.source !== 'dashboard') {
           const at = nextCallingTime(now());
           if (at) {
             await finish(a, id, 'scheduled', { notBefore: at });

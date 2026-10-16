@@ -25,9 +25,9 @@ const SESSION_ENDED_KEY = 'session-ended';
 export const SESSION_ENDED_MESSAGE = 'Your session ended. Sign in to continue.';
 
 /** Sign-in and public invite routes answer 401 as part of their job: never redirect for them. */
-const AUTH_ENDPOINT = /^\/(?:api\/auth\/|backend\/invitations\/|backend\/auth\/password-reset\/)/;
+const AUTH_ENDPOINT = /^\/(?:api\/auth\/|backend\/invitations\/|backend\/public\/|backend\/auth\/password-reset\/)/;
 /** Pages that work signed out (a 401 there must not bounce to sign-in). */
-const PUBLIC_PAGE = /^\/(?:$|login|reset-password|invitations)(?:[/?#]|$)/;
+const PUBLIC_PAGE = /^\/(?:$|login|reset-password|invitations|c)(?:[/?#]|$)/;
 
 let redirecting = false;
 
@@ -404,6 +404,30 @@ export const acceptInvitationAsNewUser = (input: { token: string; name: string; 
     { method: 'POST', body: JSON.stringify(input) },
     OPTIONAL,
   );
+
+export interface CandidateLinkInfo {
+  companyName: string;
+  jobTitle: string;
+  fullName: string | null;
+  expiresAt: string;
+}
+
+/** Public. 404 when the link is unknown, used or expired. */
+export const getCandidateLink = (token: string) =>
+  call<CandidateLinkInfo>(`/backend/public/candidate-links/${encodeURIComponent(token)}`);
+
+/**
+ * Public. `when` is 'now' or an ISO time. The candidate's own consent is sent as `consent: true`.
+ * 404 spent link, 422 field errors, 429 too many tries.
+ */
+export const submitCandidateLink = (
+  token: string,
+  input: { fullName: string; phone: string; countryCode: string; when: string },
+) =>
+  call<{ scheduledFor: string | null }>(`/backend/public/candidate-links/${encodeURIComponent(token)}`, {
+    method: 'POST',
+    body: JSON.stringify({ ...input, consent: true }),
+  });
 
 export interface Role {
   id: string;

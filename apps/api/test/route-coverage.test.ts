@@ -48,6 +48,10 @@ import { ApiKeysController } from '../src/integrations/api-keys.controller.js';
 import { V1PingController } from '../src/integrations/v1-ping.controller.js';
 import { V1JobsController } from '../src/integrations/v1-jobs.controller.js';
 import { V1CallsController } from '../src/integrations/v1-calls.controller.js';
+import {
+  PublicCandidateLinksController,
+  V1CandidateLinksController,
+} from '../src/integrations/candidate-links.controller.js';
 import { V1WebhooksController } from '../src/integrations/v1-webhooks.controller.js';
 
 // The complete controller list. app.module.ts must register exactly these;
@@ -79,6 +83,8 @@ const CONTROLLERS = [
   V1JobsController,
   V1CallsController,
   V1WebhooksController,
+  V1CandidateLinksController,
+  PublicCandidateLinksController,
 ];
 
 interface RouteInfo {
@@ -167,6 +173,8 @@ describe('every route declares its authorization requirement', () => {
     expect(publicRoutes).toEqual([
       'AuthController.consoleResetLink',
       'HealthController.health',
+      'PublicCandidateLinksController.get',
+      'PublicCandidateLinksController.submit',
       'VoiceWebhookController.webhook',
     ]);
   });

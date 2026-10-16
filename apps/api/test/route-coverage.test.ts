@@ -46,6 +46,8 @@ import { JobsController } from '../src/hiring/jobs.controller.js';
 import { CandidatesController } from '../src/hiring/candidates.controller.js';
 import { ApiKeysController } from '../src/integrations/api-keys.controller.js';
 import { V1PingController } from '../src/integrations/v1-ping.controller.js';
+import { V1JobsController } from '../src/integrations/v1-jobs.controller.js';
+import { V1CallsController } from '../src/integrations/v1-calls.controller.js';
 
 // The complete controller list. app.module.ts must register exactly these;
 // the companion assertion below keeps the two lists from drifting.
@@ -73,6 +75,8 @@ const CONTROLLERS = [
   CandidatesController,
   ApiKeysController,
   V1PingController,
+  V1JobsController,
+  V1CallsController,
 ];
 
 interface RouteInfo {

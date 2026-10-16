@@ -16,6 +16,17 @@ import type { Logger } from 'pino';
 
 export const EMAIL_QUEUE = 'notifications.email';
 export const DOCUMENT_QUEUE = 'knowledge.document.process';
+export const CALL_QUEUE = 'calls.place';
+
+/**
+ * Place one /v1 call request. Carries the org and acting user because the
+ * worker has no request context and call_requests is tenant-scoped (RLS).
+ */
+export interface CallJob {
+  readonly organizationId: string;
+  readonly userId: string;
+  readonly callRequestId: string;
+}
 
 export interface EmailJob {
   readonly to: string;
@@ -50,6 +61,8 @@ export interface JobQueue {
     job: DocumentJob,
     idempotencyKey?: string,
   ): Promise<void>;
+  /** `startAfter` holds the job until then (calls outside calling hours). */
+  enqueueCall(job: CallJob, startAfter?: Date): Promise<void>;
   readonly boss: PgBoss;
 }
 
@@ -97,8 +110,14 @@ export function createJobQueue(
         retentionSeconds: 3600,
         deleteAfterSeconds: 120,
       });
+      await boss.createQueue(CALL_QUEUE, {
+        // Ids only. Kept a little over a day so a call held overnight for
+        // calling hours is still there at 09:00.
+        retentionSeconds: 2 * 86_400,
+        deleteAfterSeconds: 3600,
+      });
       logger.info(
-        { queues: [EMAIL_QUEUE, DOCUMENT_QUEUE] },
+        { queues: [EMAIL_QUEUE, DOCUMENT_QUEUE, CALL_QUEUE] },
         'jobs.queue_ready',
       );
     },
@@ -115,6 +134,16 @@ export function createJobQueue(
         retryBackoff: true,
         expireInSeconds: 600,
         ...(idempotencyKey ? { singletonKey: idempotencyKey } : {}),
+      });
+    },
+
+    async enqueueCall(job, startAfter) {
+      await boss.send(CALL_QUEUE, job as unknown as object, {
+        // No retries: place() records its own failure on the row, and a
+        // blind retry could dial a candidate twice.
+        retryLimit: 0,
+        expireInSeconds: 300,
+        ...(startAfter ? { startAfter } : {}),
       });
     },
 

@@ -30,3 +30,6 @@ export const OWN_LOOP_SERVICE = Symbol('OWN_LOOP_SERVICE');
 
 /** Company API keys (client integrations). */
 export const API_KEYS_SERVICE = Symbol('API_KEYS_SERVICE');
+
+/** Queued /v1 call requests. */
+export const CALL_REQUESTS_SERVICE = Symbol('CALL_REQUESTS_SERVICE');

@@ -68,6 +68,7 @@ import {
   JOBS_SERVICE,
   CANDIDATES_SERVICE,
   API_KEYS_SERVICE,
+  CALL_REQUESTS_SERVICE,
 } from './tokens.more.js';
 import {
   AuthController,
@@ -111,6 +112,9 @@ import { createApiKeysService } from './integrations/api-keys.service.js';
 import { ApiKeysController } from './integrations/api-keys.controller.js';
 import { V1PingController } from './integrations/v1-ping.controller.js';
 import { V1JobsController } from './integrations/v1-jobs.controller.js';
+import { V1CallsController } from './integrations/v1-calls.controller.js';
+import { createCallRequestsService } from './integrations/call-requests.service.js';
+import { CALL_QUEUE, type CallJob } from './jobs/queue.js';
 
 export interface AppDeps {
   readonly env: Env;
@@ -160,6 +164,7 @@ export class AppModule {
         ApiKeysController,
         V1PingController,
         V1JobsController,
+        V1CallsController,
       ],
       providers: [
         { provide: ENV, useValue: deps.env },
@@ -389,6 +394,27 @@ export class AppModule {
           inject: [AUDIT_SERVICE],
           useFactory: (audit: ReturnType<typeof createAuditService>) =>
             createApiKeysService(deps.database, audit),
+        },
+        {
+          // The API process runs the call worker: placing a call needs the
+          // voice service, which lives here. Null queue (tests) → no worker.
+          provide: CALL_REQUESTS_SERVICE,
+          inject: [VOICE_SESSION_SERVICE, JOBS_SERVICE],
+          useFactory: async (
+            voice: ReturnType<typeof createVoiceSessionService>,
+            jobs: ReturnType<typeof createJobsService>,
+          ) => {
+            const service = createCallRequestsService({
+              database: deps.database,
+              voice,
+              jobs,
+              queue: deps.jobs,
+            });
+            await deps.jobs?.boss.work<CallJob>(CALL_QUEUE, async (batch) => {
+              for (const job of batch) await service.place(job.data);
+            });
+            return service;
+          },
         },
       ],
     };

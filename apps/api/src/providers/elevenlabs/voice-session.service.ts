@@ -40,6 +40,7 @@ import type {
   VoiceProvisionSnapshot,
 } from './types.js';
 import { toE164Phone } from './phone-e164.js';
+import { assertWithinLimits } from '../../integrations/call-limits.js';
 import { buildVoiceProvisionConfig } from './provision-config.js';
 import { buildVoiceProvisionSnapshot } from './provision-snapshot.js';
 import type { CostService } from '../../costs/costs.service.js';
@@ -1056,6 +1057,8 @@ export function createVoiceSessionService(
 
     async startOutboundPhoneCall(actor, agentId, options) {
       guardEnabled();
+      // Company call limits (org_call_limits) cover dashboard and /v1 calls alike.
+      await assertWithinLimits(database, actor.organizationId, new Date());
       const { jobId, candidateId } = options;
 
       // Which engine runs this job's calls (admin-set per job; kill switch → baseline).

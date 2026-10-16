@@ -34,6 +34,7 @@ export class ApiExceptionFilter implements ExceptionFilter {
         message: exception.message,
         request_id: requestId,
         ...(exception.fields ? { errors: exception.fields } : {}),
+        ...(exception.details ? { details: exception.details } : {}),
       });
       return;
     }

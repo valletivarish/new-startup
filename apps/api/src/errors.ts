@@ -14,6 +14,7 @@ export type ApiErrorCode =
   | 'agent_required'
   | 'idempotency_in_progress'
   | 'rate_limited'
+  | 'call_limit_reached'
   | 'internal';
 
 const STATUS: Record<ApiErrorCode, number> = {
@@ -27,6 +28,7 @@ const STATUS: Record<ApiErrorCode, number> = {
   agent_required: 409,
   idempotency_in_progress: 409,
   rate_limited: 429,
+  call_limit_reached: 429,
   internal: 500,
 };
 
@@ -39,12 +41,20 @@ export class ApiError extends Error {
   readonly code: ApiErrorCode;
   readonly status: number;
   readonly fields: readonly FieldError[] | undefined;
+  /** Extra machine-readable context, sent as `details` (e.g. `resetsAt`). */
+  readonly details: Readonly<Record<string, unknown>> | undefined;
 
-  constructor(code: ApiErrorCode, message: string, fields?: readonly FieldError[]) {
+  constructor(
+    code: ApiErrorCode,
+    message: string,
+    fields?: readonly FieldError[],
+    details?: Readonly<Record<string, unknown>>,
+  ) {
     super(message);
     this.code = code;
     this.status = STATUS[code];
     this.fields = fields;
+    this.details = details;
   }
 
   static unauthorized(message = 'Authentication required'): ApiError {

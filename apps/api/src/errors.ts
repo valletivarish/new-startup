@@ -13,6 +13,7 @@ export type ApiErrorCode =
   | 'consent_required'
   | 'agent_required'
   | 'idempotency_in_progress'
+  | 'delivery_in_progress'
   | 'rate_limited'
   | 'call_limit_reached'
   | 'service_unavailable'
@@ -28,6 +29,7 @@ const STATUS: Record<ApiErrorCode, number> = {
   consent_required: 422,
   agent_required: 409,
   idempotency_in_progress: 409,
+  delivery_in_progress: 409,
   rate_limited: 429,
   call_limit_reached: 429,
   service_unavailable: 503,

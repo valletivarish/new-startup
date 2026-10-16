@@ -37,22 +37,30 @@ export class V1WebhooksController {
     @Inject(WEBHOOKS_SERVICE) private readonly webhooks: WebhooksService,
   ) {}
 
+  /** Runs `handler` under the Idempotency-Key header and writes the status it returns. */
+  private async write(
+    req: RequestWithAuth,
+    reply: FastifyReply,
+    handler: () => Promise<{ status: number; body: unknown }>,
+  ) {
+    const out = await withIdempotency(this.database, actorOf(req), req, handler);
+    void reply.status(out.status);
+    return out.body;
+  }
+
   /** The secret is in this response only. */
   @Post('webhook-endpoints')
   @RequirePermission('integrations.create')
-  async create(
+  create(
     @Req() req: RequestWithAuth,
     @Res({ passthrough: true }) reply: FastifyReply,
     @Body() body: unknown,
   ) {
     const input = parse(EndpointCreate, body);
-    const a = actorOf(req);
-    const out = await withIdempotency(this.database, a, req, async () => ({
+    return this.write(req, reply, async () => ({
       status: 201,
-      body: await this.webhooks.create(a, input),
+      body: await this.webhooks.create(actorOf(req), input),
     }));
-    void reply.status(out.status);
-    return out.body;
   }
 
   @Get('webhook-endpoints')
@@ -63,9 +71,16 @@ export class V1WebhooksController {
 
   @Delete('webhook-endpoints/:id')
   @RequirePermission('integrations.delete')
-  async remove(@Req() req: RequestWithAuth, @Param('id') id: string) {
-    await this.webhooks.remove(actorOf(req), parse(Id, id));
-    return { deleted: true };
+  remove(
+    @Req() req: RequestWithAuth,
+    @Res({ passthrough: true }) reply: FastifyReply,
+    @Param('id') rawId: string,
+  ) {
+    const id = parse(Id, rawId);
+    return this.write(req, reply, async () => {
+      await this.webhooks.remove(actorOf(req), id);
+      return { status: 200, body: { deleted: true } };
+    });
   }
 
   @Get('webhook-deliveries')
@@ -77,7 +92,15 @@ export class V1WebhooksController {
 
   @Post('webhook-deliveries/:id/resend')
   @RequirePermission('integrations.update')
-  resend(@Req() req: RequestWithAuth, @Param('id') id: string) {
-    return this.webhooks.resend(actorOf(req), parse(Id, id));
+  resend(
+    @Req() req: RequestWithAuth,
+    @Res({ passthrough: true }) reply: FastifyReply,
+    @Param('id') rawId: string,
+  ) {
+    const id = parse(Id, rawId);
+    return this.write(req, reply, async () => ({
+      status: 201,
+      body: await this.webhooks.resend(actorOf(req), id),
+    }));
   }
 }

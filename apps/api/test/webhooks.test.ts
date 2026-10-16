@@ -21,7 +21,11 @@ import { createStubVoiceSessionAdapter } from '../src/providers/elevenlabs/adapt
 import { createCallRequestsService } from '../src/integrations/call-requests.service.js';
 import { istMidnight } from '../src/integrations/calling-hours.js';
 import { emitCallEvent } from '../src/integrations/events.js';
-import { handleWebhookJob, signPayload } from '../src/integrations/deliver.js';
+import {
+  handleWebhookJob,
+  signPayload,
+  sweepExpiredDeliveries,
+} from '../src/integrations/deliver.js';
 import { assertWebhookUrl } from '../src/integrations/webhooks.service.js';
 import type { WebhookJob } from '../src/jobs/queue.js';
 import { JOBS_SERVICE, VOICE_SESSION_SERVICE } from '../src/tokens.more.js';
@@ -299,14 +303,64 @@ describe('call events and signed webhooks', () => {
     expect(other.statusCode).toBe(404);
   });
 
+  it('the last allowed attempt fails the row instead of retrying', async () => {
+    const call = await endedCall(orgA);
+    const [job] = await emit(orgA, call.vsId);
+    await superSql(sql`update webhook_deliveries set attempts = 12 where id = ${job!.deliveryId}`);
+    replyStatus = 500;
+    await handleWebhookJob(api.built.database, job!); // no throw: nothing left to retry
+    replyStatus = 200;
+    expect(await deliveryRow(job!.deliveryId)).toMatchObject({
+      status: 'failed',
+      attempts: 13,
+      last_status_code: 500,
+    });
+  });
+
+  it('sweep fails pending deliveries whose job was lost (25h+)', async () => {
+    const call = await endedCall(orgA);
+    const [job] = await emit(orgA, call.vsId);
+    const [fresh] = await emit(orgA, (await endedCall(orgA)).vsId);
+    await superSql(sql`
+      update webhook_deliveries set created_at = now() - interval '26 hours'
+      where id = ${job!.deliveryId}
+    `);
+    expect(await sweepExpiredDeliveries(api.built.database)).toBeGreaterThanOrEqual(1);
+    const [row] = await superSql<{ status: string; last_error: string }>(
+      sql`select status, last_error from webhook_deliveries where id = ${job!.deliveryId}`,
+    );
+    expect(row).toMatchObject({ status: 'failed', last_error: 'expired' });
+    expect((await deliveryRow(fresh!.deliveryId)).status).toBe('pending');
+  });
+
+  it('resend honours Idempotency-Key and refuses a pending delivery', async () => {
+    const call = await endedCall(orgA);
+    const [job] = await emit(orgA, call.vsId);
+    const pending = await v1(orgA, 'POST', `/v1/webhook-deliveries/${job!.deliveryId}/resend`);
+    expect(pending.statusCode, pending.body).toBe(409);
+    expect(JSON.parse(pending.body).code).toBe('delivery_in_progress');
+
+    await handleWebhookJob(api.built.database, job!);
+    const headers = { authorization: `Bearer ${orgA.key}`, 'idempotency-key': `resend-${job!.deliveryId}` };
+    const url = `/v1/webhook-deliveries/${job!.deliveryId}/resend`;
+    const first = await api.request({ method: 'POST', url, headers });
+    expect(first.statusCode, first.body).toBe(201);
+    // The row is pending again, so a second real resend would be 409; the replay proves
+    // the handler (and its enqueue) ran once.
+    const replay = await api.request({ method: 'POST', url, headers });
+    expect(replay.statusCode).toBe(201);
+    expect(JSON.parse(replay.body)).toEqual(JSON.parse(first.body));
+    expect((await v1(orgA, 'POST', url)).statusCode).toBe(409);
+  });
+
   it('org A endpoint never receives org B events', async () => {
     const call = await endedCall(orgB);
     expect(await emit(orgB, call.vsId)).toHaveLength(0);
-    const [{ n }] = (await superSql<{ n: number }>(sql`
+    const rows = await superSql<{ n: number }>(sql`
       select count(*)::int as n from webhook_deliveries where endpoint_id = ${endpointA.id}
         and payload->'data'->>'callId' = ${call.callId}
-    `)) as [{ n: number }];
-    expect(n).toBe(0);
+    `);
+    expect(rows[0]!.n).toBe(0);
     // Org B cannot see or delete org A's endpoint.
     const list = JSON.parse((await v1(orgB, 'GET', '/v1/webhook-endpoints')).body);
     expect(list.endpoints).toEqual([]);
@@ -327,7 +381,19 @@ describe('call events and signed webhooks', () => {
     expect(() => assertWebhookUrl('http://example.com/hook', true)).toThrow(/https/);
     expect(() => assertWebhookUrl('https://10.0.0.5/hook', true)).toThrow(/private/);
     expect(() => assertWebhookUrl('https://169.254.169.254/hook', true)).toThrow(/private/);
-    expect(() => assertWebhookUrl('https://[::1]/hook', true)).toThrow(/private/);
+    for (const host of [
+      '[::1]',
+      '[fe80::1]',
+      '[febf::1]',
+      '[fd00::1]',
+      '[::ffff:10.0.0.1]',
+      '[::10.0.0.1]',
+      '[64:ff9b::a00:1]',
+      'localhost.',
+      '127.0.0.1',
+    ]) {
+      expect(() => assertWebhookUrl(`https://${host}/hook`, true), host).toThrow(/private/);
+    }
     expect(() => assertWebhookUrl('https://hooks.acme.example/hr', true)).not.toThrow();
     expect(() => assertWebhookUrl('http://localhost:4000/hook', false)).not.toThrow();
     // Outside production too, plain http is only for localhost.

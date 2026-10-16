@@ -5,7 +5,7 @@
  */
 
 import { createHmac } from 'node:crypto';
-import { sql, withTenantContext, type Database } from '@platform/db';
+import { sql, withTenantContext, withoutTenantContext, type Database } from '@platform/db';
 
 import type { WebhookJob } from '../jobs/queue.js';
 
@@ -88,7 +88,7 @@ export async function handleWebhookJob(
     tenant((tx) =>
       tx.execute(sql`
         update webhook_deliveries set status = 'failed', last_error = ${error}
-        where id = ${row.id} and organization_id = ${job.organizationId}
+        where id = ${row.id} and organization_id = ${job.organizationId} and status = 'pending'
       `),
     );
   if (row.disabled) return void (await fail('endpoint_deleted'));
@@ -98,7 +98,10 @@ export async function handleWebhookJob(
 
   const out = await deliverOnce(row, opts.fetchFn, now);
   const attempts = row.attempts + 1;
-  const giveUp = !out.ok && attempts >= MAX_ATTEMPTS;
+  // Fail now rather than trusting a later job: the last retry, or past the 24 h window.
+  const giveUp =
+    !out.ok &&
+    (attempts >= MAX_ATTEMPTS || now.getTime() - Date.parse(row.created_at) > MAX_AGE_MS);
   await tenant((tx) =>
     tx.execute(sql`
       update webhook_deliveries set
@@ -107,8 +110,37 @@ export async function handleWebhookJob(
         last_status_code = ${out.statusCode ?? null},
         last_error = ${out.error ?? null},
         delivered_at = ${out.ok ? sql`now()` : sql`null`}
-      where id = ${row.id} and organization_id = ${job.organizationId}
+      where id = ${row.id} and organization_id = ${job.organizationId} and status = 'pending'
     `),
   );
   if (!out.ok && !giveUp) throw new Error(`webhook delivery failed: ${out.error ?? 'unknown'}`);
+}
+
+/**
+ * Backstop for jobs pg-boss lost (reaped, enqueue failed): pending rows older
+ * than 25 h become `failed` / `expired`. Runs every 5 minutes in the worker.
+ */
+export async function sweepExpiredDeliveries(database: Database, now: Date = new Date()): Promise<number> {
+  const cutoff = new Date(now.getTime() - 25 * 3_600_000).toISOString();
+  // organizations is RLS-exempt; each org is then swept under its own context.
+  const orgs = await withoutTenantContext(database.db, (tx) =>
+    tx.execute<{ id: string }>(sql`select id from organizations`),
+  );
+  let swept = 0;
+  // ponytail: one transaction per org, like sweepStuckPlacing; a security-definer function if org count grows large.
+  for (const org of orgs) {
+    const rows = await withTenantContext(
+      database.db,
+      { organizationId: org.id, userId: SYSTEM_USER },
+      (tx) =>
+        tx.execute(sql`
+          update webhook_deliveries set status = 'failed', last_error = 'expired'
+          where organization_id = ${org.id} and status = 'pending'
+            and created_at < ${cutoff}::timestamptz
+          returning id
+        `),
+    );
+    swept += rows.length;
+  }
+  return swept;
 }

@@ -20,7 +20,7 @@ import {
   type EmailJob,
   type WebhookJob,
 } from './queue.js';
-import { handleWebhookJob } from '../integrations/deliver.js';
+import { handleWebhookJob, sweepExpiredDeliveries } from '../integrations/deliver.js';
 import { createNotificationTransport } from '../notifications/create-notification-transport.js';
 import { createObjectStorage } from '../knowledge/create-object-storage.js';
 import { startTelemetry } from '../observability/telemetry.js';
@@ -99,6 +99,13 @@ await queue.boss.work<DocumentJob>(DOCUMENT_QUEUE, async (jobs) => {
 await queue.boss.work<WebhookJob>(WEBHOOK_QUEUE, async (jobs) => {
   for (const job of jobs) await handleWebhookJob(database, job.data);
 });
+// Deliveries whose job was lost: sweep at startup, then every 5 min.
+const sweepDeliveries = () =>
+  sweepExpiredDeliveries(database).catch((err: unknown) => {
+    logger.error({ err: (err as Error).message }, 'webhooks.sweep_failed');
+  });
+void sweepDeliveries();
+setInterval(() => void sweepDeliveries(), 5 * 60_000).unref();
 
 logger.info('platform-worker started');
 

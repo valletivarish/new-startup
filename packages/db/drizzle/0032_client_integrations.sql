@@ -120,6 +120,9 @@ CREATE TABLE "webhook_deliveries" (
 CREATE INDEX "webhook_deliveries_due_idx" ON "webhook_deliveries" ("organization_id", "next_attempt_at")
   WHERE "status" = 'pending';
 --> statement-breakpoint
+-- emitCallEvent's once-per-call check.
+CREATE INDEX "webhook_deliveries_call_idx" ON "webhook_deliveries" ("organization_id", (("payload"->'data'->>'callId')));
+--> statement-breakpoint
 
 CREATE TABLE "candidate_links" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,

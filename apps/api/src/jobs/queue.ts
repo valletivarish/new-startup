@@ -125,8 +125,9 @@ export function createJobQueue(
         deleteAfterSeconds: 3600,
       });
       await boss.createQueue(WEBHOOK_QUEUE, {
-        // Ids only; the payload stays in webhook_deliveries (RLS). Retries run up to ~24 h.
-        retentionSeconds: 2 * 86_400,
+        // Ids only; the payload stays in webhook_deliveries (RLS). Retries are capped
+        // at 6 h apart and stop at 24 h; 3 days keeps the last retry well inside retention.
+        retentionSeconds: 3 * 86_400,
         deleteAfterSeconds: 3600,
       });
       logger.info(
@@ -162,10 +163,13 @@ export function createJobQueue(
 
     async enqueueWebhook(job) {
       await boss.send(WEBHOOK_QUEUE, job as unknown as object, {
-        // 30 s doubling; handleWebhookJob marks the row failed past 24 h.
+        // 30 s doubling (with jitter), at most 6 h apart; handleWebhookJob
+        // marks the row failed past 24 h or on the last attempt.
         retryLimit: 12,
         retryDelay: 30,
         retryBackoff: true,
+        retryDelayMax: 21_600,
+        retentionSeconds: 3 * 86_400,
         expireInSeconds: 60,
       });
     },

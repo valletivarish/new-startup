@@ -40,26 +40,30 @@ export interface WebhooksService {
   resend(a: WebhookActor, id: string): Promise<V1WebhookDelivery>;
 }
 
-function privateIp(host: string): boolean {
-  const h = host.replace(/^\[|\]$/g, '').toLowerCase();
+function privateV4(ip: string): boolean {
+  const [a, b] = ip.split('.').map(Number) as [number, number];
+  return (
+    a === 0 || a === 10 || a === 127 ||
+    (a === 172 && b >= 16 && b <= 31) ||
+    (a === 192 && b === 168) ||
+    (a === 169 && b === 254) ||
+    (a === 100 && b >= 64 && b <= 127)
+  );
+}
+
+/** Private, loopback and link-local literals, including IPv4 embedded in IPv6. */
+function privateHost(host: string): boolean {
+  const h = host.replace(/^\[|\]$/g, '').replace(/\.$/, '').toLowerCase();
+  if (h === 'localhost' || h.endsWith('.localhost')) return true;
   const v = isIP(h);
-  if (v === 4) {
-    const [a, b] = h.split('.').map(Number) as [number, number];
-    return (
-      a === 0 || a === 10 || a === 127 ||
-      (a === 172 && b >= 16 && b <= 31) ||
-      (a === 192 && b === 168) ||
-      (a === 169 && b === 254) ||
-      (a === 100 && b >= 64 && b <= 127)
-    );
-  }
-  if (v === 6) {
-    return (
-      h === '::' || h === '::1' || h.startsWith('fc') || h.startsWith('fd') ||
-      h.startsWith('fe80') || h.startsWith('::ffff:')
-    );
-  }
-  return h === 'localhost' || h.endsWith('.localhost');
+  if (v === 4) return privateV4(h);
+  if (v !== 6) return false;
+  if (h === '::' || h === '::1') return true;
+  if (/^f[cd]/.test(h) || /^fe[89ab]/.test(h)) return true; // fc00::/7, fe80::/10
+  // IPv4-compatible / -mapped (::a.b.c.d, ::ffff:a.b.c.d; URL turns them into hex)
+  // and NAT64 64:ff9b::/96 can wrap any IPv4 address, so block them outright.
+  if (h.startsWith('::') || h.startsWith('64:ff9b:')) return true;
+  return false;
 }
 
 /** https only in production (and no private IP literals); http to localhost elsewhere. */
@@ -74,7 +78,7 @@ export function assertWebhookUrl(raw: string, production: boolean): void {
   const host = url.hostname.replace(/^\[|\]$/g, '');
   const local = host === 'localhost' || host === '127.0.0.1';
   if (url.protocol === 'https:') {
-    if (production && privateIp(host)) throw bad('url must not point to a private address');
+    if (production && privateHost(host)) throw bad('url must not point to a private address');
     return;
   }
   if (url.protocol === 'http:' && local && !production) return;
@@ -172,20 +176,29 @@ export function createWebhooksService(deps: {
     },
 
     async resend(a, id) {
-      // A resend starts a fresh 24 h retry window.
-      const rows = await tenant(a, (tx) =>
-        tx.execute<DeliveryRecord>(sql`
-          update webhook_deliveries d set
+      // Only a finished row is re-queued; a pending one already has a job. A
+      // resend starts a fresh 24 h retry window.
+      const row = await tenant(a, async (tx) => {
+        const found = await tx.execute<{ status: string; live: boolean }>(sql`
+          select d.status, e.disabled_at is null as live
+          from webhook_deliveries d join webhook_endpoints e on e.id = d.endpoint_id
+          where d.id = ${id} and d.organization_id = ${a.organizationId}
+          for update of d
+        `);
+        const cur = found[0];
+        if (!cur || !cur.live) throw ApiError.notFound('Webhook delivery');
+        if (cur.status === 'pending') {
+          throw new ApiError('delivery_in_progress', 'This delivery is still being retried');
+        }
+        const rows = await tx.execute<DeliveryRecord>(sql`
+          update webhook_deliveries set
             status = 'pending', attempts = 0, last_status_code = null, last_error = null,
             created_at = now(), next_attempt_at = now(), delivered_at = null
-          where d.id = ${id} and d.organization_id = ${a.organizationId}
-            and exists (select 1 from webhook_endpoints e
-                        where e.id = d.endpoint_id and e.disabled_at is null)
+          where id = ${id} and organization_id = ${a.organizationId}
           returning ${DELIVERY_COLUMNS}
-        `),
-      );
-      const row = rows[0];
-      if (!row) throw ApiError.notFound('Webhook delivery');
+        `);
+        return rows[0]!;
+      });
       await deps.queue?.enqueueWebhook({ organizationId: a.organizationId, deliveryId: row.id });
       return toDelivery(row);
     },

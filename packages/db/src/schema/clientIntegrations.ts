@@ -158,6 +158,10 @@ export const webhookDeliveries = pgTable(
     index('webhook_deliveries_due_idx')
       .on(t.organizationId, t.nextAttemptAt)
       .where(sql`${t.status} = 'pending'`),
+    index('webhook_deliveries_call_idx').on(
+      t.organizationId,
+      sql`((${t.payload}->'data'->>'callId'))`,
+    ),
   ],
 );
 

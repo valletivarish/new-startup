@@ -8,6 +8,7 @@ export type ApiErrorCode =
   | 'forbidden'
   | 'not_found'
   | 'conflict'
+  | 'link_phone_conflict'
   | 'gone'
   | 'validation_failed'
   | 'consent_required'
@@ -24,6 +25,7 @@ const STATUS: Record<ApiErrorCode, number> = {
   forbidden: 403,
   not_found: 404,
   conflict: 409,
+  link_phone_conflict: 409,
   gone: 410,
   validation_failed: 422,
   consent_required: 422,

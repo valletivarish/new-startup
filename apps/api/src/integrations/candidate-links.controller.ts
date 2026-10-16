@@ -4,18 +4,16 @@ import { Body, Controller, Get, Inject, Param, Post, Req, Res } from '@nestjs/co
 import { RouteConfig } from '@nestjs/platform-fastify';
 import type { FastifyReply } from 'fastify';
 import { z } from 'zod';
-import type { Database } from '@platform/db';
 
 import { Public, RequirePermission } from '../authz/decorators.js';
 import { requireOrganization } from '../authz/auth-context.js';
 import type { RequestWithAuth } from '../authz/authz.guard.js';
 import type { Env } from '../config.js';
 import { ApiError } from '../errors.js';
-import { DATABASE, ENV } from '../tokens.js';
+import { ENV } from '../tokens.js';
 import { CANDIDATE_LINKS_SERVICE } from '../tokens.more.js';
 import { parse } from '../validate.js';
 import type { CandidateLinksService } from './candidate-links.service.js';
-import { withIdempotency } from './idempotency.js';
 
 const Id = z.string().uuid();
 const Token = z.string().regex(/^[0-9A-Za-z]{32}$/);
@@ -39,7 +37,6 @@ const LIMIT = { rateLimit: { max: 10, timeWindow: '1 minute' } };
 @Controller('v1/jobs')
 export class V1CandidateLinksController {
   constructor(
-    @Inject(DATABASE) private readonly database: Database,
     @Inject(CANDIDATE_LINKS_SERVICE) private readonly links: CandidateLinksService,
     @Inject(ENV) private readonly env: Env,
   ) {}
@@ -62,17 +59,18 @@ export class V1CandidateLinksController {
       userId: ctx.userId,
       isTest: ctx.apiKey?.mode === 'test',
     };
-    return withIdempotency(this.database, actor, req, async () => {
-      const { token, expiresAt } = await this.links.create(actor, jobId, {
+    // No Idempotency-Key handling here on purpose: the stored response body would keep the raw
+    // token for 24h. A duplicate link is harmless (one use each, 7 day expiry).
+    return this.links
+      .create(actor, jobId, {
         ...(input.candidateId ? { candidateId: input.candidateId } : {}),
         ...(input.fullName ? { fullName: input.fullName } : {}),
         ...(input.email ? { email: input.email } : {}),
+      })
+      .then(({ token, expiresAt }) => {
+        void reply.status(201);
+        return { url: `${this.env.WEB_URL}/c/${token}`, expiresAt };
       });
-      return { status: 201, body: { url: `${this.env.WEB_URL}/c/${token}`, expiresAt } };
-    }).then((out) => {
-      void reply.status(out.status);
-      return out.body;
-    });
   }
 }
 

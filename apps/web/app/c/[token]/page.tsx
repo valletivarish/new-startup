@@ -23,6 +23,8 @@ function Shell({ children }: { children: React.ReactNode }) {
   );
 }
 
+/** Now, as a datetime-local value. */
+const minLocal = () => new Date(Date.now() - new Date().getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
 const when = (local: string) => new Date(local).toISOString();
 
 export default function CandidateLinkPage() {
@@ -161,7 +163,7 @@ export default function CandidateLinkPage() {
         </fieldset>
         {mode === 'later' ? (
           <Field label="Date and time" hint="Calls are placed between 9am and 8pm India time." error={errors.at}>
-            <Input type="datetime-local" value={at} onChange={(event) => setAt(event.target.value)} required />
+            <Input type="datetime-local" min={minLocal()} value={at} onChange={(event) => setAt(event.target.value)} required />
           </Field>
         ) : (
           <p className="m-0 text-meta text-text-3">

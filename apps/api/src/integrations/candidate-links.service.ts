@@ -69,8 +69,24 @@ export function createCandidateLinksService(deps: {
     if (!link || link.used_at !== null || new Date(link.expires_at) <= now()) {
       throw ApiError.notFound('Link');
     }
+    // A creator who left the org must not have calls placed in their name.
+    const member = await tenant(
+      { organizationId: link.organization_id, userId: link.created_by_user_id },
+      (tx) =>
+        tx.execute(sql`
+          select 1 from organization_memberships
+          where organization_id = ${link.organization_id}
+            and user_id = ${link.created_by_user_id} and status = 'active'`),
+    );
+    if (member.length === 0) throw ApiError.notFound('Link');
     return link;
   }
+
+  const phoneConflict = () =>
+    new ApiError(
+      'link_phone_conflict',
+      "We couldn't use this number for this link. Please contact the recruiter.",
+    );
 
   const actorOf = (l: Link): Actor => ({
     organizationId: l.organization_id,
@@ -141,43 +157,51 @@ export function createCandidateLinksService(deps: {
       if (claimed.length === 0) throw ApiError.notFound('Link');
 
       try {
-        const candidateId = await tenant(a, async (tx) => {
-          // The link's own candidate, else one already on this job with the same number.
-          const found = link.candidate_id
-            ? [{ id: link.candidate_id }]
-            : await tx.execute<{ id: string }>(sql`
-                select id from candidates
-                where organization_id = ${link.organization_id} and job_id = ${link.job_id}
-                  and phone = ${input.phone} limit 1`);
-          if (!found[0]) return null;
+        let id: string;
+        if (link.candidate_id) {
+          // A bound link updates only its own candidate: contact, consent, name if empty.
+          const bound = link.candidate_id;
           try {
-            await tx.execute(sql`
-              update candidates set
-                full_name = ${input.fullName}, phone = ${input.phone},
-                country_code = ${input.countryCode}, email = coalesce(${link.email}, email),
-                consent_at = now(), consent_source = 'candidate', updated_at = now()
-              where id = ${found[0].id} and organization_id = ${link.organization_id}`);
+            await tenant(a, (tx) =>
+              tx.execute(sql`
+                update candidates set
+                  phone = ${input.phone}, country_code = ${input.countryCode},
+                  full_name = case when coalesce(full_name, '') = '' then ${input.fullName} else full_name end,
+                  email = coalesce(email, ${link.email}),
+                  consent_at = now(), consent_source = 'candidate', updated_at = now()
+                where id = ${bound} and organization_id = ${link.organization_id}`),
+            );
           } catch (error) {
-            if ((error as { cause?: { code?: string } }).cause?.code === '23505') {
-              throw ApiError.conflict('A candidate with this phone already exists on this job');
-            }
+            if ((error as { cause?: { code?: string } }).cause?.code === '23505') throw phoneConflict();
             throw error;
           }
-          return found[0].id;
-        });
-        const id =
-          candidateId ??
-          (
-            await candidates.create(a, {
-              jobId: link.job_id,
-              fullName: input.fullName,
-              phone: input.phone,
-              countryCode: input.countryCode,
-              ...(link.email ? { email: link.email } : {}),
-              consentSource: 'candidate',
-              isTest: link.is_test,
-            })
-          ).id;
+          id = bound;
+        } else {
+          // An unbound link never touches an existing candidate.
+          const taken = await tenant(a, (tx) =>
+            tx.execute(sql`
+              select 1 from candidates
+              where organization_id = ${link.organization_id} and job_id = ${link.job_id}
+                and phone = ${input.phone} limit 1`),
+          );
+          if (taken.length > 0) throw phoneConflict();
+          try {
+            id = (
+              await candidates.create(a, {
+                jobId: link.job_id,
+                fullName: input.fullName,
+                phone: input.phone,
+                countryCode: input.countryCode,
+                ...(link.email ? { email: link.email } : {}),
+                consentSource: 'candidate',
+                isTest: link.is_test,
+              })
+            ).id;
+          } catch (error) {
+            if (error instanceof ApiError && error.code === 'conflict') throw phoneConflict();
+            throw error;
+          }
+        }
 
         await calls.request(
           { ...a, apiKeyId: null, isTest: link.is_test },

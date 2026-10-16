@@ -25,6 +25,7 @@
     "test:watch": "pnpm --filter @platform/api test:watch",
     "test:api": "pnpm --filter @platform/api test",
     "test:ci": "pnpm test:api",
+    "test:clients": "node scripts/test-clients.mjs",
     "telephony:check": "node scripts/check-telephony.mjs",
     "telephony:import": "node scripts/import-india-phone.mjs",
     "demo:telugu-call": "node scripts/demo-telugu-call.mjs",

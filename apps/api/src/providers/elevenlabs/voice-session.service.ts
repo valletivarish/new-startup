@@ -182,7 +182,8 @@ export interface VoiceSessionService {
   startOutboundPhoneCall(
     actor: Actor,
     agentId: string,
-    options: { jobId: string; candidateId: string },
+    /** `now` is the clock the call limits are evaluated at (default: real time). */
+    options: { jobId: string; candidateId: string; now?: Date },
   ): Promise<{ voiceSessionId: string; voiceSession: VoiceSessionResult }>;
 
   /** Whether live outbound dialing is configured for this deployment. */
@@ -1058,7 +1059,7 @@ export function createVoiceSessionService(
     async startOutboundPhoneCall(actor, agentId, options) {
       guardEnabled();
       // Company call limits (org_call_limits) cover dashboard and /v1 calls alike.
-      await assertWithinLimits(database, actor.organizationId, new Date());
+      await assertWithinLimits(database, actor.organizationId, options.now ?? new Date());
       const { jobId, candidateId } = options;
 
       // Which engine runs this job's calls (admin-set per job; kill switch → baseline).

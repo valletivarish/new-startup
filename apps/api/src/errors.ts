@@ -15,6 +15,7 @@ export type ApiErrorCode =
   | 'idempotency_in_progress'
   | 'rate_limited'
   | 'call_limit_reached'
+  | 'service_unavailable'
   | 'internal';
 
 const STATUS: Record<ApiErrorCode, number> = {
@@ -29,6 +30,7 @@ const STATUS: Record<ApiErrorCode, number> = {
   idempotency_in_progress: 409,
   rate_limited: 429,
   call_limit_reached: 429,
+  service_unavailable: 503,
   internal: 500,
 };
 

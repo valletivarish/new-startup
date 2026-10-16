@@ -409,11 +409,21 @@ export class AppModule {
               voice,
               jobs,
               queue: deps.jobs,
+              logger: deps.logger,
             });
-            await deps.jobs?.boss.work<CallJob>(CALL_QUEUE, async (batch) => {
+            if (!deps.jobs) return service;
+            await deps.jobs.boss.work<CallJob>(CALL_QUEUE, async (batch) => {
               for (const job of batch) await service.place(job.data);
             });
-            return service;
+            // Rows left in `placing` by a crash or deploy: sweep at startup, then every 5 min.
+            const sweep = () =>
+              service.sweepStuckPlacing(new Date()).catch((err: unknown) => {
+                deps.logger.error({ err: (err as Error).message }, 'calls.sweep_failed');
+              });
+            void sweep();
+            const timer = setInterval(() => void sweep(), 5 * 60_000);
+            timer.unref();
+            return Object.assign(service, { onModuleDestroy: () => clearInterval(timer) });
           },
         },
       ],

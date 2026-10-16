@@ -5,7 +5,7 @@
  * voice path the dashboard uses.
  */
 
-import { sql, withTenantContext, type Database } from '@platform/db';
+import { sql, withTenantContext, withoutTenantContext, type Database } from '@platform/db';
 
 import { ApiError } from '../errors.js';
 import type { JobsService } from '../hiring/jobs.service.js';
@@ -45,6 +45,8 @@ export interface CallRequestsService {
     actor: CallActor & { allowTranscript: boolean; allowRecording: boolean },
     id: string,
   ): Promise<V1CallRequest>;
+  /** Fails `placing` rows abandoned for 10+ minutes (crash or deploy mid-place). */
+  sweepStuckPlacing(now: Date): Promise<number>;
 }
 
 export interface CallRequestsDeps {
@@ -54,6 +56,7 @@ export interface CallRequestsDeps {
   queue: Pick<JobQueue, 'enqueueCall'> | null;
   dnd?: DndChecker;
   now?: () => Date;
+  logger?: { warn(obj: object, msg: string): void };
   /** Task 8: test-key placement on the fake line. Unwired → `test_mode_unavailable`. */
   placeTest?: (
     actor: CallActor,
@@ -78,6 +81,9 @@ type Row = {
   is_test: boolean;
   voice_session_id: string | null;
 };
+
+/** No user acts in the sweeper; the nil uuid is the system-actor sentinel. */
+const SYSTEM_USER = '00000000-0000-0000-0000-000000000000';
 
 const COLUMNS = sql`id, status, reason, not_before, candidate_id, job_id, source, is_test, voice_session_id`;
 
@@ -142,11 +148,16 @@ export function createCallRequestsService(deps: CallRequestsDeps): CallRequestsS
         return rows[0]!;
       });
       // ponytail: with jobs disabled (tests) nothing places the call; the caller runs place().
-      await queue?.enqueueCall({
-        organizationId: actor.organizationId,
-        userId: actor.userId,
-        callRequestId: row.id,
-      });
+      try {
+        await queue?.enqueueCall({
+          organizationId: actor.organizationId,
+          userId: actor.userId,
+          callRequestId: row.id,
+        });
+      } catch {
+        await finish(actor, row.id, 'failed', { reason: 'enqueue_failed' });
+        throw new ApiError('service_unavailable', 'Could not queue the call. Retry shortly.');
+      }
       return toV1(row);
     },
 
@@ -182,7 +193,10 @@ export function createCallRequestsService(deps: CallRequestsDeps): CallRequestsS
           const at = nextCallingTime(now());
           if (at) {
             await finish(a, id, 'scheduled', { notBefore: at });
-            await queue?.enqueueCall(job, at);
+            // A fixed CALLING_HOURS_NOW can yield a 09:00 already past in real
+            // time; enqueueing that would run at once and reschedule forever.
+            if (at.getTime() > Date.now()) await queue?.enqueueCall(job, at);
+            else deps.logger?.warn({ callRequestId: id, notBefore: at }, 'calls.schedule_in_past');
             return;
           }
         }
@@ -199,12 +213,38 @@ export function createCallRequestsService(deps: CallRequestsDeps): CallRequestsS
         // startOutboundPhoneCall runs assertWithinLimits itself (shared with the dashboard).
         const jobRow = await jobs.get(a, row.job_id);
         if (!jobRow.agentId) throw ApiError.agentRequired();
-        const placed = await voice.startOutboundPhoneCall(a, jobRow.agentId, target);
+        const placed = await voice.startOutboundPhoneCall(a, jobRow.agentId, {
+          ...target,
+          now: now(),
+        });
         await finish(a, id, 'placed', { voiceSessionId: placed.voiceSessionId });
       } catch (error) {
         const reason = error instanceof ApiError ? error.code : 'internal';
         await finish(a, id, 'failed', { reason });
       }
+    },
+
+    async sweepStuckPlacing(at) {
+      const cutoff = new Date(at.getTime() - 10 * 60_000).toISOString();
+      // organizations is RLS-exempt; each org is then swept under its own context.
+      const orgs = await withoutTenantContext(database.db, (tx) =>
+        tx.execute<{ id: string }>(sql`select id from organizations`),
+      );
+      let swept = 0;
+      // ponytail: one transaction per org; a security-definer sweep function if org count grows large.
+      for (const org of orgs) {
+        const rows = await tenant({ organizationId: org.id, userId: SYSTEM_USER }, (tx) =>
+          tx.execute(sql`
+            update call_requests
+            set status = 'failed', reason = 'internal_error', updated_at = now()
+            where organization_id = ${org.id} and status = 'placing'
+              and voice_session_id is null and updated_at < ${cutoff}::timestamptz
+            returning id
+          `),
+        );
+        swept += rows.length;
+      }
+      return swept;
     },
 
     async get(actor, id) {

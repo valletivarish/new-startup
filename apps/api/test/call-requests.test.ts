@@ -13,6 +13,7 @@ import {
 import { createStubVoiceSessionAdapter } from '../src/providers/elevenlabs/adapter.js';
 import {
   createCallRequestsService,
+  type CallRequestsDeps,
   type CallRequestsService,
 } from '../src/integrations/call-requests.service.js';
 import { istMidnight } from '../src/integrations/calling-hours.js';
@@ -26,60 +27,49 @@ const VOICE_ENV: Record<string, string> = {
 };
 
 let api: ApiHarness;
-let owner: TestActor;
-let orgId: string;
-let key: string;
-let jobId: string;
+let phoneSeq = 400;
 let clock: Date;
 const enqueued: { job: CallJob; startAfter?: Date }[] = [];
 const dndNumbers = new Set<string>();
-let service: CallRequestsService;
 
 const todayAtIst = (h: number) => new Date(istMidnight(new Date()).getTime() + h * 3_600_000);
 
-function v1(method: 'GET' | 'POST', url: string, payload?: object) {
+interface Org {
+  owner: TestActor;
+  orgId: string;
+  key: string;
+  jobId: string;
+}
+
+function makeService(overrides: Partial<CallRequestsDeps> = {}): CallRequestsService {
+  const app = api.built.app;
+  return createCallRequestsService({
+    database: api.built.database,
+    voice: app.get(VOICE_SESSION_SERVICE),
+    jobs: app.get(JOBS_SERVICE),
+    queue: {
+      enqueueCall: async (job, startAfter) =>
+        void enqueued.push({ job, ...(startAfter ? { startAfter } : {}) }),
+    },
+    dnd: { check: async (e164) => (dndNumbers.has(e164) ? 'dnd' : 'ok') },
+    now: () => clock,
+    ...overrides,
+  });
+}
+
+function v1(org: Org, method: 'GET' | 'POST', url: string, payload?: object) {
   return api.request({
     method,
     url,
-    headers: { authorization: `Bearer ${key}` },
+    headers: { authorization: `Bearer ${org.key}` },
     ...(payload ? { payload } : {}),
   });
 }
 
-async function candidate(phone: string): Promise<string> {
-  const res = await v1('POST', `/v1/jobs/${jobId}/candidates`, {
-    fullName: `Cand ${phone}`,
-    phone,
-    consent: true,
-  });
-  expect(res.statusCode, res.body).toBe(201);
-  return JSON.parse(res.body).id;
-}
-
-/** Queue through the real route, then place with this test's clock and DND stub. */
-async function requestAndPlace(candidateId: string) {
-  const res = await v1('POST', `/v1/jobs/${jobId}/candidates/${candidateId}/calls`);
-  expect(res.statusCode, res.body).toBe(202);
-  const id = JSON.parse(res.body).id as string;
-  await service.place({ organizationId: orgId, userId: owner.userId, callRequestId: id });
-  const got = await v1('GET', `/v1/calls/${id}`);
-  expect(got.statusCode, got.body).toBe(200);
-  return JSON.parse(got.body);
-}
-
-async function superSql(query: ReturnType<typeof sql>) {
-  const db = superDatabase();
-  try {
-    await withoutTenantContext(db.db, (tx) => tx.execute(query));
-  } finally {
-    await db.close();
-  }
-}
-
-beforeAll(async () => {
-  api = await startApi(VOICE_ENV, createStubVoiceSessionAdapter());
-  owner = await registerUser(api, 'calls-a');
-  orgId = await createOrganization(api, owner, 'Calls Co');
+/** A fresh company with a live key, a published agent and one job. */
+async function setupOrg(label: string): Promise<Org> {
+  const owner = await registerUser(api, label);
+  const orgId = await createOrganization(api, owner, `${label} Co`);
   const minted = await api.request({
     method: 'POST',
     url: '/organization/api-keys',
@@ -87,8 +77,6 @@ beforeAll(async () => {
     payload: { name: 'ATS', mode: 'live', scopes: ['jobs', 'candidates', 'calls', 'results'] },
   });
   expect(minted.statusCode, minted.body).toBe(201);
-  key = JSON.parse(minted.body).key;
-
   const agent = await api.request({
     method: 'POST',
     url: '/agents',
@@ -102,19 +90,67 @@ beforeAll(async () => {
     cookie: owner.cookie,
     payload: {},
   });
-  const job = await v1('POST', '/v1/jobs', { title: 'Picker' });
+  const org = { owner, orgId, key: JSON.parse(minted.body).key as string, jobId: '' };
+  const job = await v1(org, 'POST', '/v1/jobs', { title: 'Picker' });
   expect(job.statusCode, job.body).toBe(201);
-  jobId = JSON.parse(job.body).id;
+  org.jobId = JSON.parse(job.body).id;
+  return org;
+}
 
-  const app = api.built.app;
-  service = createCallRequestsService({
-    database: api.built.database,
-    voice: app.get(VOICE_SESSION_SERVICE),
-    jobs: app.get(JOBS_SERVICE),
-    queue: { enqueueCall: async (job, startAfter) => void enqueued.push({ job, ...(startAfter ? { startAfter } : {}) }) },
-    dnd: { check: async (e164) => (dndNumbers.has(e164) ? 'dnd' : 'ok') },
-    now: () => clock,
+async function candidate(org: Org, phone = `9000000${++phoneSeq}`): Promise<string> {
+  const res = await v1(org, 'POST', `/v1/jobs/${org.jobId}/candidates`, {
+    fullName: `Cand ${phone}`,
+    phone,
+    consent: true,
   });
+  expect(res.statusCode, res.body).toBe(201);
+  return JSON.parse(res.body).id;
+}
+
+/** Queue through the real route, then place with this test's clock and DND stub. */
+async function requestAndPlace(org: Org, candidateId: string, service = makeService()) {
+  const res = await v1(org, 'POST', `/v1/jobs/${org.jobId}/candidates/${candidateId}/calls`);
+  expect(res.statusCode, res.body).toBe(202);
+  const id = JSON.parse(res.body).id as string;
+  await service.place({ organizationId: org.orgId, userId: org.owner.userId, callRequestId: id });
+  const got = await v1(org, 'GET', `/v1/calls/${id}`);
+  expect(got.statusCode, got.body).toBe(200);
+  return JSON.parse(got.body);
+}
+
+async function superSql<T extends Record<string, unknown>>(query: ReturnType<typeof sql>) {
+  const db = superDatabase();
+  try {
+    return await withoutTenantContext(db.db, (tx) => tx.execute<T>(query));
+  } finally {
+    await db.close();
+  }
+}
+
+function setLimits(orgId: string, l: { perDay?: number; concurrent?: number; monthly?: number }) {
+  return superSql(sql`
+    insert into org_call_limits (organization_id, calls_per_day, max_concurrent, monthly_cap)
+    values (${orgId}, ${l.perDay ?? 50}, ${l.concurrent ?? 3}, ${l.monthly ?? null})
+    on conflict (organization_id) do update
+      set calls_per_day = excluded.calls_per_day, max_concurrent = excluded.max_concurrent,
+          monthly_cap = excluded.monthly_cap
+  `);
+}
+
+async function expectLimited(org: Org, resetsAt: string | RegExp) {
+  const res = await v1(org, 'POST', `/v1/jobs/${org.jobId}/candidates/${await candidate(org)}/calls`);
+  expect(res.statusCode, res.body).toBe(429);
+  const body = JSON.parse(res.body);
+  expect(body.code).toBe('call_limit_reached');
+  if (typeof resetsAt === 'string') expect(body.details.resetsAt).toBe(resetsAt);
+  else expect(body.details.resetsAt).toMatch(resetsAt);
+}
+
+let shared: Org;
+
+beforeAll(async () => {
+  api = await startApi(VOICE_ENV, createStubVoiceSessionAdapter());
+  shared = await setupOrg('calls-shared');
 }, 120_000);
 
 afterAll(async () => {
@@ -124,7 +160,7 @@ afterAll(async () => {
 describe('/v1 call requests', () => {
   it('places an in-hours request', async () => {
     clock = todayAtIst(10);
-    const call = await requestAndPlace(await candidate('9000000401'));
+    const call = await requestAndPlace(shared, await candidate(shared));
     expect(call).toMatchObject({ status: 'placed', reason: null });
     expect(call.result).toMatchObject({ status: 'active' });
     expect(call.result).not.toHaveProperty('fitPercent');
@@ -132,49 +168,113 @@ describe('/v1 call requests', () => {
 
   it('schedules an out-of-hours request for 09:00 IST', async () => {
     clock = todayAtIst(21);
-    const call = await requestAndPlace(await candidate('9000000402'));
+    const call = await requestAndPlace(shared, await candidate(shared));
     const nine = todayAtIst(33).toISOString();
     expect(call).toMatchObject({ status: 'scheduled', notBefore: nine });
     expect(enqueued.at(-1)?.startAfter?.toISOString()).toBe(nine);
     expect(enqueued.at(-1)?.job.callRequestId).toBe(call.id);
   });
 
+  it('does not re-enqueue when a fixed clock puts the next 09:00 in the real past', async () => {
+    clock = new Date('2020-01-01T21:00:00+05:30');
+    const before = enqueued.length;
+    const call = await requestAndPlace(shared, await candidate(shared));
+    expect(call).toMatchObject({
+      status: 'scheduled',
+      notBefore: new Date('2020-01-02T09:00:00+05:30').toISOString(),
+    });
+    // request() ran on the app's service (null queue); place() must not enqueue a past 09:00.
+    expect(enqueued.length).toBe(before);
+  });
+
   it('skips a candidate without consent', async () => {
     clock = todayAtIst(10);
-    const id = await candidate('9000000403');
+    const id = await candidate(shared);
     await superSql(sql`update candidates set consent_at = null where id = ${id}`);
-    expect(await requestAndPlace(id)).toMatchObject({ status: 'skipped', reason: 'no_consent' });
+    expect(await requestAndPlace(shared, id)).toMatchObject({ status: 'skipped', reason: 'no_consent' });
   });
 
   it('skips a DND number', async () => {
     clock = todayAtIst(10);
-    dndNumbers.add('+919000000404');
-    expect(await requestAndPlace(await candidate('9000000404'))).toMatchObject({
+    dndNumbers.add('+919000000999');
+    expect(await requestAndPlace(shared, await candidate(shared, '9000000999'))).toMatchObject({
       status: 'skipped',
       reason: 'dnd',
     });
   });
 
-  it('returns 429 call_limit_reached past calls_per_day, on /v1 and the dashboard', async () => {
+  it('fails the row and returns 503 when the call cannot be queued', async () => {
     clock = todayAtIst(10);
-    await superSql(sql`
-      insert into org_call_limits (organization_id, calls_per_day) values (${orgId}, 1)
-      on conflict (organization_id) do update set calls_per_day = 1
+    const service = makeService({
+      queue: { enqueueCall: async () => { throw new Error('queue down'); } },
+    });
+    const candidateId = await candidate(shared);
+    const err = await service
+      .request(
+        { organizationId: shared.orgId, userId: shared.owner.userId, apiKeyId: null, isTest: false },
+        { jobId: shared.jobId, candidateId, source: 'api' },
+      )
+      .catch((e: unknown) => e);
+    expect(err).toMatchObject({ code: 'service_unavailable', status: 503 });
+    const rows = await superSql<{ status: string; reason: string }>(sql`
+      select status, reason from call_requests where candidate_id = ${candidateId}
     `);
-    const candidateId = await candidate('9000000405');
-    const resetsAt = new Date(istMidnight(new Date()).getTime() + 86_400_000).toISOString();
+    expect(rows).toEqual([{ status: 'failed', reason: 'enqueue_failed' }]);
+  });
 
-    const res = await v1('POST', `/v1/jobs/${jobId}/candidates/${candidateId}/calls`);
-    expect(res.statusCode, res.body).toBe(429);
-    expect(JSON.parse(res.body)).toMatchObject({ code: 'call_limit_reached', details: { resetsAt } });
+  it('sweeps rows stuck in placing for over 10 minutes', async () => {
+    const [stale, fresh] = [await candidate(shared), await candidate(shared)];
+    const ins = await superSql<{ id: string }>(sql`
+      insert into call_requests (organization_id, job_id, candidate_id, source, status, updated_at)
+      values (${shared.orgId}, ${shared.jobId}, ${stale}, 'api', 'placing', now() - interval '11 minutes'),
+             (${shared.orgId}, ${shared.jobId}, ${fresh}, 'api', 'placing', now())
+      returning id
+    `);
+    expect(await makeService().sweepStuckPlacing(new Date())).toBeGreaterThanOrEqual(1);
+    const rows = await superSql<{ candidate_id: string; status: string; reason: string | null }>(sql`
+      select candidate_id, status, reason from call_requests
+      where id in (${ins[0]!.id}, ${ins[1]!.id})
+    `);
+    expect(rows.find((r) => r.candidate_id === stale)).toMatchObject({ status: 'failed', reason: 'internal_error' });
+    expect(rows.find((r) => r.candidate_id === fresh)).toMatchObject({ status: 'placing', reason: null });
+  });
+});
 
+describe('call limits', () => {
+  it('calls_per_day: 429 with resetsAt at next IST midnight, on /v1 and the dashboard', async () => {
+    clock = todayAtIst(10);
+    const org = await setupOrg('calls-daily');
+    await setLimits(org.orgId, { perDay: 1 });
+    expect(await requestAndPlace(org, await candidate(org))).toMatchObject({ status: 'placed' });
+
+    await expectLimited(org, new Date(istMidnight(new Date()).getTime() + 86_400_000).toISOString());
     const dash = await api.request({
       method: 'POST',
-      url: `/jobs/${jobId}/candidates/${candidateId}/outbound-call`,
-      cookie: owner.cookie,
+      url: `/jobs/${org.jobId}/candidates/${await candidate(org)}/outbound-call`,
+      cookie: org.owner.cookie,
       payload: {},
     });
     expect(dash.statusCode, dash.body).toBe(429);
     expect(JSON.parse(dash.body).code).toBe('call_limit_reached');
+  });
+
+  it('max_concurrent: 429 while a call is live', async () => {
+    clock = todayAtIst(10);
+    const org = await setupOrg('calls-concurrent');
+    await setLimits(org.orgId, { concurrent: 1 });
+    expect(await requestAndPlace(org, await candidate(org))).toMatchObject({ status: 'placed' });
+    await expectLimited(org, /^\d{4}-\d\d-\d\dT/);
+  });
+
+  it('monthly_cap: 429 with resetsAt at the 1st of next IST month', async () => {
+    clock = todayAtIst(10);
+    const org = await setupOrg('calls-monthly');
+    await setLimits(org.orgId, { monthly: 1 });
+    expect(await requestAndPlace(org, await candidate(org))).toMatchObject({ status: 'placed' });
+    const ist = new Date(clock.getTime() + 330 * 60_000);
+    const nextMonth = new Date(
+      Date.UTC(ist.getUTCFullYear(), ist.getUTCMonth() + 1, 1) - 330 * 60_000,
+    ).toISOString();
+    await expectLimited(org, nextMonth);
   });
 });

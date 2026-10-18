@@ -48,6 +48,10 @@ export interface AnswersListProps {
   items: readonly Answer[];
   /** Time pills call this with the answer's time: seek the recording, highlight the turn. */
   onSeek?: (at: number) => void;
+  /** Show only the first `limit` of the job's questions and hide "Also mentioned". The count still covers all. */
+  limit?: number;
+  /** Id for the rows, so a "Show all" toggle can point at them. */
+  id?: string;
   className?: string;
 }
 
@@ -55,13 +59,15 @@ export interface AnswersListProps {
  * Question and answer rows under a coverage line, one dot per question (filled when answered).
  * Reports what was said; never a score or verdict.
  */
-export function AnswersList({ items, onSeek, className }: AnswersListProps) {
+export function AnswersList({ items, onSeek, limit, id, className }: AnswersListProps) {
   if (items.length === 0) return null;
   const { answered, total } = answerCoverage(items);
   const asked = items.filter((item) => !item.extra);
-  const extras = items.filter((item) => item.extra);
+  const limited = limit != null && limit < items.length;
+  const shown = limited ? asked.slice(0, limit) : asked;
+  const extras = limited ? [] : items.filter((item) => item.extra);
   return (
-    <div className={cn('grid gap-4', className)}>
+    <div id={id} className={cn('grid gap-4', className)}>
       {total > 0 ? (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
           <p className="m-0 text-label font-medium text-text tabular-nums">
@@ -81,10 +87,10 @@ export function AnswersList({ items, onSeek, className }: AnswersListProps) {
           </span>
         </div>
       ) : null}
-      {asked.length > 0 ? <Rows items={asked} onSeek={onSeek} /> : null}
+      {shown.length > 0 ? <Rows items={shown} onSeek={onSeek} /> : null}
       {extras.length > 0 ? (
         // The rule only parts it from the job's questions above, when there are any.
-        <section className={cn('grid gap-3', asked.length > 0 && 'border-t border-border pt-4')}>
+        <section className={cn('grid gap-3', shown.length > 0 && 'border-t border-border pt-4')}>
           <h3 className="m-0 text-label font-semibold text-text">Also mentioned</h3>
           <Rows items={extras} onSeek={onSeek} />
         </section>

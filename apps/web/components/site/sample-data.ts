@@ -77,6 +77,7 @@ export interface SampleAnswer {
 export const SAMPLE_CALL = {
   candidate: 'Priya Raghunathan',
   durationSeconds: 68.9,
+  language: 'English',
   turns: [
     { speaker: 'agent', at: 0, text: `Hi, this is the hiring agent from ${SAMPLE_COMPANY} calling about a role. Do you have a couple of minutes for a quick chat?` },
     { speaker: 'contact', at: 6.56, text: 'Yes, sure. I can talk now.' },

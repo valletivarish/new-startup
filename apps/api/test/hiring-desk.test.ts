@@ -1484,7 +1484,7 @@ describe('candidate screening results', () => {
     expect(body.browserDemo).toBe(true);
     expect(body.outboundPhone).toBe(true);
     expect(body.openOutbound).toBe(false);
-    expect(body.message).toMatch(/Phone calling is ready|open calling/i);
+    expect(body.message).toMatch(/^Phone calling is connected\./);
     expect(body.message.length).toBeGreaterThan(0);
   });
 

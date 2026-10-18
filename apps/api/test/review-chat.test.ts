@@ -99,7 +99,7 @@ describe('answerReviewQuestionWithLlm', () => {
   });
 
   it('grounds Gemini on call facts and scrubs hire advice from the reply', async () => {
-    const fetchFn = vi.fn(
+    const fetchFn = vi.fn<typeof fetch>(
       async () =>
         new Response(
           JSON.stringify({
@@ -128,7 +128,7 @@ describe('answerReviewQuestionWithLlm', () => {
 
     expect(fetchFn).toHaveBeenCalledOnce();
     const body = JSON.parse(
-      (fetchFn.mock.calls[0]![1] as { body: string }).body,
+      fetchFn.mock.calls[0]![1]!.body as string,
     ) as { contents: Array<{ parts: Array<{ text: string }> }> };
     const prompt = body.contents[0]!.parts[0]!.text;
     expect(prompt).toContain('30 days');

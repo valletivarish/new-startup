@@ -328,7 +328,11 @@ describe('the end-to-end sweep persists a full run', () => {
       { stt: 'fake-stt', llm: 'fake-llm', tts: 'fake-tts' },
       {
         profile: 'p', manifestPath,
-        condition: 'narrowband_8k', runsDir: root,
+        // clean_16k: this test is about what the sweep persists, not the codec.
+        // narrowband_8k shells out to ffmpeg, so the suite went red on any
+        // machine without a working build; the codec path has its own test in
+        // audio.test.ts, which skips when no encoder exists.
+        condition: 'clean_16k', runsDir: root,
         maxRetries: 0, maxCalls: 500, seed: 1, drainTts: false, concurrency: 1,
         clock: clock.now,
         sleep: async (ms) => clock.advance(ms),

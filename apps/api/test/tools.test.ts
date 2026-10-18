@@ -207,10 +207,10 @@ describe('executing a tool through a conversation', () => {
     expect(res.statusCode).toBe(200);
     const events = (
       JSON.parse(res.body) as {
-        events: { event_type: string; resource_id: string | null }[];
+        events: { eventType: string; resourceId: string | null }[];
       }
     ).events;
-    const types = events.map((e) => e.event_type);
+    const types = events.map((e) => e.eventType);
 
     // A denial is as important to record as a success: it is the evidence
     // that authorization did its job, and the signal if something keeps
@@ -221,7 +221,7 @@ describe('executing a tool through a conversation', () => {
     expect(
       events.some(
         (e) =>
-          e.event_type === 'agent.tool.denied' && e.resource_id === 'calculator',
+          e.eventType === 'agent.tool.denied' && e.resourceId === 'calculator',
       ),
     ).toBe(true);
 

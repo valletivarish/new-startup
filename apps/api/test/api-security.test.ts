@@ -194,7 +194,7 @@ describe('cross-tenant access through the API', () => {
       url: '/audit',
       cookie: ownerA.cookie,
     });
-    const events = (JSON.parse(res.body) as { events: { event_type: string }[] })
+    const events = (JSON.parse(res.body) as { events: { eventType: string }[] })
       .events;
     // Every visible event belongs to A's org; B's org-create audit is invisible.
     expect(events.length).toBeGreaterThan(0);
@@ -254,9 +254,9 @@ describe('permission enforcement (strings, not role names)', () => {
       url: '/audit',
       cookie: ownerA.cookie,
     });
-    const events = (JSON.parse(res.body) as { events: { event_type: string }[] })
+    const events = (JSON.parse(res.body) as { events: { eventType: string }[] })
       .events;
-    expect(events.some((e) => e.event_type === 'authz.denied')).toBe(true);
+    expect(events.some((e) => e.eventType === 'authz.denied')).toBe(true);
   });
 
   it('a session with no active organization gets 403 with guidance, not data', async () => {

@@ -263,12 +263,12 @@ describe('agent permission enforcement', () => {
       cookie: orgA.owner.cookie,
     });
     const { events } = JSON.parse(audit.body) as {
-      events: { event_type: string; metadata: { permission?: string } }[];
+      events: { eventType: string; metadata: { permission?: string } }[];
     };
     expect(
       events.some(
         (e) =>
-          e.event_type === 'authz.sensitive_access' &&
+          e.eventType === 'authz.sensitive_access' &&
           e.metadata?.permission === 'agents.sessions.read',
       ),
     ).toBe(true);
@@ -295,8 +295,8 @@ describe('agent audit events', () => {
       cookie: w.owner.cookie,
     });
     const types = (
-      JSON.parse(res.body) as { events: { event_type: string }[] }
-    ).events.map((e) => e.event_type);
+      JSON.parse(res.body) as { events: { eventType: string }[] }
+    ).events.map((e) => e.eventType);
 
     for (const expected of [
       'agent.created',

@@ -452,8 +452,8 @@ describe('knowledge audit events', () => {
       cookie: orgA.actor.cookie,
     });
     const types = (
-      JSON.parse(res.body) as { events: { event_type: string }[] }
-    ).events.map((e) => e.event_type);
+      JSON.parse(res.body) as { events: { eventType: string }[] }
+    ).events.map((e) => e.eventType);
 
     for (const expected of [
       'knowledge.source.created',

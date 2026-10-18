@@ -371,8 +371,10 @@ describe('AUDIT FIX: rate-limit responses use the standard envelope', () => {
     const tiny = await startApi({ RATE_LIMIT_MAX: '3' });
     try {
       let last: Awaited<ReturnType<typeof tiny.request>> | undefined;
+      // Not /health: liveness is allow-listed so probes are never throttled
+      // (server.ts). /auth/me is throttled like every other route.
       for (let i = 0; i < 5; i += 1) {
-        last = await tiny.request({ method: 'GET', url: '/health' });
+        last = await tiny.request({ method: 'GET', url: '/auth/me' });
       }
       expect(last?.statusCode).toBe(429);
       const body = JSON.parse(last?.body ?? '{}') as {

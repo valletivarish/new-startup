@@ -41,11 +41,14 @@ const PRODUCTION_TREES = [
 const VENDOR_ADAPTER_DIRS = [
   'apps/api/src/providers/elevenlabs',
   'apps/api/src/providers/exotel',
+  'apps/api/src/providers/gemini',
   'apps/web/src/integrations/elevenlabs',
   // Platform-owner cost registry and dashboard: naming the vendors we pay is
   // their whole purpose, and customers never reach them (PLATFORM_ADMIN_EMAILS).
   'apps/api/src/costs',
   'apps/web/app/admin',
+  // The UI's vendor-name redaction list: it names vendors only to hide them.
+  'apps/web/lib/vendor-names.ts',
 ];
 
 /**
@@ -86,7 +89,9 @@ function sourceFiles(dir: string): string[] {
       if (entry === 'node_modules' || entry === '.next' || entry === 'dist') continue;
       const full = join(current, entry);
       if (statSync(full).isDirectory()) walk(full);
-      else if (/\.(ts|tsx)$/.test(entry)) out.push(full);
+      // Colocated tests are not shipped source; they may name vendors to
+      // prove the product hides them (errors.test.ts).
+      else if (/\.(ts|tsx)$/.test(entry) && !/\.test\.tsx?$/.test(entry)) out.push(full);
     }
   };
   walk(root);

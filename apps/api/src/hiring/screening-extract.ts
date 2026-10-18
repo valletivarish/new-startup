@@ -7,7 +7,7 @@
  * show as missing.
  */
 
-import { GEMINI_BASE } from './jd-assist.js';
+import { GEMINI_BASE } from '../providers/gemini/endpoint.js';
 import { scrubHireAdvice } from './review-chat.js';
 
 export interface ExtractDeps {

@@ -5,6 +5,7 @@
  */
 
 import { shortRef } from './format';
+import { VENDOR_NAME } from './vendor-names';
 
 export interface FieldError {
   field: string;
@@ -66,8 +67,6 @@ export class NotAvailableError extends ApiClientError {
   }
 }
 
-const VENDOR =
-  /\b(?:eleven[\s-]?labs|11\s?labs|exotel|gemini|sarvam|deepgram|cartesia|plivo|twilio|open ?ai|anthropic|google|claude|gpt|azure|aws|postgres(?:ql)?|redis)\b/i;
 // Config-looking tokens only: ELEVENLABS_ENABLED, API_KEY, FOO=. Plain caps like PDF or DOCX stay.
 const CONFIG_TOKEN = /\b[A-Z][A-Z0-9]*_[A-Z0-9_]+\b|\b[A-Z][A-Z0-9_]{3,}=/;
 const URL_LIKE = /\b(?:https?:\/\/|www\.)\S+/i;
@@ -84,7 +83,7 @@ const ERRNO = /\bE(?:CONNREFUSED|CONNRESET|TIMEDOUT|NOTFOUND|AI_AGAIN|HOSTUNREAC
 const GENERIC =
   /something went wrong|request failed|^(?:validation failed|internal server error|internal error|not found|bad request|unauthori[sz]ed|forbidden|you do not have permission to do this|authentication required|error|failed|unknown error|an error occurred|service unavailable|bad gateway|gateway timeout)\.?$/i;
 const UNUSABLE = [
-  VENDOR,
+  VENDOR_NAME,
   CONFIG_TOKEN,
   URL_LIKE,
   PATH_LIKE,

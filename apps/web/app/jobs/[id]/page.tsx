@@ -47,12 +47,10 @@ import {
   saveJobDescriptionText,
   updateJob,
   uploadKnowledgeDocument,
-  ENGINE_LABEL,
-  setJobEngine,
   type Job,
   type JobKnowledgeSource,
-  type VoiceEngine,
 } from '@/lib/api';
+import { ENGINE_LABEL, setJobEngine, type VoiceEngine } from '@/app/admin/costs-api';
 import { useUnsavedChangesGuard } from '@/lib/drafts';
 import { toUserMessage } from '@/lib/errors';
 import { shortRef } from '@/lib/format';

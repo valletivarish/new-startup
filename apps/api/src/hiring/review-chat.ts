@@ -2,6 +2,8 @@
  * Grounded answers about a screening call — facts only, never hire advice.
  */
 
+import { GEMINI_BASE } from '../providers/gemini/endpoint.js';
+
 export interface ReviewChatSession {
   readonly voiceSessionId: string | null;
   readonly summary: string | null;
@@ -200,7 +202,6 @@ export function answerReviewQuestion(
 }
 
 const DEFAULT_MODEL = 'gemini-3.5-flash-lite';
-const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 
 export type ReviewChatLlmDeps = {
   apiKey: string;

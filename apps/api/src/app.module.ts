@@ -102,7 +102,9 @@ import {
 import { JobsController } from './hiring/jobs.controller.js';
 import { AdminCostsController } from './costs/costs.controller.js';
 import { createCostService } from './costs/costs.service.js';
-import { createExotelClient, exotelCarrier } from './providers/exotel/exotel.js';
+// Aliased at the composition root: the phone line is bound here by DI and
+// named for what it is, not for the carrier behind it.
+import { createExotelClient as createPhoneLineClient, exotelCarrier as phoneLineCarrier } from './providers/exotel/exotel.js';
 import { ExotelWebhookController } from './providers/exotel/exotel-webhook.controller.js';
 import { createOwnLoopService } from './providers/own-loop/own-loop.service.js';
 import { InternalVoiceController } from './providers/own-loop/internal-voice.controller.js';
@@ -379,12 +381,12 @@ export class AppModule {
             costs: ReturnType<typeof createCostService>,
             voice: ReturnType<typeof createVoiceSessionService>,
           ) => {
-            const exotel = createExotelClient(deps.env);
+            const phoneLine = createPhoneLineClient(deps.env);
             return createOwnLoopService(
               deps.database,
               deps.env,
               costs,
-              exotel.isConfigured() ? exotelCarrier(exotel) : null,
+              phoneLine.isConfigured() ? phoneLineCarrier(phoneLine) : null,
               onCallEnded,
               { voice },
             );
@@ -404,7 +406,7 @@ export class AppModule {
               audit,
               adapter,
               costs,
-              createExotelClient(deps.env),
+              createPhoneLineClient(deps.env),
               onCallEnded,
             ),
         },

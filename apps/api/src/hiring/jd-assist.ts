@@ -4,11 +4,11 @@
  */
 
 import { ApiError } from '../errors.js';
+import { GEMINI_BASE } from '../providers/gemini/endpoint.js';
 
 const MIN_NOTES = 20;
 const MAX_NOTES = 40_000;
 const DEFAULT_MODEL = 'gemini-3.5-flash-lite';
-export const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 
 export type JdAssistMode = 'generate' | 'format' | 'questions';
 export type JdAssistLanguage = 'en' | 'hi';

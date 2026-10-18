@@ -25,7 +25,7 @@ import {
   type CostCall,
   type CostServiceRow,
   ENGINE_LABEL,
-} from '@/lib/api';
+} from '@/app/admin/costs-api';
 import { toUserMessage } from '@/lib/errors';
 import { useMe } from '@/lib/use-me';
 

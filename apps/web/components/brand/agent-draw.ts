@@ -65,6 +65,8 @@ export interface AgentLook {
   seed?: number;
   /** Still drawing: no breathing, blinking or glancing (reduced motion, server frame). */
   still?: boolean;
+  /** Body stays put (no breathing, hops, tilts, rings or arcs); only the eyes move. */
+  fixed?: boolean;
   /**
    * Logo sizes (about 40px and under): no darkened edge (it reads as a ring when tiny), a
    * softer glow and slightly larger eyes. Icons need their own small version; so does this.
@@ -360,6 +362,9 @@ export function agentFrame(a: AgentLook, t: number, id: string): AgentFrame {
   // Ringing shakes from its middle, like a phone buzzing; everything else moves from its base.
   const pivot = state === 'ringing' ? '50 52' : '50 88';
   const faceScale = a.small ? 1.12 : 1;
+  if (a.fixed) {
+    return { body: '', face: faceScale === 1 ? face : `<g transform="translate(50 48) scale(${faceScale}) translate(-50 -48)">${face}</g>`, extra: '', voice: r1(0.15), ground: 1, ear: 0 };
+  }
   return {
     body: `translate(0 ${r1(dy)}) rotate(${r1(rot)} ${pivot}) translate(50 88) scale(${sx.toFixed(3)} ${sy.toFixed(3)}) translate(-50 -88)`,
     face: faceScale === 1 ? face : `<g transform="translate(50 48) scale(${faceScale}) translate(-50 -48)">${face}</g>`,

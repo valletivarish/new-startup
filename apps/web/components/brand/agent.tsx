@@ -41,6 +41,8 @@ export interface AgentProps {
   follow?: boolean;
   /** Turns happy and lifts while the pointer is over it. */
   hoverable?: boolean;
+  /** Body stays still; only the eyes blink, glance and follow. */
+  fixed?: boolean;
   /** On a light surface: a soft ground shadow instead of a glow, and ink extras. */
   onLight?: boolean;
   /** Names it for assistive tech. Without a label it is decorative (aria-hidden). */
@@ -64,6 +66,7 @@ export function Agent({
   face = AGENT_DEFAULTS.face,
   follow = false,
   hoverable = false,
+  fixed = false,
   onLight = false,
   label,
   className,
@@ -114,7 +117,7 @@ export function Agent({
         };
       }
       const f = agentFrame(
-        { shape, colour, onLight, seed, small, face: now.face, state: now.state, hover: now.hover, look: eyes, still: reduce },
+        { shape, colour, onLight, seed, small, fixed, face: now.face, state: now.state, hover: now.hover, look: eyes, still: reduce },
         t,
         id,
       );
@@ -182,7 +185,7 @@ export function Agent({
       }
     };
     // state and face are read through live.current each frame; these rebuild the svg.
-  }, [shape, colour, onLight, follow, hoverable, id, seed, small]);
+  }, [shape, colour, onLight, follow, hoverable, fixed, id, seed, small]);
 
   // A new state shows at once, even when no loop is running.
   useEffect(() => {

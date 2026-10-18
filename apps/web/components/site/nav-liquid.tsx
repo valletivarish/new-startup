@@ -69,7 +69,7 @@ export function NavAgent({ size }: { size: number }) {
     };
   }, []);
   const a = ACTS[act];
-  return <Agent colour="pearl" size={size} state={a?.state ?? 'idle'} face={a?.face ?? 'neutral'} follow hoverable />;
+  return <Agent colour="pearl" size={size} state={a?.state ?? 'idle'} face={a?.face ?? 'neutral'} follow fixed />;
 }
 
 /**

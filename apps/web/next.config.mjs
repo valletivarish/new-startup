@@ -17,6 +17,8 @@ const nextConfig = {
     // first-party and SameSite=Lax works without cross-origin complexity.
     const api = process.env.API_URL ?? 'http://localhost:3001';
     return [
+      // Public voice clarity page (static file in public/voice-samples).
+      { source: '/voices', destination: '/voice-samples/index.html' },
       // Auth only — leave /api/health for the Next route (compose liveness).
       { source: '/api/auth/:path*', destination: `${api}/api/auth/:path*` },
       { source: '/backend/:path*', destination: `${api}/:path*` },

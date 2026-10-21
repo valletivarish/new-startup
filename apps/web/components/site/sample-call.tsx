@@ -31,7 +31,7 @@ const moment = (words: string, label: string) => {
 const MOMENTS = [
   moment('thirty days', 'Notice period: thirty days, can be shortened'),
   moment('can I pick which three days', 'She cuts in with a question'),
-  moment('thirteen lakh', 'Current and expected salary'),
+  moment('good jump from thirteen', 'It asks why eighteen lakh'),
 ] as const;
 
 // The header's one-line facts, from the data.

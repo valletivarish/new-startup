@@ -21,7 +21,7 @@ const TURNS: readonly TranscriptTurn[] = SAMPLE_CALL.turns.map((turn) => ({
   name: SAMPLE_CALL.candidate.split(' ')[0],
 }));
 
-// Where the call stops sounding scripted. Found by their words, so the times follow the recording.
+// Three moments worth jumping to. Found by their words, so the times follow the recording.
 // Each carries a short quote of the turn, cut at a word near 70 characters.
 const quote = (text: string) => (text.length <= 70 ? text : `${text.slice(0, text.lastIndexOf(' ', 70))}…`);
 const moment = (words: string, label: string) => {
@@ -29,9 +29,9 @@ const moment = (words: string, label: string) => {
   return { at: turn?.at ?? 0, label, quote: turn ? quote(turn.text) : '' };
 };
 const MOMENTS = [
-  moment('depends on my manager', 'She’s vague, so it asks again in other words'),
-  moment('and the other two days', 'She cuts in with a question'),
-  moment('rather not share', 'She won’t share her salary, and it moves on'),
+  moment('thirty days', 'Notice period: thirty days, can be shortened'),
+  moment('thirteen lakh', 'Current and expected salary'),
+  moment('is the first round online', 'Her question about the first round'),
 ] as const;
 
 // The header's one-line facts, from the data.

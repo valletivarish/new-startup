@@ -68,6 +68,13 @@ describe('sessionListMeta', () => {
   });
 });
 
+describe('call length', () => {
+  it('never shows 0:00 for a call that never connected', () => {
+    const meta = sessionListMeta({ status: 'failed', durationSeconds: 0, structuredAnswers: null, transcript: null }, QUESTIONS);
+    expect(meta.durationLabel).toBeNull();
+  });
+});
+
 describe('callStatusLabel', () => {
   it('maps ended and completed to Completed', () => {
     expect(callStatusLabel('ended')).toBe('Completed');

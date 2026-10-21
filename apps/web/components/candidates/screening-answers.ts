@@ -60,8 +60,9 @@ export function sessionListMeta(
       ? new Date(session.startedAt).toLocaleString()
       : 'Screen',
     statusLabel: callStatusLabel(session.status),
+    // A call that never connected has no length worth showing: never "0:00".
     durationLabel:
-      session.durationSeconds != null
+      session.durationSeconds != null && session.durationSeconds > 0 && session.status !== 'failed'
         ? formatCallDuration(session.durationSeconds)
         : null,
     answeredLabel: total > 0 ? `${answered} of ${total} answered` : null,

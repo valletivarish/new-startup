@@ -102,7 +102,8 @@ export function ScreeningSessionCard({
         onPlayFrom={recording && !noRecording ? (at) => player.current?.seek(at) : undefined}
         label={`Transcript of the call with ${candidateName}`}
         contactLabel={candidateName}
-        className={turns.length > 0 ? 'max-h-[34rem]' : undefined}
+        // Full height, in the drawer's (or page's) own scroll: no scroll box inside a scroll box.
+        transcriptClassName="overflow-visible"
         footer={
           recording || note ? (
             <div className="grid gap-3">

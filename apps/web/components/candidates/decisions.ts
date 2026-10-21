@@ -40,3 +40,21 @@ export function moveTotals(totals: StageTotals, moves: readonly { from: Candidat
   }
   return next;
 }
+
+// Why the latest call never connected, as a recruiter would say it.
+const NO_CONNECT: Record<string, string> = {
+  no_answer: 'Didn’t answer',
+  busy: 'Number busy',
+  voicemail: 'Went to voicemail',
+  invalid_number: 'Number not valid',
+  line_not_connected: 'Calling number not set up',
+};
+
+/**
+ * The reason, in plain words, when the latest call never connected: nothing was said, so there
+ * is no evidence to decide on. null when it did connect, or there was no call.
+ */
+export function noConnectReason(callStatus: string | null | undefined, failureReason: string | null | undefined): string | null {
+  if (callStatus !== 'failed') return null;
+  return (failureReason && NO_CONNECT[failureReason]) || 'Couldn’t connect';
+}

@@ -296,8 +296,8 @@ export function ReviewPanel({
   );
 }
 
+// No "Summarize this call": the summary already leads the call card above.
 const PRESETS = [
-  ['Summarize this call', 'Summarize this call'],
   ['Draft follow-up questions', 'Draft questions for a follow-up call about anything this call left open'],
   ['What was unclear?', 'What answers were missing or unclear on this call?'],
 ] as const;

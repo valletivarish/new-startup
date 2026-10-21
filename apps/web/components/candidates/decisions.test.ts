@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { decisionDone, decisionLabel, isStage, moveTotals } from './decisions';
+import { decisionDone, decisionLabel, isStage, moveTotals, noConnectReason } from './decisions';
 
 const STAGES = [
   { value: 'new', label: 'No decision yet' },
@@ -39,5 +39,16 @@ describe('decisions', () => {
       declined: 1,
     });
     expect(moveTotals({ all: 0, new: 0, screening: 0, reviewed: 0 }, [{ from: 'new', to: 'screening' }]).new).toBe(0);
+  });
+});
+
+describe('noConnectReason', () => {
+  it('names why a call never connected, and stays out of the way when it did', () => {
+    expect(noConnectReason('failed', 'no_answer')).toBe('Didn’t answer');
+    expect(noConnectReason('failed', 'busy')).toBe('Number busy');
+    expect(noConnectReason('failed', 'carrier_blocked')).toBe('Couldn’t connect');
+    expect(noConnectReason('failed', null)).toBe('Couldn’t connect');
+    expect(noConnectReason('completed', null)).toBeNull();
+    expect(noConnectReason('not_called', null)).toBeNull();
   });
 });

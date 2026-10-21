@@ -2,7 +2,8 @@
 
 import { useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react';
 import Link from 'next/link';
-import { ChevronDown, ChevronUp, PhoneOutgoing } from 'lucide-react';
+import * as Menu from '@radix-ui/react-dropdown-menu';
+import { ChevronDown, ChevronUp, MonitorSmartphone, PhoneOutgoing } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm';
 import { IconTile } from '@/components/ui/empty-state';
@@ -31,7 +32,8 @@ import type { CandidateStage, CandidateStageHistoryEvent, Job, JobCandidateAssig
 import { formatPhone, formatPhoneMasked, formatWhen } from '@/lib/format';
 import { toPublicId } from '@/lib/public-id';
 import { useUseCase } from '@/lib/use-cases';
-import { decisionLabel } from './decisions';
+import { MENU } from '@/components/layout/app-shell/parts';
+import { decisionLabel, noConnectReason } from './decisions';
 import { ReviewPanel } from './ReviewPanel';
 
 export type CandidateSheetTab = 'overview' | 'screen' | 'results';
@@ -93,7 +95,8 @@ export function sourceLabel(source: string | null | undefined): string {
 /**
  * One candidate, opened from the board: their call results first (summary, answers,
  * transcript, recording), then calling, then their details and decision history. The
- * decision buttons stay in the footer on every tab.
+ * decision buttons stay in the footer on every tab, except after a call that never connected:
+ * then the footer says why and offers another try, with the decisions one step away.
  */
 export function CandidateDetailSheet({
   open,
@@ -181,6 +184,21 @@ export function CandidateDetailSheet({
     </>
   ) : null;
   const mayCall = can('calls.initiate') && !blocker;
+
+  // The latest call never connected: nothing to judge, so the footer offers another try instead.
+  const missed = noConnectReason(row.callStatus, row.failureReason);
+  const retry =
+    mayCall && !onCall ? (
+      <Button type="button" size="sm" loading={dialing} onClick={askToCall}>
+        <PhoneOutgoing aria-hidden strokeWidth={1.5} />
+        Call again
+      </Button>
+    ) : !outboundPhone && canScreen && job.agentId ? (
+      <Button type="button" size="sm" onClick={() => setSheetTab('screen')}>
+        <MonitorSmartphone aria-hidden strokeWidth={1.5} />
+        Try a test call
+      </Button>
+    ) : null;
 
   function askToCall() {
     opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -491,7 +509,45 @@ export function CandidateDetailSheet({
             </TabsContent>
           </SheetBody>
 
-          {can('jobs.update') ? (
+          {missed && (retry || can('jobs.update')) ? (
+            <SheetFooter className="items-center justify-between">
+              <p className="m-0 min-w-0 text-label text-text">
+                <span className="text-text-3">Last call: </span>
+                {missed}
+              </p>
+              <div className="ml-auto flex flex-wrap justify-end gap-2">
+                {can('jobs.update') ? (
+                  <Menu.Root>
+                    <Menu.Trigger asChild>
+                      <Button type="button" variant="secondary" size="sm">
+                        Decide anyway
+                        <ChevronDown aria-hidden strokeWidth={1.5} />
+                      </Button>
+                    </Menu.Trigger>
+                    <Menu.Portal>
+                      <Menu.Content side="top" align="end" sideOffset={6} collisionPadding={12} className={MENU.panel}>
+                        <Menu.Item
+                          className={MENU.item}
+                          disabled={row.status === 'screening'}
+                          onSelect={() => void onAssignmentStatusChange(row.candidateId, 'screening')}
+                        >
+                          Put on hold
+                        </Menu.Item>
+                        <Menu.Item
+                          className={MENU.item}
+                          disabled={row.status === 'declined'}
+                          onSelect={() => void onAssignmentStatusChange(row.candidateId, 'declined')}
+                        >
+                          Not moving forward
+                        </Menu.Item>
+                      </Menu.Content>
+                    </Menu.Portal>
+                  </Menu.Root>
+                ) : null}
+                {retry}
+              </div>
+            </SheetFooter>
+          ) : can('jobs.update') ? (
             <SheetFooter className="justify-between">
               <p className="m-0 hidden items-center gap-1.5 text-meta text-text-3 lg:flex [@media(pointer:coarse)]:hidden">
                 <Kbd>J</Kbd>

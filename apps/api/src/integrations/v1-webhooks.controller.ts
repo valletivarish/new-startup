@@ -9,15 +9,21 @@ import { RequirePermission } from '../authz/decorators.js';
 import { requireOrganization } from '../authz/auth-context.js';
 import type { RequestWithAuth } from '../authz/authz.guard.js';
 import { ApiError } from '../errors.js';
-import { DATABASE } from '../tokens.js';
+import type { Env } from '../config.js';
+import { DATABASE, ENV } from '../tokens.js';
 import { WEBHOOKS_SERVICE } from '../tokens.more.js';
 import { parse } from '../validate.js';
 import { V1WebhookEndpointCreate } from './v1-schemas.js';
+import { recentCallEvents } from './events.js';
 import { withIdempotency } from './idempotency.js';
 import type { WebhooksService } from './webhooks.service.js';
 
 const Id = z.string().uuid();
 const DeliveryQuery = z.object({ status: z.enum(['pending', 'delivered', 'failed']).optional() });
+const EventsQuery = z.object({
+  type: z.enum(['call.completed', 'call.failed']).optional(),
+  limit: z.coerce.number().int().min(1).max(10).default(3),
+});
 
 function actorOf(req: RequestWithAuth) {
   const ctx = requireOrganization(
@@ -31,6 +37,7 @@ export class V1WebhooksController {
   constructor(
     @Inject(DATABASE) private readonly database: Database,
     @Inject(WEBHOOKS_SERVICE) private readonly webhooks: WebhooksService,
+    @Inject(ENV) private readonly env: Env,
   ) {}
 
   /** Runs `handler` under the Idempotency-Key header and writes the status it returns. */
@@ -83,6 +90,16 @@ export class V1WebhooksController {
       await this.webhooks.remove(actorOf(req), id);
       return { status: 200, body: { deleted: true } };
     });
+  }
+
+  /** Latest call events, rebuilt in webhook shape, for no-code tools' sample data. Carries transcripts. */
+  @Get('events')
+  @RequirePermission('calls.read_transcript')
+  async events(@Req() req: RequestWithAuth, @Query() query: unknown) {
+    const { type, limit } = parse(EventsQuery, query);
+    const ctx = requireOrganization(req.authContext ?? (() => { throw ApiError.unauthorized(); })());
+    const a = { ...actorOf(req), isTest: ctx.apiKey?.mode === 'test' };
+    return { events: await recentCallEvents(this.database, a, type, limit, this.env.API_URL) };
   }
 
   @Get('webhook-deliveries')

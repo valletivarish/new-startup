@@ -24,6 +24,10 @@ import { recordingLink, toV1Candidate, toV1Job, toV1Result } from './public-mapp
 import { V1CandidateBatch, V1CandidateCreate, V1JobCreate, V1JobPatch } from './v1-schemas.js';
 
 const Id = z.string().uuid();
+const CandidateListQuery = PaginationQuery.extend({
+  externalId: z.string().trim().min(1).max(200).optional(),
+  phone: z.string().trim().min(1).max(30).optional(),
+});
 
 function actorOf(req: RequestWithAuth) {
   const ctx = requireOrganization(
@@ -195,12 +199,16 @@ export class V1JobsController {
     @Param('jobId') jobId: string,
     @Query() query: unknown,
   ) {
-    const q = parse(PaginationQuery, query);
+    const q = parse(CandidateListQuery, query);
     const a = actorOf(req);
+    // Looking a number up is reading it: no probing for phones without contact-detail access.
+    if (q.phone && !a.pii) throw ApiError.forbidden('Searching by phone needs candidates.read_pii.');
     const page = await this.candidates.listPage(a, {
       jobId: parse(Id, jobId),
       limit: q.limit,
       ...(q.cursor ? { cursor: q.cursor } : {}),
+      ...(q.externalId ? { externalId: q.externalId } : {}),
+      ...(q.phone ? { phone: q.phone } : {}),
     });
     return { candidates: page.candidates.map((c) => toV1Candidate(c, a.pii)), nextCursor: page.nextCursor };
   }

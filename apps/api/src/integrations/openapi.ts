@@ -131,7 +131,11 @@ export function buildOpenApi(): object {
           ok: ok('200', 'OK', ref('Job')), errors: ['404', '409', '422'] }),
       },
       '/v1/jobs/{jobId}/candidates': {
-        get: op({ summary: 'List a job\'s candidates.', tag: 'Candidates', params: [jobId, limit, page],
+        get: op({ summary: 'List a job\'s candidates, optionally only those matching externalId or phone.', tag: 'Candidates',
+          params: [jobId, limit, page,
+            { name: 'externalId', in: 'query', schema: str, description: 'Your own id for the candidate.' },
+            { name: 'phone', in: 'query', schema: str,
+              description: 'Matched on the last 10 digits. Needs a key whose creator may read contact details (403 otherwise).' }],
           ok: ok('200', 'OK', obj({ candidates: arrayOf('Candidate'), nextCursor: nullableStr })), errors: ['404'] }),
         post: op({
           summary: 'Add one candidate, or {"candidates": [...]} (1-100). Same externalId updates in place.',
@@ -181,6 +185,13 @@ export function buildOpenApi(): object {
       '/v1/webhook-endpoints/{id}': {
         delete: op({ summary: 'Delete an endpoint.', tag: 'Webhooks', params: [id], write: true,
           ok: ok('200', 'Deleted', obj({ deleted: { type: 'boolean' } })), errors: ['404', '409'] }),
+      },
+      '/v1/events': {
+        get: op({ summary: 'The latest call events, rebuilt in the shape webhooks deliver (sample data for no-code tools).',
+          tag: 'Webhooks',
+          params: [{ name: 'type', in: 'query', schema: { enum: ['call.completed', 'call.failed'] } },
+            { name: 'limit', in: 'query', schema: { type: 'integer', minimum: 1, maximum: 10, default: 3 } }],
+          ok: ok('200', 'OK', obj({ events: arrayOf('WebhookEvent') })), errors: ['422'] }),
       },
       '/v1/webhook-deliveries': {
         get: op({ summary: 'Delivery log.', tag: 'Webhooks',

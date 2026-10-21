@@ -84,7 +84,7 @@ export interface CandidatesService {
   /** Keyset-paginated list (created_at, id ascending). */
   listPage(
     actor: Actor,
-    options: { jobId: string; limit: number; cursor?: string },
+    options: { jobId: string; limit: number; cursor?: string; externalId?: string; phone?: string },
   ): Promise<{ candidates: readonly CandidateRow[]; nextCursor: string | null }>;
   update(
     actor: Actor,
@@ -362,6 +362,8 @@ export function createCandidatesService(database: Database): CandidatesService {
 
     async listPage(actor, options) {
       const after = options.cursor ? decodeCursor(options.cursor) : null;
+      // ponytail: matches the last 10 digits (Indian mobiles), so "+91 90000 00101" finds "9000000101".
+      const phoneDigits = options.phone ? options.phone.replace(/\D/g, '').slice(-10) || '-' : null;
       const rows = await withTenantContext(
         database.db,
         { organizationId: actor.organizationId, userId: actor.userId },
@@ -374,6 +376,8 @@ export function createCandidatesService(database: Database): CandidatesService {
             where organization_id = ${actor.organizationId}
               and job_id = ${options.jobId}
               ${after ? sql`and (created_at, id) > (${after.createdAt}::timestamptz, ${after.id}::uuid)` : sql``}
+              ${options.externalId ? sql`and external_id = ${options.externalId}` : sql``}
+              ${phoneDigits ? sql`and right(regexp_replace(phone, '\\D', '', 'g'), 10) = ${phoneDigits}` : sql``}
             order by created_at, id
             limit ${options.limit + 1}
           `);

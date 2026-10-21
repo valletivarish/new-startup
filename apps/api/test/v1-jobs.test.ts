@@ -168,6 +168,21 @@ describe('/v1 jobs and candidates', () => {
     expect(JSON.parse(one.body).externalId).toBe('ats-1');
   });
 
+  it('finds a candidate by externalId or by phone (last 10 digits)', async () => {
+    const path = `/v1/jobs/${jobId}/candidates`;
+    const made = await v1(liveKey, 'POST', path, {
+      fullName: 'Find Me', phone: '9000000777', externalId: 'ats-find', consent: true,
+    });
+    expect(made.statusCode, made.body).toBe(201);
+    const id = JSON.parse(made.body).id;
+    const byExt = JSON.parse((await v1(liveKey, 'GET', `${path}?externalId=ats-find`)).body);
+    expect(byExt.candidates.map((c: { id: string }) => c.id)).toEqual([id]);
+    const byPhone = JSON.parse((await v1(liveKey, 'GET', `${path}?phone=${encodeURIComponent('+91 90000 00777')}`)).body);
+    expect(byPhone.candidates.map((c: { id: string }) => c.id)).toEqual([id]);
+    expect(JSON.parse((await v1(liveKey, 'GET', `${path}?externalId=nobody`)).body).candidates).toEqual([]);
+    expect(JSON.parse((await v1(liveKey, 'GET', `${path}?phone=12`)).body).candidates).toEqual([]);
+  });
+
   it('creates a batch of 3 and pages the list', async () => {
     const path = `/v1/jobs/${jobId}/candidates`;
     const res = await v1(liveKey, 'POST', path, {
@@ -306,6 +321,8 @@ describe('/v1 jobs and candidates', () => {
     }
     const one = JSON.parse((await v1(key, 'GET', `${path}/${list.candidates[0].id}`)).body);
     expect([one.phone, one.email, one.countryCode]).toEqual([null, null, null]);
+    // Nor can it look a number up.
+    expect((await v1(key, 'GET', `${path}?phone=9000000600`)).statusCode).toBe(403);
   });
 
   it("another company's key cannot see the job", async () => {

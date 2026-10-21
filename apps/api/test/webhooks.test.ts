@@ -412,6 +412,39 @@ describe('call events and signed webhooks', () => {
     });
   });
 
+  it('GET /v1/events rebuilds the latest call events in webhook shape, filtered by type', async () => {
+    const done = await endedCall(orgA);
+    const failed = await endedCall(orgA, { status: 'failed', failureReason: 'no_answer', spoke: false });
+    const all = JSON.parse((await v1(orgA, 'GET', '/v1/events?limit=10')).body).events as {
+      id: string; type: string; data: { callId: string };
+    }[];
+    expect(all.map((e) => e.data.callId)).toEqual(expect.arrayContaining([done.callId, failed.callId]));
+    const completed = JSON.parse((await v1(orgA, 'GET', '/v1/events?type=call.completed')).body).events;
+    expect(completed[0]).toMatchObject({
+      id: `evt_recent_${done.callId}`,
+      type: 'call.completed',
+      data: { callId: done.callId, candidateId: done.candidateId, jobId: orgA.jobId, isTest: false,
+        externalId: expect.stringMatching(/^ats-/), result: { status: 'ended' } },
+    });
+    const onlyFailed = JSON.parse((await v1(orgA, 'GET', '/v1/events?type=call.failed&limit=10')).body).events;
+    expect(onlyFailed.every((e: { type: string }) => e.type === 'call.failed')).toBe(true);
+    expect(onlyFailed.map((e: { data: { callId: string } }) => e.data.callId)).toContain(failed.callId);
+    const raw = (await v1(orgA, 'GET', '/v1/events?limit=10')).body;
+    expect(raw).not.toMatch(/fitPercent|score|recommend/i);
+    // Another company sees none of them.
+    expect(JSON.parse((await v1(orgB, 'GET', '/v1/events?limit=10')).body).events
+      .map((e: { data: { callId: string } }) => e.data.callId)).not.toContain(done.callId);
+    // Events carry transcripts: a key without the results scope is refused.
+    const minted = await api.request({
+      method: 'POST', url: '/organization/api-keys', cookie: orgA.owner.cookie,
+      payload: { name: 'Calls only', mode: 'live', scopes: ['calls', 'webhooks'] },
+    });
+    const res = await api.request({
+      method: 'GET', url: '/v1/events', headers: { authorization: `Bearer ${JSON.parse(minted.body).key}` },
+    });
+    expect(res.statusCode).toBe(403);
+  });
+
   it('subscribing an endpoint needs the results scope (events carry transcripts)', async () => {
     const minted = await api.request({
       method: 'POST',

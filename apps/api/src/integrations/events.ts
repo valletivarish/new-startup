@@ -89,6 +89,74 @@ export async function emitTicketEvent(
   }
 }
 
+type CallEventData = {
+  jobId: string;
+  candidateId: string;
+  externalId: string | null;
+  isTest: boolean;
+  result: ReturnType<typeof toV1Result>;
+};
+
+/**
+ * The event a call's voice session produces, or null when it is none (not a
+ * job screen, or not ended). `dataFor(callId)` builds the payload data for the
+ * client's call id (the recording link carries it).
+ */
+async function buildCallEvent(
+  database: Database,
+  a: { organizationId: string; userId: string },
+  voiceSessionId: string,
+  apiUrl: string | undefined,
+): Promise<{ outcome: ReturnType<typeof callOutcome>; dataFor: (callId: string) => CallEventData } | null> {
+  const sessions = await withTenantContext(database.db, a, (tx) =>
+    tx.execute<{
+      status: string;
+      failure_reason: string | null;
+      duration_seconds: number | null;
+      transcript: unknown;
+      job_id: string | null;
+      candidate_id: string | null;
+      is_test: boolean;
+      external_id: string | null;
+    }>(sql`
+      select vs.status, vs.failure_reason, vs.duration_seconds, vs.transcript,
+             vs.job_id, vs.candidate_id, vs.is_test, c.external_id
+      from voice_sessions vs left join candidates c on c.id = vs.candidate_id
+      where vs.id = ${voiceSessionId} and vs.organization_id = ${a.organizationId}
+    `),
+  );
+  const vs = sessions[0];
+  // Only screens of a candidate for a job are events; browser test calls are not.
+  if (!vs?.job_id || !vs.candidate_id || !['ended', 'failed'].includes(vs.status)) return null;
+  const jobId = vs.job_id;
+  const candidateId = vs.candidate_id;
+
+  const jobs = createJobsService(database);
+  const [job, packet] = await Promise.all([
+    jobs.get(a, jobId),
+    jobs.getCandidateResults(a, jobId, candidateId),
+  ]);
+  const session = packet.sessions.find((s) => s.voiceSessionId === voiceSessionId);
+  if (!session) return null;
+
+  return {
+    outcome: callOutcome(vs),
+    dataFor: (callId) => ({
+      jobId,
+      candidateId,
+      externalId: vs.external_id,
+      isTest: vs.is_test,
+      result: toV1Result(session, true, true, {
+        questions: job.screeningQuestions,
+        ...(apiUrl ? { recordingUrl: recordingLink(apiUrl, callId) } : {}),
+      }),
+    }),
+  };
+}
+
+const eventType = (outcome: string): 'call.completed' | 'call.failed' =>
+  outcome === 'completed' ? 'call.completed' : 'call.failed';
+
 /** Never throws: a webhook problem must not break the call flow that triggered it. */
 export async function emitCallEvent(
   database: Database,
@@ -100,44 +168,11 @@ export async function emitCallEvent(
 ): Promise<void> {
   try {
     const a = { organizationId, userId: SYSTEM_USER };
-    const tenant = <T>(fn: Parameters<typeof withTenantContext<T>>[2]) =>
-      withTenantContext(database.db, a, fn);
+    const built = await buildCallEvent(database, a, voiceSessionId, apiUrl);
+    if (!built) return;
+    const { outcome } = built;
 
-    const sessions = await tenant((tx) =>
-      tx.execute<{
-        status: string;
-        failure_reason: string | null;
-        duration_seconds: number | null;
-        transcript: unknown;
-        job_id: string | null;
-        candidate_id: string | null;
-        is_test: boolean;
-        external_id: string | null;
-      }>(sql`
-        select vs.status, vs.failure_reason, vs.duration_seconds, vs.transcript,
-               vs.job_id, vs.candidate_id, vs.is_test, c.external_id
-        from voice_sessions vs left join candidates c on c.id = vs.candidate_id
-        where vs.id = ${voiceSessionId} and vs.organization_id = ${organizationId}
-      `),
-    );
-    const vs = sessions[0];
-    // Only screens of a candidate for a job are events; browser test calls are not.
-    if (!vs?.job_id || !vs.candidate_id || !['ended', 'failed'].includes(vs.status)) return;
-    const jobId = vs.job_id;
-    const candidateId = vs.candidate_id;
-
-    const jobs = createJobsService(database);
-    const [job, packet] = await Promise.all([
-      jobs.get(a, jobId),
-      jobs.getCandidateResults(a, jobId, candidateId),
-    ]);
-    const session = packet.sessions.find((s) => s.voiceSessionId === voiceSessionId);
-    if (!session) return;
-
-    const outcome = callOutcome(vs);
-    const type: WebhookEvent = outcome === 'completed' ? 'call.completed' : 'call.failed';
-
-    const deliveryIds = await tenant(async (tx) => {
+    const deliveryIds = await withTenantContext(database.db, a, async (tx) => {
       // Serialise concurrent call-end paths for this call before the dedupe check.
       await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${'call-event:' + voiceSessionId}))`);
       const req = await tx.execute<{ id: string }>(sql`
@@ -148,17 +183,7 @@ export async function emitCallEvent(
       `);
       // /v1 clients know the call by its call request id; dashboard calls have none.
       const callId = req[0]?.id ?? voiceSessionId;
-      return recordOnce(tx, organizationId, type, {
-        callId,
-        jobId,
-        candidateId,
-        externalId: vs.external_id,
-        isTest: vs.is_test,
-        result: toV1Result(session, true, true, {
-          questions: job.screeningQuestions,
-          ...(apiUrl ? { recordingUrl: recordingLink(apiUrl, callId) } : {}),
-        }),
-      });
+      return recordOnce(tx, organizationId, eventType(outcome), { callId, ...built.dataFor(callId) });
     });
 
     await enqueueAll(queue, organizationId, deliveryIds, logger);
@@ -168,6 +193,49 @@ export async function emitCallEvent(
       'webhooks.emit_failed',
     );
   }
+}
+
+/**
+ * The latest call events for GET /v1/events, rebuilt from the most recent
+ * ended screens in the shape webhooks deliver (connectors show them as sample
+ * data). Ids are `evt_recent_<callId>`, not ids of real deliveries.
+ */
+export async function recentCallEvents(
+  database: Database,
+  a: { organizationId: string; userId: string; isTest: boolean },
+  type: 'call.completed' | 'call.failed' | undefined,
+  limit: number,
+  apiUrl?: string,
+): Promise<{ id: string; type: string; createdAt: string; data: { callId: string } & CallEventData }[]> {
+  // ponytail: looks at the 25 latest ended screens only; a stored event log if clients need history.
+  const rows = await withTenantContext(database.db, a, (tx) =>
+    tx.execute<{ id: string; ended_at: string; call_id: string | null }>(sql`
+      select vs.id, coalesce(vs.ended_at, vs.created_at)::text as ended_at,
+             (select cr.id from call_requests cr
+               where cr.voice_session_id = vs.id and cr.organization_id = vs.organization_id
+               limit 1) as call_id
+      from voice_sessions vs
+      where vs.organization_id = ${a.organizationId} and vs.is_test = ${a.isTest}
+        and vs.job_id is not null and vs.candidate_id is not null
+        and vs.status in ('ended', 'failed')
+      order by coalesce(vs.ended_at, vs.created_at) desc, vs.id desc
+      limit 25
+    `),
+  );
+  const out = [];
+  for (const r of rows) {
+    if (out.length >= limit) break;
+    const built = await buildCallEvent(database, a, r.id, apiUrl);
+    if (!built || (type && eventType(built.outcome) !== type)) continue;
+    const callId = r.call_id ?? r.id;
+    out.push({
+      id: `evt_recent_${callId}`,
+      type: eventType(built.outcome),
+      createdAt: new Date(r.ended_at).toISOString(),
+      data: { callId, ...built.dataFor(callId) },
+    });
+  }
+  return out;
 }
 
 /**

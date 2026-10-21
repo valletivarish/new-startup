@@ -260,6 +260,13 @@
       "when": 1791600005000,
       "tag": "0036_support_tickets",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1791600006000,
+      "tag": "0037_zoho_recruit",
+      "breakpoints": true
     }
   ]
 }

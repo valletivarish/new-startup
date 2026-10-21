@@ -118,3 +118,13 @@ export {
 /** Support tickets (migration 0036). Nullable org: see support.ts. */
 export const SUPPORT_TABLES = ['support_tickets', 'support_messages'] as const;
 export { supportTickets, supportMessages } from './support.js';
+
+/** Zoho Recruit connector (migration 0037). Plain tenant RLS. */
+export const ZOHO_TABLES = [
+  'zoho_connections',
+  'zoho_oauth_states',
+  'zoho_job_links',
+  'zoho_applicants',
+  'zoho_notes',
+] as const;
+export { zohoConnections, zohoOauthStates, zohoJobLinks, zohoApplicants, zohoNotes } from './zoho.js';

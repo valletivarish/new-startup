@@ -97,7 +97,7 @@ export const callRequests = pgTable(
     updatedAt: tstz('updated_at').notNull().defaultNow(),
   },
   (t) => [
-    check('call_requests_source_check', sql`${t.source} in ('api', 'dashboard', 'link')`),
+    check('call_requests_source_check', sql`${t.source} in ('api', 'dashboard', 'link', 'zoho')`),
     check(
       'call_requests_status_check',
       sql`${t.status} in ('queued', 'scheduled', 'placing', 'placed', 'skipped', 'failed')`,

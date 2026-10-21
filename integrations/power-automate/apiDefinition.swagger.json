@@ -1,0 +1,1562 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "HRVoice",
+    "description": "Phone-screen candidates and get their answers when the call ends. Results never include scores or hire/reject advice.",
+    "version": "1.0.0"
+  },
+  "host": "nexstopp.com",
+  "basePath": "/backend",
+  "schemes": [
+    "https"
+  ],
+  "consumes": [
+    "application/json"
+  ],
+  "produces": [
+    "application/json"
+  ],
+  "paths": {
+    "/v1/jobs/{jobId}/candidates": {
+      "post": {
+        "operationId": "AddCandidate",
+        "summary": "Add candidate",
+        "description": "Adds a candidate to a job. The candidate must have agreed to a screening call (consent = true). The same external ID updates the existing candidate.",
+        "x-ms-visibility": "important",
+        "parameters": [
+          {
+            "name": "jobId",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "format": "uuid",
+            "x-ms-summary": "Job",
+            "x-ms-dynamic-values": {
+              "operationId": "ListJobs",
+              "value-collection": "jobs",
+              "value-path": "id",
+              "value-title": "title"
+            }
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/CandidateCreate"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Existing candidate updated by externalId",
+            "schema": {
+              "$ref": "#/definitions/CandidateCreated"
+            }
+          },
+          "201": {
+            "description": "Created (single candidate, or a batch)",
+            "schema": {
+              "$ref": "#/definitions/CandidateCreated"
+            }
+          },
+          "401": {
+            "description": "unauthorized: missing or invalid API key.",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          },
+          "403": {
+            "description": "forbidden: the key lacks the scope for this route.",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          },
+          "404": {
+            "description": "not_found (for a candidate link: unknown, used or expired).",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          },
+          "409": {
+            "description": "conflict, agent_required, idempotency_in_progress, delivery_in_progress or link_phone_conflict.",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          },
+          "422": {
+            "description": "validation_failed, or consent_required when a candidate is created without \"consent\": true.",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          },
+          "500": {
+            "description": "internal.",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          }
+        }
+      },
+      "get": {
+        "operationId": "FindCandidates",
+        "summary": "Find candidates",
+        "description": "Lists a job's candidates, or only those matching your external ID or a phone number.",
+        "x-ms-visibility": "advanced",
+        "parameters": [
+          {
+            "name": "jobId",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "format": "uuid",
+            "x-ms-summary": "Job",
+            "x-ms-dynamic-values": {
+              "operationId": "ListJobs",
+              "value-collection": "jobs",
+              "value-path": "id",
+              "value-title": "title"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200,
+            "default": 50,
+            "x-ms-summary": "limit"
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "x-ms-summary": "cursor"
+          },
+          {
+            "name": "externalId",
+            "in": "query",
+            "required": false,
+            "description": "Your own id for the candidate.",
+            "type": "string",
+            "x-ms-summary": "externalId"
+          },
+          {
+            "name": "phone",
+            "in": "query",
+            "required": false,
+            "description": "Matched on the last 10 digits. Needs a key whose creator may read contact details (403 otherwise).",
+            "type": "string",
+            "x-ms-summary": "phone"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "candidates": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/definitions/Candidate"
+                  }
+                },
+                "nextCursor": {
+                  "type": "string",
+                  "x-nullable": true
+                }
+              },
+              "required": [
+                "candidates",
+                "nextCursor"
+              ]
+            }
+          },
+          "401": {
+            "description": "unauthorized: missing or invalid API key.",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          },
+          "403": {
+            "description": "forbidden: the key lacks the scope for this route.",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          },
+          "404": {
+            "description": "not_found (for a candidate link: unknown, used or expired).",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          },
+          "500": {
+            "description": "internal.",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          }
+        }
+      }
+    },
+    "/v1/jobs/{jobId}/candidates/{id}/calls": {
+      "post": {
+        "operationId": "StartCall",
+        "summary": "Start screening call",
+        "description": "Queues a screening call. Calls are placed between 9:00 and 20:00 India time; outside those hours the call waits until 9:00.",
+        "x-ms-visibility": "important",
+        "parameters": [
+          {
+            "name": "jobId",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "format": "uuid",
+            "x-ms-summary": "Job",
+            "x-ms-dynamic-values": {
+              "operationId": "ListJobs",
+              "value-collection": "jobs",
+              "value-path": "id",
+              "value-title": "title"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "format": "uuid",
+            "x-ms-summary": "Candidate ID"
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Accepted; poll GET /v1/calls/{id} or use webhooks",
+            "schema": {
+              "$ref": "#/definitions/Call"
+            }
+          },
+          "401": {
+            "description": "unauthorized: missing or invalid API key.",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          },
+          "403": {
+            "description": "forbidden: the key lacks the scope for this route.",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          },
+          "404": {
+            "description": "not_found (for a candidate link: unknown, used or expired).",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          },
+          "409": {
+            "description": "conflict, agent_required, idempotency_in_progress, delivery_in_progress or link_phone_conflict.",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          },
+          "422": {
+            "description": "validation_failed, or consent_required when a candidate is created without \"consent\": true.",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          },
+          "429": {
+            "description": "rate_limited, or call_limit_reached / test_call_limit_reached (details.resetsAt is an ISO time).",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          },
+          "500": {
+            "description": "internal.",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          },
+          "503": {
+            "description": "service_unavailable: the call could not be queued. Retry shortly.",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          }
+        }
+      }
+    },
+    "/v1/tickets": {
+      "post": {
+        "operationId": "RaiseTicket",
+        "summary": "Raise support ticket",
+        "description": "Asks HRVoice support for help.",
+        "x-ms-visibility": "important",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/TicketCreate"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Created",
+            "schema": {
+              "$ref": "#/definitions/Ticket"
+            }
+          },
+          "401": {
+            "description": "unauthorized: missing or invalid API key.",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          },
+          "403": {
+            "description": "forbidden: the key lacks the scope for this route.",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          },
+          "404": {
+            "description": "not_found (for a candidate link: unknown, used or expired).",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          },
+          "422": {
+            "description": "validation_failed, or consent_required when a candidate is created without \"consent\": true.",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          },
+          "500": {
+            "description": "internal.",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          }
+        }
+      }
+    },
+    "/v1/jobs": {
+      "post": {
+        "operationId": "CreateJob",
+        "summary": "Create job",
+        "description": "Creates a job with the questions every candidate must be asked.",
+        "x-ms-visibility": "important",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/JobCreate"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Created",
+            "schema": {
+              "$ref": "#/definitions/Job"
+            }
+          },
+          "401": {
+            "description": "unauthorized: missing or invalid API key.",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          },
+          "403": {
+            "description": "forbidden: the key lacks the scope for this route.",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          },
+          "409": {
+            "description": "conflict, agent_required, idempotency_in_progress, delivery_in_progress or link_phone_conflict.",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          },
+          "422": {
+            "description": "validation_failed, or consent_required when a candidate is created without \"consent\": true.",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          },
+          "500": {
+            "description": "internal.",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          }
+        }
+      },
+      "get": {
+        "operationId": "ListJobs",
+        "summary": "List jobs",
+        "description": "Lists the company's jobs.",
+        "x-ms-visibility": "internal",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "jobs": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/definitions/Job"
+                  }
+                }
+              },
+              "required": [
+                "jobs"
+              ]
+            }
+          },
+          "401": {
+            "description": "unauthorized: missing or invalid API key.",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          },
+          "403": {
+            "description": "forbidden: the key lacks the scope for this route.",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          },
+          "500": {
+            "description": "internal.",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          }
+        }
+      }
+    },
+    "/v1/calls/{id}": {
+      "get": {
+        "operationId": "GetCall",
+        "summary": "Get call",
+        "description": "A call's status, and its result once it has ended.",
+        "x-ms-visibility": "advanced",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "format": "uuid",
+            "x-ms-summary": "Call ID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "$ref": "#/definitions/Call"
+            }
+          },
+          "401": {
+            "description": "unauthorized: missing or invalid API key.",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          },
+          "403": {
+            "description": "forbidden: the key lacks the scope for this route.",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          },
+          "404": {
+            "description": "not_found (for a candidate link: unknown, used or expired).",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          },
+          "500": {
+            "description": "internal.",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          }
+        }
+      }
+    },
+    "/v1/jobs/{jobId}/candidates/{id}/results": {
+      "get": {
+        "operationId": "GetResults",
+        "summary": "Get results",
+        "description": "The latest screening answers and summary for a candidate.",
+        "x-ms-visibility": "advanced",
+        "parameters": [
+          {
+            "name": "jobId",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "format": "uuid",
+            "x-ms-summary": "Job",
+            "x-ms-dynamic-values": {
+              "operationId": "ListJobs",
+              "value-collection": "jobs",
+              "value-path": "id",
+              "value-title": "title"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "format": "uuid",
+            "x-ms-summary": "Candidate ID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "$ref": "#/definitions/Result"
+            }
+          },
+          "401": {
+            "description": "unauthorized: missing or invalid API key.",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          },
+          "403": {
+            "description": "forbidden: the key lacks the scope for this route.",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          },
+          "404": {
+            "description": "not_found (for a candidate link: unknown, used or expired).",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          },
+          "500": {
+            "description": "internal.",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          }
+        }
+      }
+    },
+    "/v1/webhook-endpoints": {
+      "post": {
+        "operationId": "WhenCallEnds",
+        "summary": "When a screening call ends",
+        "description": "Triggers when a screening call completes (answers, summary, transcript) or fails (no answer, busy, voicemail, too short, skipped).",
+        "x-ms-visibility": "important",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "required": [
+                "url",
+                "events"
+              ],
+              "properties": {
+                "url": {
+                  "type": "string",
+                  "x-ms-notification-url": true,
+                  "x-ms-visibility": "internal",
+                  "title": "Callback URL"
+                },
+                "events": {
+                  "type": "array",
+                  "title": "Events",
+                  "description": "Which call outcomes start the flow.",
+                  "items": {
+                    "type": "string",
+                    "enum": [
+                      "call.completed",
+                      "call.failed"
+                    ]
+                  },
+                  "default": [
+                    "call.completed",
+                    "call.failed"
+                  ]
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Created. Location is the endpoint's URL (DELETE it to unsubscribe).",
+            "schema": {
+              "$ref": "#/definitions/WebhookEndpointCreated"
+            },
+            "headers": {
+              "Location": {
+                "type": "string"
+              }
+            }
+          },
+          "401": {
+            "description": "unauthorized: missing or invalid API key.",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          },
+          "403": {
+            "description": "forbidden: the key lacks the scope for this route.",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          },
+          "409": {
+            "description": "conflict, agent_required, idempotency_in_progress, delivery_in_progress or link_phone_conflict.",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          },
+          "422": {
+            "description": "validation_failed, or consent_required when a candidate is created without \"consent\": true.",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          },
+          "500": {
+            "description": "internal.",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          }
+        },
+        "x-ms-trigger": "single",
+        "x-ms-notification-content": {
+          "description": "The call event",
+          "schema": {
+            "$ref": "#/definitions/WebhookEvent"
+          }
+        }
+      }
+    },
+    "/v1/webhook-endpoints/{id}": {
+      "delete": {
+        "operationId": "DeleteWebhook",
+        "summary": "Delete webhook",
+        "description": "Removes the trigger's subscription.",
+        "x-ms-visibility": "internal",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "format": "uuid",
+            "x-ms-summary": "ID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deleted",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "deleted": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "deleted"
+              ]
+            }
+          },
+          "401": {
+            "description": "unauthorized: missing or invalid API key.",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          },
+          "403": {
+            "description": "forbidden: the key lacks the scope for this route.",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          },
+          "404": {
+            "description": "not_found (for a candidate link: unknown, used or expired).",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          },
+          "409": {
+            "description": "conflict, agent_required, idempotency_in_progress, delivery_in_progress or link_phone_conflict.",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          },
+          "500": {
+            "description": "internal.",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          }
+        }
+      }
+    }
+  },
+  "definitions": {
+    "Call": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "status": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "x-nullable": true
+        },
+        "notBefore": {
+          "type": "string",
+          "x-nullable": true
+        },
+        "candidateId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "jobId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "result": {
+          "type": "object",
+          "properties": {
+            "status": {
+              "type": "string"
+            },
+            "startedAt": {
+              "type": "string",
+              "x-nullable": true
+            },
+            "endedAt": {
+              "type": "string",
+              "x-nullable": true
+            },
+            "durationSeconds": {
+              "type": "number",
+              "x-nullable": true
+            },
+            "answers": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "questionId": {
+                    "type": "string"
+                  },
+                  "question": {
+                    "type": "string"
+                  },
+                  "answer": {}
+                },
+                "required": [
+                  "questionId",
+                  "question",
+                  "answer"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "summary": {
+              "type": "string",
+              "x-nullable": true
+            },
+            "transcript": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "role": {
+                    "type": "string"
+                  },
+                  "message": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "recordingUrl": {
+              "type": "string"
+            },
+            "failureReason": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "status",
+            "startedAt",
+            "endedAt",
+            "durationSeconds",
+            "answers",
+            "summary"
+          ],
+          "additionalProperties": false,
+          "x-nullable": true
+        }
+      },
+      "required": [
+        "id",
+        "status",
+        "reason",
+        "notBefore",
+        "candidateId",
+        "jobId",
+        "result"
+      ],
+      "additionalProperties": false
+    },
+    "Candidate": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "jobId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "externalId": {
+          "type": "string",
+          "x-nullable": true
+        },
+        "fullName": {
+          "type": "string"
+        },
+        "phone": {
+          "type": "string",
+          "x-nullable": true
+        },
+        "countryCode": {
+          "type": "string",
+          "x-nullable": true
+        },
+        "email": {
+          "type": "string",
+          "x-nullable": true
+        },
+        "status": {
+          "type": "string"
+        },
+        "createdAt": {
+          "type": "string"
+        },
+        "updatedAt": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "jobId",
+        "externalId",
+        "fullName",
+        "phone",
+        "countryCode",
+        "email",
+        "status",
+        "createdAt",
+        "updatedAt"
+      ],
+      "additionalProperties": false
+    },
+    "CandidateCreate": {
+      "type": "object",
+      "properties": {
+        "fullName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "phone": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 30
+        },
+        "countryCode": {
+          "default": "+91",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8
+        },
+        "email": {
+          "type": "string",
+          "maxLength": 320,
+          "format": "email"
+        },
+        "resumeText": {
+          "type": "string",
+          "maxLength": 100000
+        },
+        "externalId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "consent": {
+          "type": "boolean",
+          "enum": [
+            true
+          ]
+        }
+      },
+      "required": [
+        "fullName",
+        "consent"
+      ]
+    },
+    "CandidateCreated": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "jobId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "externalId": {
+          "type": "string",
+          "x-nullable": true
+        },
+        "fullName": {
+          "type": "string"
+        },
+        "phone": {
+          "type": "string",
+          "x-nullable": true
+        },
+        "countryCode": {
+          "type": "string",
+          "x-nullable": true
+        },
+        "email": {
+          "type": "string",
+          "x-nullable": true
+        },
+        "status": {
+          "type": "string"
+        },
+        "createdAt": {
+          "type": "string"
+        },
+        "updatedAt": {
+          "type": "string"
+        },
+        "created": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "jobId",
+        "externalId",
+        "fullName",
+        "phone",
+        "countryCode",
+        "email",
+        "status",
+        "createdAt",
+        "updatedAt",
+        "created"
+      ],
+      "additionalProperties": false
+    },
+    "Error": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "enum": [
+            "unauthorized",
+            "forbidden",
+            "not_found",
+            "conflict",
+            "link_phone_conflict",
+            "gone",
+            "validation_failed",
+            "consent_required",
+            "agent_required",
+            "idempotency_in_progress",
+            "delivery_in_progress",
+            "rate_limited",
+            "call_limit_reached",
+            "test_call_limit_reached",
+            "service_unavailable",
+            "closed_in_ats",
+            "internal"
+          ]
+        },
+        "message": {
+          "type": "string"
+        },
+        "request_id": {
+          "type": "string"
+        },
+        "errors": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "field": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "field",
+              "message"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "details": {
+          "type": "object",
+          "additionalProperties": {}
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "request_id"
+      ],
+      "additionalProperties": false
+    },
+    "Job": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "title": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "language": {
+          "type": "string",
+          "enum": [
+            "en",
+            "hi",
+            "bn",
+            "mr",
+            "te",
+            "ta",
+            "gu",
+            "ur",
+            "kn",
+            "ml",
+            "pa"
+          ]
+        },
+        "questions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "text": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "text"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "createdAt": {
+          "type": "string"
+        },
+        "updatedAt": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "description",
+        "status",
+        "language",
+        "questions",
+        "createdAt",
+        "updatedAt"
+      ],
+      "additionalProperties": false
+    },
+    "JobCreate": {
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 20000
+        },
+        "mustAskQuestions": {
+          "maxItems": 20,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          }
+        },
+        "language": {
+          "type": "string",
+          "enum": [
+            "en",
+            "hi",
+            "bn",
+            "mr",
+            "te",
+            "ta",
+            "gu",
+            "ur",
+            "kn",
+            "ml",
+            "pa"
+          ]
+        }
+      },
+      "required": [
+        "title"
+      ]
+    },
+    "Result": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string"
+        },
+        "startedAt": {
+          "type": "string",
+          "x-nullable": true
+        },
+        "endedAt": {
+          "type": "string",
+          "x-nullable": true
+        },
+        "durationSeconds": {
+          "type": "number",
+          "x-nullable": true
+        },
+        "answers": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "questionId": {
+                "type": "string"
+              },
+              "question": {
+                "type": "string"
+              },
+              "answer": {}
+            },
+            "required": [
+              "questionId",
+              "question",
+              "answer"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "summary": {
+          "type": "string",
+          "x-nullable": true
+        },
+        "transcript": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "role": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "recordingUrl": {
+          "type": "string"
+        },
+        "failureReason": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "startedAt",
+        "endedAt",
+        "durationSeconds",
+        "answers",
+        "summary"
+      ],
+      "additionalProperties": false
+    },
+    "Ticket": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "ref": {
+          "type": "string",
+          "description": "Short reference; quote it as [#ref] in an email subject to reply by email."
+        },
+        "subject": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "open",
+            "waiting_on_us",
+            "waiting_on_customer",
+            "solved"
+          ]
+        },
+        "channel": {
+          "type": "string",
+          "enum": [
+            "dashboard",
+            "chat",
+            "email",
+            "api",
+            "mcp"
+          ]
+        },
+        "jobId": {
+          "type": "string",
+          "format": "uuid",
+          "x-nullable": true
+        },
+        "candidateId": {
+          "type": "string",
+          "format": "uuid",
+          "x-nullable": true
+        },
+        "callId": {
+          "type": "string",
+          "format": "uuid",
+          "x-nullable": true
+        },
+        "createdAt": {
+          "type": "string"
+        },
+        "updatedAt": {
+          "type": "string"
+        },
+        "lastMessageAt": {
+          "type": "string"
+        },
+        "messages": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "authorKind": {
+                "type": "string",
+                "enum": [
+                  "customer",
+                  "staff",
+                  "system"
+                ]
+              },
+              "body": {
+                "type": "string"
+              },
+              "createdAt": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "authorKind",
+              "body",
+              "createdAt"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "id",
+        "ref",
+        "subject",
+        "status",
+        "channel",
+        "jobId",
+        "candidateId",
+        "callId",
+        "createdAt",
+        "updatedAt",
+        "lastMessageAt"
+      ],
+      "additionalProperties": false
+    },
+    "TicketCreate": {
+      "type": "object",
+      "properties": {
+        "subject": {
+          "description": "Defaults to the first line of body.",
+          "type": "string",
+          "maxLength": 200
+        },
+        "body": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 5000
+        },
+        "jobId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "candidateId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "callId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "channel": {
+          "default": "api",
+          "type": "string",
+          "enum": [
+            "api",
+            "mcp"
+          ]
+        }
+      },
+      "required": [
+        "body"
+      ]
+    },
+    "WebhookEndpointCreated": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "secret": {
+          "type": "string",
+          "description": "whsec_ + 32 base62 characters. Returned only here."
+        }
+      },
+      "required": [
+        "id",
+        "secret"
+      ],
+      "additionalProperties": false
+    },
+    "WebhookEvent": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "call.completed",
+            "call.failed"
+          ]
+        },
+        "createdAt": {
+          "type": "string"
+        },
+        "data": {
+          "type": "object",
+          "properties": {
+            "callId": {
+              "type": "string"
+            },
+            "jobId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "candidateId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "externalId": {
+              "type": "string",
+              "x-nullable": true
+            },
+            "isTest": {
+              "type": "boolean"
+            },
+            "result": {
+              "type": "object",
+              "properties": {
+                "status": {
+                  "type": "string"
+                },
+                "startedAt": {
+                  "type": "string",
+                  "x-nullable": true
+                },
+                "endedAt": {
+                  "type": "string",
+                  "x-nullable": true
+                },
+                "durationSeconds": {
+                  "type": "number",
+                  "x-nullable": true
+                },
+                "answers": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "questionId": {
+                        "type": "string"
+                      },
+                      "question": {
+                        "type": "string"
+                      },
+                      "answer": {}
+                    },
+                    "required": [
+                      "questionId",
+                      "question",
+                      "answer"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "summary": {
+                  "type": "string",
+                  "x-nullable": true
+                },
+                "transcript": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "role": {
+                        "type": "string"
+                      },
+                      "message": {
+                        "type": "string"
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                },
+                "recordingUrl": {
+                  "type": "string"
+                },
+                "failureReason": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "status",
+                "startedAt",
+                "endedAt",
+                "durationSeconds",
+                "answers",
+                "summary"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "callId",
+            "jobId",
+            "candidateId",
+            "externalId",
+            "isTest",
+            "result"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "createdAt",
+        "data"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "securityDefinitions": {
+    "api_key": {
+      "type": "apiKey",
+      "in": "header",
+      "name": "Authorization"
+    }
+  },
+  "security": [
+    {
+      "api_key": []
+    }
+  ],
+  "x-ms-connector-metadata": [
+    {
+      "propertyName": "Website",
+      "propertyValue": "https://nexstopp.com"
+    },
+    {
+      "propertyName": "Categories",
+      "propertyValue": "Human Resources;Productivity"
+    }
+  ]
+}

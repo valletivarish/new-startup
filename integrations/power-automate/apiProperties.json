@@ -1,0 +1,18 @@
+{
+  "properties": {
+    "connectionParameters": {
+      "api_key": {
+        "type": "securestring",
+        "uiDefinition": {
+          "displayName": "API key",
+          "description": "Type Bearer, a space, then your HRVoice API key (Bearer hrv_live_...).",
+          "tooltip": "Create a key in HRVoice under Settings → Developers with the jobs, candidates, calls, results, webhooks and support scopes.",
+          "constraints": { "tabIndex": 2, "clearText": false, "required": "true" }
+        }
+      }
+    },
+    "iconBrandColor": "#1f2a44",
+    "capabilities": [],
+    "policyTemplateInstances": []
+  }
+}

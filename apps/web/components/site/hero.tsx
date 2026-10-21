@@ -37,13 +37,14 @@ function HeroPhoto() {
 }
 
 /**
- * The first viewport: tall grass under open sky, full bleed, and the product as the subject.
- * The tag, the two-line headline with its italic phrase, one line and two buttons sit centred
- * in the sky; under them the live call card rises out of the grass (on every screen size), the
- * way the reference's hand does. No people: a generated face reads as an advert, the call card
- * says what the product does. The photo settles and the words rise on load (CSS, so the first
- * paint is never blank), then the photo drifts on scroll (site motion). Its foot fades into the
- * black of the next section. A top scrim keeps the white text at 4.5:1 or more over the sky.
+ * The first viewport: tall grass under open sky, full bleed. Centred in the sky, the way the
+ * Levito sky hero sits: a small tag, the two-line headline with the page's first italic phrase,
+ * one line, Start a pilot and Hear a sample call, and a quiet line under them. The live call
+ * card is the glass object in the scene (Lodge's glass panel), rising out of the grass and
+ * across the fold into the black (Apogee). Phones leave it out: the playable sample call
+ * follows straight after. The photo settles and the words rise on load (CSS, so the first paint is never blank),
+ * then the photo drifts on scroll (site motion). Its foot fades into the black of the next
+ * section. A top scrim keeps the white text at 4.5:1 or more over the sky.
  */
 export function SiteHero() {
   return (
@@ -69,11 +70,11 @@ export function SiteHero() {
         data-hero-content
         className={cn(
           CONTAINER,
-          'flex min-h-[max(calc(100svh+4rem),46rem)] flex-col items-center pb-24 pt-28 text-center md:pb-28 md:pt-32',
+          'flex min-h-[max(100svh,40rem)] flex-col items-center pb-20 pt-32 text-center md:min-h-0 md:pb-24 md:pt-36',
         )}
       >
         <Tag tone="sky" live className="site-rise" style={rise(0.1)}>
-          HRVoice is live for hiring teams
+          For hiring teams in India · English
         </Tag>
         <h1
           id="hero-title"
@@ -86,17 +87,14 @@ export function SiteHero() {
           </span>
         </h1>
         <p
-          className="site-rise m-0 mt-6 max-w-[34rem] text-[1.0625rem] lg:max-w-[40rem] leading-relaxed text-white/90 [text-shadow:0_1px_12px_rgb(9_27_46/0.35)]"
+          className="site-rise m-0 mt-6 max-w-[34rem] text-[1.0625rem] leading-relaxed text-white/90 [text-shadow:0_1px_12px_rgb(9_27_46/0.35)] lg:max-w-[40rem]"
           style={rise(0.3)}
         >
           Add a job and your must-ask questions. HRVoice, an AI voice agent, phones each candidate and sends
           you the recording, transcript and answers.
         </p>
-        <div
-          className="site-rise mt-9 flex flex-wrap justify-center gap-3"
-          style={rise(0.4)}
-        >
-          <Link href={SIGNUP_HREF} className={siteButton('ink')}>
+        <div className="site-rise mt-9 flex flex-wrap justify-center gap-3" style={rise(0.4)}>
+          <Link href={SIGNUP_HREF} className={siteButton('paper')}>
             Start a pilot
           </Link>
           <a href="#sample-call-card" className={siteButton('frost')}>
@@ -104,13 +102,16 @@ export function SiteHero() {
           </a>
         </div>
         <p
-          className="site-rise m-0 mt-4 max-w-[30rem] text-[0.8125rem] lg:max-w-[44rem] leading-relaxed text-white [text-shadow:0_1px_10px_rgb(9_27_46/0.55)]"
+          className="site-rise m-0 mt-5 max-w-[30rem] text-[0.875rem] leading-relaxed text-white [text-shadow:0_1px_10px_rgb(9_27_46/0.55)]"
           style={rise(0.45)}
         >
-          Next: create your account, add one real job and try a test call in your browser. No calling number needed.
+          Test calls in your browser. No calling number needed to start.
         </p>
-        {/* The product as the subject: the sample call rising out of the grass under the buttons. */}
-        <div className="site-rise mt-16 flex h-[22rem] w-full max-w-[31rem] text-left md:mt-[4.5rem]" style={rise(0.6)}>
+        {/* The glass object in the scene: a call in progress, rising out of the grass under the buttons. */}
+        <div
+          className="site-rise mt-16 hidden h-[22rem] w-full max-w-[31rem] text-left md:flex"
+          style={rise(0.6)}
+        >
           <LiveCall className="w-full" />
         </div>
       </div>

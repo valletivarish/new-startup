@@ -6,8 +6,7 @@ import { motion, useMotionValue, useReducedMotion, useSpring, useTransform, useV
 import { Agent } from '../brand/agent';
 import type { AgentFace, AgentState } from '../brand/agent-draw';
 import { cn } from '../ui/cn';
-import { BRAND } from '../../lib/brand';
-import { SIGN_IN_HREF, SIGNUP_HREF } from './kit';
+import { SIGN_IN_HREF, SIGNUP_HREF, WORDMARK } from './kit';
 import { SiteMenu, type SiteMenuLink } from './menu';
 
 /**
@@ -17,9 +16,8 @@ import { SiteMenu, type SiteMenuLink } from './menu';
  * clear glass lens; the label it sits under brightens and grows a little. It slides to the
  * link you point at or focus, and you can drag it: it stretches with speed, wobbles a little
  * as it lands, and letting go over a link takes you there. Reduced motion: the lens jumps,
- * no stretch, no wobble, no growing label.
- *
- * The frosted header (nav.tsx) stays as the fallback: /?nav=frost.
+ * no stretch, no wobble, no growing label. On phones the bar keeps the wordmark, a compact
+ * Start a pilot and the menu button.
  */
 
 // What the header's agent acts out while the page scrolls: every state, and a few faces.
@@ -272,7 +270,7 @@ export function LiquidNav({ sections }: { sections: readonly SiteMenuLink[] }) {
           className="inline-flex min-h-11 min-w-0 items-center gap-2.5 rounded-full pr-2 text-[1rem] font-medium tracking-[-0.01em] text-[rgb(var(--ink))] no-underline transition-colors duration-300"
         >
           <NavAgent size={28} />
-          <span className="truncate">{BRAND.name}</span>
+          <span className="truncate">{WORDMARK}</span>
         </Link>
 
         <nav aria-label="Main" className="hidden lg:block">
@@ -330,14 +328,14 @@ export function LiquidNav({ sections }: { sections: readonly SiteMenuLink[] }) {
           <Link
             href={SIGNUP_HREF}
             data-ink
-            className="inline-flex h-10 items-center rounded-full bg-[rgb(var(--ink))] px-4 text-[0.875rem] font-medium text-[rgb(var(--paper))] no-underline transition-[background-color,color,scale] duration-300 hover:bg-[rgb(var(--ink)/0.86)] motion-safe:active:[scale:0.98] max-sm:hidden"
+            className="inline-flex h-11 items-center whitespace-nowrap rounded-[10px] bg-[rgb(var(--ink))] px-3.5 text-[0.875rem] font-medium text-[rgb(var(--paper))] no-underline transition-[background-color,color,scale] duration-300 hover:bg-[rgb(var(--ink)/0.86)] motion-safe:active:[scale:0.98] sm:h-10 sm:px-4 [@media(pointer:coarse)]:h-11"
           >
             Start a pilot
           </Link>
           <div data-ink className="lg:hidden">
             <SiteMenu
               links={sections}
-              className="rounded-full border-[rgb(var(--ink)/0.25)] bg-[rgb(var(--ink)/0.12)] text-[rgb(var(--ink))] hover:bg-[rgb(var(--ink)/0.2)]"
+              className="rounded-[10px] border-[rgb(var(--ink)/0.25)] bg-[rgb(var(--ink)/0.12)] text-[rgb(var(--ink))] hover:bg-[rgb(var(--ink)/0.2)]"
             />
           </div>
         </div>

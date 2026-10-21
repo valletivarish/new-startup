@@ -1,6 +1,7 @@
 import Image, { type StaticImageData } from 'next/image';
 import type { CSSProperties, ReactNode } from 'react';
 import { cn } from '../ui/cn';
+import type { SiteMenuLink } from './menu';
 
 /*
   Shared by the website sections (Synergos styling). Server-safe: no 'use client'.
@@ -10,11 +11,23 @@ import { cn } from '../ui/cn';
 export const SIGNUP_HREF = '/login?mode=register';
 export const SIGN_IN_HREF = '/login';
 
+/** The website's wordmark: the live module. The platform name stays off the site until it is chosen. */
+export const WORDMARK = 'HRVoice';
+
+/** The page's sections, in page order: the header's links, the menu sheet and the footer. */
+export const SECTIONS: readonly SiteMenuLink[] = [
+  { href: '#sample-call', label: 'Sample call' },
+  { href: '#product', label: 'Product' },
+  { href: '#how-it-works', label: 'How it works' },
+  { href: '#pricing', label: 'Pricing' },
+  { href: '#faq', label: 'FAQ' },
+];
+
 /** The website container: 1280px wide, 20px gutters on phones, 32px from md, 48px from lg. */
 export const CONTAINER = 'mx-auto w-full max-w-[80rem] px-5 md:px-8 lg:px-12';
 
 /** The vertical rhythm between dark sections. */
-export const SECTION = 'py-24 md:py-32';
+export const SECTION = 'py-16 md:py-32';
 
 export const SAMPLE_NOTE = 'Sample call. Names and answers are illustrative.';
 
@@ -82,7 +95,7 @@ export function Tag({
   );
 }
 
-/** The serif-italic phrase in a heading. One per heading. */
+/** The serif-italic phrase. Three on the whole page: the hero, the sample call and the closing band. */
 export function Italic({ children }: { children: ReactNode }) {
   return <span className="site-italic">{children}</span>;
 }

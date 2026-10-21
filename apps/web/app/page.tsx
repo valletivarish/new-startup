@@ -5,16 +5,14 @@ import { FaqSection } from '../components/site/faq';
 import { SiteFooter } from '../components/site/footer';
 import { SiteHero } from '../components/site/hero';
 import { HowItWorksSection } from '../components/site/how-it-works';
+import { SECTIONS, WORDMARK } from '../components/site/kit';
 import { SiteMotion } from '../components/site/motion';
-import { SECTIONS, SiteNav } from '../components/site/nav';
 import { LiquidNav } from '../components/site/nav-liquid';
 import { PricingSection } from '../components/site/pricing';
 import { ProductSection } from '../components/site/product';
 import { SampleCallSection } from '../components/site/sample-call';
-import { UseCasesSection } from '../components/site/use-cases';
-import { BRAND } from '../lib/brand';
 
-const TITLE = `Voice agents that make your business calls | ${BRAND.name}`;
+const TITLE = `${WORDMARK} | An AI voice agent that phone-screens your candidates`;
 // The hero's line under the headline.
 const DESCRIPTION =
   'Add a job and your must-ask questions. HRVoice, an AI voice agent, phones each candidate and sends you the recording, transcript and answers.';
@@ -26,19 +24,17 @@ export const metadata: Metadata = {
   description: DESCRIPTION,
   alternates: { canonical: '/' },
   // No images here: app/opengraph-image.tsx supplies the card, and Twitter reuses it.
-  openGraph: { type: 'website', url: '/', siteName: BRAND.name, title: TITLE, description: DESCRIPTION },
+  openGraph: { type: 'website', url: '/', siteName: WORDMARK, title: TITLE, description: DESCRIPTION },
   twitter: { card: 'summary_large_image', title: TITLE, description: DESCRIPTION },
 };
 
 /*
-  The website, styled after Oripio's Synergos: the sky hero, then black sections with
-  photographs and glass, the closing band over the hills, and the footer. Server-rendered;
-  the live call card, the sample-call player, the menu and the scroll motion hydrate in place.
+  The website, styled after Oripio's Synergos. Seven bands: the sky hero, the playable sample
+  call, what comes back, how it works (the one telling of the pilot), pricing, the FAQ, and the
+  dusk band that closes the page and carries the footer. Server-rendered; the live call card,
+  the sample-call player, the pricing slider, the menu and the scroll motion hydrate in place.
 */
-// The header has two styles while the founder compares them: the liquid glass bar (default)
-// and the frosted header it replaced (/?nav=frost).
-export default async function HomePage({ searchParams }: { searchParams: Promise<{ nav?: string }> }) {
-  const { nav } = await searchParams;
+export default function HomePage() {
   return (
     <div className="site relative">
       <a
@@ -47,15 +43,14 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
       >
         Skip to content
       </a>
-      {nav === 'frost' ? <SiteNav /> : <LiquidNav sections={SECTIONS} />}
+      <LiquidNav sections={SECTIONS} />
       <main id="main-content">
         <SiteHero />
-        <ProductSection />
         <SampleCallSection />
+        <ProductSection />
         <HowItWorksSection />
         <PricingSection />
         <FaqSection />
-        <UseCasesSection />
         <ClosingSection />
       </main>
       <SiteFooter />

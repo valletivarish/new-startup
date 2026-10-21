@@ -1,5 +1,6 @@
 import { ImageResponse } from 'next/og';
 import { BRAND } from '../lib/brand';
+import { WORDMARK } from '../components/site/kit';
 
 export const alt = 'Voice agents that make your business calls and show their work.';
 export const size = { width: 1200, height: 630 };
@@ -43,7 +44,7 @@ export default function OpengraphImage() {
             <rect x="14" y="12" width="12" height="2" fill={INK} />
             <rect x="14" y="18" width="8" height="2" fill={INK} />
           </svg>
-          <div style={{ fontSize: 36, ...bold(1) }}>{BRAND.name}</div>
+          <div style={{ fontSize: 36, ...bold(1) }}>{WORDMARK}</div>
         </div>
         <div
           style={{

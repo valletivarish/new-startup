@@ -17,6 +17,7 @@ import { TeamSettings } from '@/components/TeamSettings';
 import { organizationsQueryKey } from '@/components/layout/app-shell/account';
 import { AccessLevels } from '@/components/settings/access-levels';
 import { ActivityLog } from '@/components/settings/activity';
+import { DevelopersSection } from '@/components/settings/developers';
 import { AccountSection, WorkspaceSection } from '@/components/settings/sections';
 import { Button } from '@/components/ui/button';
 import { ErrorState } from '@/components/ui/error-state';
@@ -29,7 +30,7 @@ import { toUserMessage } from '@/lib/errors';
 import { useMe } from '@/lib/use-me';
 import { useOnline } from '@/lib/use-online';
 
-type Section = 'workspace' | 'team' | 'access' | 'activity' | 'account';
+type Section = 'workspace' | 'team' | 'access' | 'activity' | 'developers' | 'account';
 
 export default function SettingsPage() {
   const me = useMe();
@@ -92,6 +93,7 @@ function SettingsTabs({ profile }: { profile: Me }) {
     ...(org && (can('users.read') || can('users.invite')) ? [{ value: 'team' as const, label: 'Team' }] : []),
     ...(org && can('roles.read') ? [{ value: 'access' as const, label: 'Access levels' }] : []),
     ...(org && can('audit.read') ? [{ value: 'activity' as const, label: 'Activity' }] : []),
+    ...(org && can('integrations.read') ? [{ value: 'developers' as const, label: 'Developers' }] : []),
     { value: 'account', label: 'Your account' },
   ];
   const requested = params.get('section');
@@ -159,6 +161,9 @@ function SettingsTabs({ profile }: { profile: Me }) {
         </TabsContent>
         <TabsContent value="activity" className="pt-6">
           <ActivityLog />
+        </TabsContent>
+        <TabsContent value="developers" className="pt-6">
+          <DevelopersSection profile={profile} />
         </TabsContent>
         <TabsContent value="account" className="pt-6">
           <AccountSection profile={profile} workspaceName={workspaceName} />

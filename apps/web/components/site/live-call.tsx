@@ -19,8 +19,9 @@ gsap.registerPlugin(useGSAP);
 const FIRST_NAME = SAMPLE_CALL.candidate.split(' ')[0] ?? SAMPLE_CALL.candidate;
 
 /**
- * The sample call's opening: who is calling and why, then the first three questions. It
- * ends on the candidate's answer, so the held frame reads "Listening…".
+ * The sample call's opening: who is calling and why, two questions, and the candidate cutting
+ * in while the agent explains the office days. It ends on her line, so the held frame reads
+ * "Listening…".
  */
 export const HERO_TURNS: readonly TranscriptTurn[] = SAMPLE_CALL.turns.slice(0, 8).map((turn) => ({
   speaker: turn.speaker,

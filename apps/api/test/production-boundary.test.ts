@@ -29,6 +29,9 @@ const PRODUCTION_TREES = [
   'packages/db/src',
   'packages/permissions/src',
   'packages/providers/src',
+  // Customer-facing connector code (the Zapier app is .js and is checked by its own test).
+  'integrations/n8n/src',
+  'integrations/power-automate/scripts',
 ];
 
 /**

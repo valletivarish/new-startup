@@ -409,6 +409,15 @@ export function SiteChat() {
   const titleId = useId();
 
   useEffect(() => () => timers.current.forEach((t) => window.clearTimeout(t)), []);
+  // The launcher steps aside while the closing band is on screen, so it never covers its buttons.
+  const [aside, setAside] = useState(false);
+  useEffect(() => {
+    const band = document.getElementById('closing');
+    if (!band) return;
+    const observer = new IntersectionObserver(([entry]) => setAside(!!entry?.isIntersecting));
+    observer.observe(band);
+    return () => observer.disconnect();
+  }, []);
   useEffect(() => {
     const show = () => setOpen(true);
     window.addEventListener(OPEN_CHAT, show);
@@ -615,8 +624,9 @@ export function SiteChat() {
         aria-controls={panelId}
         onClick={() => (open ? close() : setOpen(true))}
         className={cn(
-          'fixed bottom-[max(1.25rem,env(safe-area-inset-bottom))] right-4 z-50 inline-flex h-14 items-center gap-2.5 rounded-full border border-white/15 bg-[rgb(12_18_26/0.86)] pl-2.5 pr-2.5 text-white shadow-[0_16px_40px_-16px_rgb(0_0_0/0.7)] backdrop-blur-xl transition-[scale] duration-200 motion-safe:active:[scale:0.97] sm:right-6 sm:pr-5',
+          'fixed bottom-[max(1.25rem,env(safe-area-inset-bottom))] right-4 z-50 inline-flex h-14 items-center gap-2.5 rounded-full border border-white/15 bg-[rgb(12_18_26/0.86)] pl-2.5 pr-2.5 text-white shadow-[0_16px_40px_-16px_rgb(0_0_0/0.7)] backdrop-blur-xl transition-[scale,opacity,transform,visibility] duration-200 motion-safe:active:[scale:0.97] sm:right-6 sm:pr-5',
           open && 'max-sm:hidden',
+          aside && !open && 'invisible translate-y-4 opacity-0',
         )}
       >
         {/* Listening pose while hands-free is on: the microphone is live. */}

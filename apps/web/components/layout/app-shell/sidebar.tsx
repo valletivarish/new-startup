@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useId, useRef, useState, useSyncExternalStore, type FocusEvent, type PointerEvent } from 'react';
+import { useEffect, useId, useRef, useState, useSyncExternalStore, type CSSProperties, type FocusEvent, type PointerEvent } from 'react';
 import { Pin, PanelLeftClose, PanelLeftOpen, Sparkle } from 'lucide-react';
 import type { Me } from '@/lib/api';
 import { cn } from '@/lib/utils';
@@ -65,7 +65,21 @@ function subscribeDesktop(notify: () => void) {
  * with fixed padding, never centred), so only the label moves: it fades and slides in beside the
  * icon, clipped by the row so it never wraps while the width animates.
  */
-function NavRow({ item, active }: { item: NavItem; active: boolean }) {
+/** Each icon's hover animation, by page (keyframes in globals.css). Unlisted pages just lift. */
+const ICON_MOTION: Record<string, string> = {
+  '/dashboard': 'hop',
+  '/jobs': 'tilt',
+  '/candidates': 'sway',
+  '/calls': 'ring',
+  '/agents': 'bars',
+  '/knowledge': 'open',
+  '/tools': 'twist',
+  '/analytics': 'grow',
+  '/settings': 'spin',
+  '/admin/costs': 'flip',
+};
+
+function NavRow({ item, active, index }: { item: NavItem; active: boolean; index: number }) {
   const Icon = item.icon;
   return (
     <li>
@@ -73,7 +87,7 @@ function NavRow({ item, active }: { item: NavItem; active: boolean }) {
         href={item.href}
         aria-current={active ? 'page' : undefined}
         className={cn(
-          'group/row flex min-h-10 items-center gap-3 overflow-hidden rounded-input px-3 text-label transition-[background-color,color,box-shadow] duration-150 [@media(pointer:coarse)]:min-h-11',
+          'nav-row group/row flex min-h-10 items-center gap-3 overflow-hidden rounded-input px-3 text-label transition-[background-color,color,box-shadow] duration-150 [@media(pointer:coarse)]:min-h-11',
           active
             ? 'bg-canvas font-medium text-text shadow-xs'
             : 'text-text-2 hover:bg-[color-mix(in_srgb,var(--canvas)_72%,transparent)] hover:text-text active:bg-canvas',
@@ -82,10 +96,9 @@ function NavRow({ item, active }: { item: NavItem; active: boolean }) {
         <Icon
           aria-hidden
           strokeWidth={1.5}
-          className={cn(
-            'size-[1.125rem] shrink-0 transition-transform duration-200 ease-[var(--ease-out)] motion-reduce:transition-none',
-            !active && 'group-hover/row:scale-110',
-          )}
+          data-motion={ICON_MOTION[item.href] ?? 'lift'}
+          style={{ '--i': index } as CSSProperties}
+          className="nav-icon size-[1.125rem] shrink-0"
         />
         <span className={cn('min-w-0 whitespace-nowrap', LABEL)}>{item.label}</span>
       </Link>
@@ -97,14 +110,17 @@ function NavList({
   items,
   pathname,
   labelledBy,
+  offset = 0,
 }: {
   items: (NavItem & { pending: boolean })[];
   pathname: string;
   labelledBy?: string;
+  /** Where this list starts in the open-ripple order. */
+  offset?: number;
 }) {
   return (
     <ul role="list" aria-labelledby={labelledBy} className="m-0 flex list-none flex-col gap-0.5 p-0">
-      {items.map((item) =>
+      {items.map((item, i) =>
         item.pending ? (
           // Same geometry as a row, so nothing moves when permissions arrive.
           <li key={item.href} aria-hidden className="flex h-10 items-center gap-3 overflow-hidden px-3">
@@ -112,7 +128,7 @@ function NavList({
             <span className={cn(PLACEHOLDER.onGround, 'h-3 w-20 shrink-0 rounded-pill', LABEL)} />
           </li>
         ) : (
-          <NavRow key={item.href} item={item} active={isActive(pathname, item.href)} />
+          <NavRow key={item.href} item={item} active={isActive(pathname, item.href)} index={offset + i} />
         ),
       )}
     </ul>
@@ -292,7 +308,7 @@ export function Sidebar({
                 className={cn('absolute left-3 top-1/2 h-px w-[1.125rem] bg-border-input opacity-50', RAIL.only)}
               />
             </div>
-            <NavList items={gate(nav.workspace, permissions)} pathname={pathname} labelledBy={groupId} />
+            <NavList items={gate(nav.workspace, permissions)} pathname={pathname} labelledBy={groupId} offset={nav.main.length} />
           </nav>
 
           <div className="mt-3 flex shrink-0 flex-col gap-2">

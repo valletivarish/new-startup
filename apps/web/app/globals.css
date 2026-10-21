@@ -583,3 +583,108 @@ html:has(.site) {
   }
 }
 
+/*
+  Sidebar nav icons: each plays a short animation that fits its page when its row is hovered or
+  focused, and all of them ripple top to bottom when the rail springs open (--i is the row index).
+  Parts of an icon move about their own box (transform-box: fill-box). Never under reduced motion.
+*/
+@media (prefers-reduced-motion: no-preference) {
+  .nav-icon,
+  .nav-icon > * {
+    transform-box: fill-box;
+    transform-origin: center;
+  }
+  .nav-row:hover .nav-icon,
+  .nav-row:focus-visible .nav-icon,
+  [data-peek='open'] .nav-icon {
+    animation-duration: 560ms;
+    animation-timing-function: var(--ease-spring);
+    animation-fill-mode: both;
+  }
+  [data-peek='open'] .nav-icon,
+  [data-peek='open'] .nav-icon > * {
+    animation-delay: calc(var(--i, 0) * 35ms);
+  }
+  .nav-row:hover .nav-icon[data-motion='lift'],
+  .nav-row:focus-visible .nav-icon[data-motion='lift'],
+  [data-peek='open'] .nav-icon[data-motion='lift'] { animation-name: nav-lift; }
+
+  .nav-row:hover .nav-icon[data-motion='hop'],
+  .nav-row:focus-visible .nav-icon[data-motion='hop'],
+  [data-peek='open'] .nav-icon[data-motion='hop'] { animation-name: nav-hop; transform-origin: bottom; }
+
+  .nav-row:hover .nav-icon[data-motion='tilt'],
+  .nav-row:focus-visible .nav-icon[data-motion='tilt'],
+  [data-peek='open'] .nav-icon[data-motion='tilt'] { animation-name: nav-tilt; transform-origin: 50% 20%; }
+
+  .nav-row:hover .nav-icon[data-motion='sway'],
+  .nav-row:focus-visible .nav-icon[data-motion='sway'],
+  [data-peek='open'] .nav-icon[data-motion='sway'] { animation-name: nav-sway; transform-origin: bottom; }
+
+  .nav-row:hover .nav-icon[data-motion='ring'],
+  .nav-row:focus-visible .nav-icon[data-motion='ring'],
+  [data-peek='open'] .nav-icon[data-motion='ring'] { animation-name: nav-ring; animation-timing-function: linear; }
+
+  .nav-row:hover .nav-icon[data-motion='open'],
+  .nav-row:focus-visible .nav-icon[data-motion='open'],
+  [data-peek='open'] .nav-icon[data-motion='open'] { animation-name: nav-open; }
+
+  .nav-row:hover .nav-icon[data-motion='twist'],
+  .nav-row:focus-visible .nav-icon[data-motion='twist'],
+  [data-peek='open'] .nav-icon[data-motion='twist'] { animation-name: nav-twist; transform-origin: 25% 75%; }
+
+  .nav-row:hover .nav-icon[data-motion='spin'],
+  .nav-row:focus-visible .nav-icon[data-motion='spin'],
+  [data-peek='open'] .nav-icon[data-motion='spin'] { animation-name: nav-spin; animation-duration: 700ms; }
+
+  .nav-row:hover .nav-icon[data-motion='flip'],
+  .nav-row:focus-visible .nav-icon[data-motion='flip'],
+  [data-peek='open'] .nav-icon[data-motion='flip'] { animation-name: nav-flip; animation-duration: 700ms; }
+
+  /* Sound bars: each bar bounces in turn, like a voice. */
+  .nav-row:hover .nav-icon[data-motion='bars'] > *,
+  .nav-row:focus-visible .nav-icon[data-motion='bars'] > *,
+  [data-peek='open'] .nav-icon[data-motion='bars'] > * {
+    animation: nav-bar 640ms var(--ease-out) both;
+  }
+  /* Chart: the axis stays, the bars grow up from it one after another. */
+  .nav-icon[data-motion='grow'] > :not(:first-child) { transform-origin: bottom; }
+  .nav-row:hover .nav-icon[data-motion='grow'] > :not(:first-child),
+  .nav-row:focus-visible .nav-icon[data-motion='grow'] > :not(:first-child),
+  [data-peek='open'] .nav-icon[data-motion='grow'] > :not(:first-child) {
+    animation: nav-grow 560ms var(--ease-spring) both;
+  }
+  .nav-row:hover .nav-icon > :nth-child(2),
+  .nav-row:focus-visible .nav-icon > :nth-child(2) { animation-delay: 60ms; }
+  .nav-row:hover .nav-icon > :nth-child(3),
+  .nav-row:focus-visible .nav-icon > :nth-child(3) { animation-delay: 120ms; }
+  .nav-row:hover .nav-icon > :nth-child(4),
+  .nav-row:focus-visible .nav-icon > :nth-child(4) { animation-delay: 180ms; }
+  .nav-row:hover .nav-icon > :nth-child(5),
+  .nav-row:focus-visible .nav-icon > :nth-child(5) { animation-delay: 240ms; }
+  .nav-row:hover .nav-icon > :nth-child(6),
+  .nav-row:focus-visible .nav-icon > :nth-child(6) { animation-delay: 300ms; }
+}
+
+@keyframes nav-lift { 0%, 100% { transform: none; } 45% { transform: translateY(-2px) scale(1.08); } }
+@keyframes nav-hop {
+  0%, 100% { transform: none; }
+  30% { transform: translateY(-4px) scale(0.96, 1.06); }
+  60% { transform: translateY(0) scale(1.08, 0.92); }
+  80% { transform: scale(0.98, 1.02); }
+}
+@keyframes nav-tilt { 0%, 100% { transform: none; } 30% { transform: translateY(-2px) rotate(-10deg); } 65% { transform: rotate(6deg); } }
+@keyframes nav-sway { 0%, 100% { transform: none; } 25% { transform: rotate(-8deg); } 55% { transform: rotate(6deg); } 80% { transform: rotate(-2deg); } }
+@keyframes nav-ring {
+  0%, 100% { transform: none; }
+  10%, 30%, 50% { transform: rotate(-14deg); }
+  20%, 40%, 60% { transform: rotate(14deg); }
+  75% { transform: rotate(-4deg); }
+}
+@keyframes nav-open { 0%, 100% { transform: none; } 40% { transform: scaleX(1.18) scaleY(0.94); } 70% { transform: scaleX(0.96); } }
+@keyframes nav-twist { 0%, 100% { transform: none; } 35% { transform: rotate(-28deg); } 70% { transform: rotate(10deg); } }
+@keyframes nav-spin { from { transform: rotate(0deg); } to { transform: rotate(90deg); } }
+@keyframes nav-flip { from { transform: perspective(40px) rotateY(0deg); } to { transform: perspective(40px) rotateY(360deg); } }
+@keyframes nav-bar { 0%, 100% { transform: none; } 35% { transform: scaleY(0.35); } 70% { transform: scaleY(1.25); } }
+@keyframes nav-grow { 0% { transform: scaleY(0.15); } 100% { transform: none; } }
+

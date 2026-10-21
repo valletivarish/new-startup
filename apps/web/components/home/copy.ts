@@ -13,17 +13,6 @@ export function firstNameOf(name: string | null | undefined): string {
 }
 
 /**
- * Up to two names, then how many more of the true total: "Priya Sharma and Ravi Kumar",
- * "Priya Sharma, Ravi Kumar and 4 more". '' when there are no names to show.
- */
-export function namesLine(names: readonly string[], total: number): string {
-  const shown = names.slice(0, 2);
-  if (shown.length === 0) return '';
-  const more = total - shown.length;
-  return more > 0 ? `${shown.join(', ')} and ${more} more` : shown.join(' and ');
-}
-
-/**
  * Whether Home's Call now and Call again can place a phone call: hidden without the permission,
  * waiting while the calling number is checked, blocked (with the reason) until it is connected.
  * A check that failed leaves them on: the call itself then says what went wrong.

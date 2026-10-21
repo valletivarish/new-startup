@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { callGate, firstNameOf, greetingFor, namesLine } from './copy';
+import { callGate, firstNameOf, greetingFor } from './copy';
 
 describe('greetingFor', () => {
   it('follows the local hour', () => {
@@ -17,16 +17,6 @@ describe('firstNameOf', () => {
     expect(firstNameOf('  Priya   Raman ')).toBe('Priya');
     expect(firstNameOf('')).toBe('');
     expect(firstNameOf(null)).toBe('');
-  });
-});
-
-describe('namesLine', () => {
-  it('names two people at most and counts the rest from the true total', () => {
-    expect(namesLine(['Priya Sharma'], 1)).toBe('Priya Sharma');
-    expect(namesLine(['Priya Sharma', 'Ravi Kumar'], 2)).toBe('Priya Sharma and Ravi Kumar');
-    expect(namesLine(['Priya Sharma', 'Ravi Kumar', 'Asha Rao'], 31)).toBe('Priya Sharma, Ravi Kumar and 29 more');
-    expect(namesLine(['Priya Sharma'], 3)).toBe('Priya Sharma and 2 more');
-    expect(namesLine([], 4)).toBe('');
   });
 });
 

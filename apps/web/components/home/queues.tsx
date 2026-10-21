@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useRef, useState, type ReactNode, type Ref } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
   ArrowUpRight,
@@ -15,7 +15,13 @@ import {
   PhoneOutgoing,
   UsersRound,
 } from 'lucide-react';
-import { getTelephonyStatus, startOutboundCall, type HiringQueueItem } from '@/lib/api';
+import {
+  getJob,
+  getJobCandidateResults,
+  getTelephonyStatus,
+  startOutboundCall,
+  type HiringQueueItem,
+} from '@/lib/api';
 import { messageText, toUserMessage } from '@/lib/errors';
 import {
   groupQueueByJob,
@@ -28,73 +34,27 @@ import { toPublicId } from '@/lib/public-id';
 import { getStateMeta } from '@/lib/status-labels';
 import { useUseCase } from '@/lib/use-cases';
 import { Agent } from '@/components/brand/agent';
-import type { AgentState } from '@/components/brand/agent-draw';
+import { answerItems } from '@/components/candidates/answers';
+import { answerCoverage } from '@/components/shared/answers-list';
 import { UserInitials } from '@/components/shared/user-initials';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/components/ui/cn';
 import { ConfirmDialog } from '@/components/ui/confirm';
-import { EmptyState, IconTile } from '@/components/ui/empty-state';
+import { EmptyState } from '@/components/ui/empty-state';
 import { Alert } from '@/components/ui/notice';
 import { StatusTag } from '@/components/ui/state-tag';
 import { ListCell, ListRow, ListRowPrimary, RowLayoutContext } from '@/components/ui/strip';
-import { callGate, NO_LINE_REASON, namesLine } from './copy';
+import { callGate, NO_LINE_REASON } from './copy';
 
 /*
-  Home in the D2 language: a sky-gradient hero for the queue that matters most (ready for
-  review), where the agent shows how its calls went, beside a white card for calls that didn't
-  connect, then three counts and the people not called yet, grouped by job. Every number is
-  the true total from the server; lists say "Showing 5 of 9" when they hold fewer.
+  Home once setup is done. What needs the recruiter now leads: calls ready for review, full
+  width, each row with how many questions were answered and the call's one-line summary, so a
+  phone review needs fewer opens. Then calls that didn't connect beside a short "at a glance"
+  list, then the people not called yet, grouped by job. Every number is the true total from
+  the server; lists say "Showing 5 of 9" when they hold fewer.
 */
 
 const CARD = 'rounded-card border border-border bg-canvas';
-
-/**
- * The sky card. White text passes 4.5:1 on both ends of the gradient (4.53 at the light end).
- * The transparent border draws an edge in forced colours, where the gradient is dropped.
- */
-export const HERO =
-  'relative isolate flex flex-col overflow-hidden rounded-canvas border border-transparent bg-sky p-6 text-primary-foreground sm:p-7';
-
-/**
- * The agent in the hero's top right corner, in pearl glass on the sky, with soft rings around it
- * (the voice motif). Its state mirrors the queue: a tick once calls are done and waiting, idle
- * otherwise. The words beside it carry the same news, so it stays decorative. The rings are
- * drawn from sm up, where the text keeps clear of the corner.
- */
-export function HeroAgent({ state }: { state: AgentState }) {
-  const ring = 'absolute rounded-pill border border-[var(--glass-border)]';
-  return (
-    <>
-      <span
-        aria-hidden
-        className="pointer-events-none absolute -right-16 -top-16 -z-10 hidden size-64 rounded-pill [background:radial-gradient(closest-side,var(--glass),transparent)] forced-colors:hidden sm:block"
-      >
-        {/* Centred on the agent (64px in from the corner), the outer ring clear of the heading. */}
-        <span className={cn(ring, 'inset-7 opacity-40')} />
-        <span className={cn(ring, 'inset-[3.25rem] opacity-60')} />
-        <span className={cn(ring, 'inset-[4.75rem] opacity-80')} />
-      </span>
-      <Agent size={72} state={state} hoverable className="absolute right-5 top-5 size-14 sm:right-7 sm:top-7 sm:size-[4.5rem]" />
-    </>
-  );
-}
-
-/** The hero's top row: a frosted icon chip and the section's name (D2's chips). */
-export function HeroLabel({ id, icon, children }: { id: string; icon: ReactNode; children: ReactNode }) {
-  return (
-    <div className="flex items-center gap-2.5">
-      <span
-        aria-hidden
-        className="grid size-9 shrink-0 place-items-center rounded-pill border border-[var(--glass-border)] bg-[var(--glass)] [&_svg]:size-[1.125rem] [&_svg]:[stroke-width:1.5]"
-      >
-        {icon}
-      </span>
-      <h2 id={id} className="m-0 text-label font-medium">
-        {children}
-      </h2>
-    </div>
-  );
-}
 
 /** A person's page on their job's board; `results` opens their answers. */
 function personHref(item: HiringQueueItem, results = false): string {
@@ -109,14 +69,19 @@ function CardHeader({
   title,
   count,
   headingRef,
+  lead,
+  action,
 }: {
   id: string;
   title: string;
   count: number;
   headingRef?: Ref<HTMLHeadingElement>;
+  lead?: ReactNode;
+  action?: ReactNode;
 }) {
   return (
-    <div className="flex min-h-[4.25rem] items-center px-5 pt-3">
+    <div className="flex min-h-[4.25rem] items-center gap-3 px-5 pt-3">
+      {lead}
       {/* Focus lands here after a call is placed, when the row that opened the dialog is gone. */}
       <h2 id={id} ref={headingRef} tabIndex={-1} className="m-0 flex items-center gap-2.5 text-section text-text">
         {title}{' '}
@@ -124,6 +89,7 @@ function CardHeader({
           {count}
         </span>
       </h2>
+      {action ? <div className="ml-auto shrink-0">{action}</div> : null}
     </div>
   );
 }
@@ -218,54 +184,150 @@ function useCallAction() {
 
 // --- Cards -----------------------------------------------------------------------------------
 
-function ReviewHero({ queue, canSeeCalls }: { queue: HomeQueue; canSeeCalls: boolean }) {
-  const first = queue.items[0];
-  const names = namesLine(
-    queue.items.map((item) => item.fullName),
-    queue.total,
-  );
+const VISIBLE_REVIEW = 5;
+
+/** The latest call's answers and summary for one row; the job's questions decide what counts. */
+function useReviewDetails(items: readonly HiringQueueItem[]) {
+  const jobIds = [...new Set(items.map((item) => item.jobId))];
+  const jobs = useQueries({
+    queries: jobIds.map((jobId) => ({
+      queryKey: [...homeQueryKey, 'job', jobId],
+      queryFn: () => getJob(jobId),
+      staleTime: 60_000,
+    })),
+  });
+  const results = useQueries({
+    queries: items.map((item) => ({
+      queryKey: [...homeQueryKey, 'results', item.jobId, item.candidateId],
+      queryFn: () => getJobCandidateResults(item.jobId, item.candidateId),
+      staleTime: 30_000,
+    })),
+  });
+  return items.map((item, i) => {
+    const job = jobs[jobIds.indexOf(item.jobId)]?.data;
+    const res = results[i];
+    const latest = res?.data ? (res.data.results?.voiceSessionId ? res.data.results : res.data.sessions?.[0]) : undefined;
+    const coverage =
+      latest && job ? answerCoverage(answerItems(latest.structuredAnswers, job.screeningQuestions)) : null;
+    return {
+      loading: Boolean(res?.isPending),
+      failed: Boolean(res?.isError),
+      summary: latest?.summary?.trim() || null,
+      coverage: coverage && coverage.total > 0 ? coverage : null,
+    };
+  });
+}
+
+/** One dot per question, filled when answered; the words say the same. */
+function Coverage({ answered, total }: { answered: number; total: number }) {
   return (
-    <section aria-labelledby="home-review" className={cn(HERO, 'xl:col-span-5')}>
-      <HeroAgent state={queue.total > 0 ? 'done' : 'idle'} />
-      <HeroLabel id="home-review" icon={<FileCheckCorner />}>
-        Ready for review
-      </HeroLabel>
-      {/* Centred between the label and the pill when the card beside it makes this one taller. */}
-      <div className="my-auto py-7">
-        {queue.total > 0 ? (
-          <>
-            <p className="m-0 flex items-baseline gap-2.5">
-              {/* The number Home leads with: proportional figures, the same sans. */}
-              <span className="text-[3.5rem] font-semibold leading-none tracking-[-0.045em]">{queue.total}</span>
-              <span className="text-section font-medium">{queue.total === 1 ? 'call' : 'calls'}</span>
-            </p>
-            <p className="mb-0 mt-3 max-w-[34ch] text-body">
-              {names
-                ? `${names} ${queue.total === 1 ? 'is' : 'are'} waiting on your decision.`
-                : 'Ask a workspace admin for access to candidates to review them.'}
-            </p>
-          </>
-        ) : (
-          <>
-            <p className="m-0 text-section">Nothing to review right now</p>
-            <p className="mb-0 mt-2 max-w-[34ch] text-body">Answers land here as soon as a call ends.</p>
-          </>
-        )}
-      </div>
-      <div className="flex">
-        {first ? (
-          <Button asChild>
-            <Link href={personHref(first, true)}>
-              Review now
-              <ArrowUpRight aria-hidden strokeWidth={1.5} />
-            </Link>
-          </Button>
-        ) : queue.total === 0 && canSeeCalls ? (
-          <Button asChild variant="secondary">
-            <Link href="/calls">See recent calls</Link>
-          </Button>
-        ) : null}
-      </div>
+    <span className="inline-flex items-center gap-1.5 whitespace-nowrap tabular-nums">
+      {total <= 10 ? (
+        <span aria-hidden className="inline-flex gap-0.5">
+          {Array.from({ length: total }, (_, i) => (
+            <span
+              key={i}
+              className={cn(
+                'size-1.5 rounded-pill',
+                i < answered ? 'bg-text-2 forced-colors:bg-[CanvasText]' : 'border border-border-input',
+              )}
+            />
+          ))}
+        </span>
+      ) : null}
+      {answered} of {total} answered
+    </span>
+  );
+}
+
+function ReviewCard({ queue, canSeeCalls }: { queue: HomeQueue; canSeeCalls: boolean }) {
+  const shown = queue.items.slice(0, VISIBLE_REVIEW);
+  const details = useReviewDetails(shown);
+  const first = shown[0];
+  return (
+    <section aria-labelledby="home-review" className={cn(CARD, 'flex flex-col overflow-hidden')}>
+      <CardHeader
+        id="home-review"
+        title="Ready for review"
+        count={queue.total}
+        // The agent reports how its calls went: done once answers are waiting.
+        lead={<Agent size={40} state={queue.total > 0 ? 'done' : 'idle'} onLight hoverable className="-my-1 shrink-0" />}
+        action={
+          first ? (
+            <Button asChild size="sm" className="max-sm:hidden">
+              <Link href={personHref(first, true)}>
+                Review now
+                <ArrowUpRight aria-hidden strokeWidth={1.5} />
+              </Link>
+            </Button>
+          ) : null
+        }
+      />
+      {queue.total === 0 ? (
+        <EmptyState
+          headingLevel={3}
+          icon={<FileCheckCorner />}
+          title="Nothing to review right now"
+          description="Answers land here as soon as a call ends."
+          action={
+            canSeeCalls ? (
+              <Button asChild variant="secondary" size="sm">
+                <Link href="/calls">See recent calls</Link>
+              </Button>
+            ) : null
+          }
+          className="py-10"
+        />
+      ) : shown.length === 0 ? (
+        <NoNames who="candidates" />
+      ) : (
+        <>
+          <ul role="list" className="m-0 mt-2 list-none divide-y divide-border border-t border-border p-0">
+            {shown.map((item, i) => {
+              const detail = details[i]!;
+              return (
+                <li key={itemKey(item)}>
+                  <Link
+                    href={personHref(item, true)}
+                    className="group flex min-h-16 items-start gap-3 px-5 py-3.5 transition-colors duration-fast hover:bg-subtle focus-visible:bg-subtle sm:items-center"
+                  >
+                    <UserInitials name={item.fullName} />
+                    <span className="min-w-0 flex-1">
+                      <span className="flex flex-wrap items-baseline gap-x-2">
+                        <span className="font-medium text-text">{item.fullName}</span>
+                        <span className="truncate text-meta text-text-3">{item.jobTitle}</span>
+                      </span>
+                      <span className="mt-1 block text-meta text-text-2">
+                        {detail.coverage ? <Coverage {...detail.coverage} /> : null}
+                      </span>
+                      <span className="mt-0.5 block text-meta text-text-2 max-sm:line-clamp-2 sm:truncate">
+                        {detail.loading ? (
+                          <span className="inline-block h-2.5 w-2/3 rounded-pill bg-muted align-middle motion-safe:animate-pulse" />
+                        ) : detail.summary ? (
+                          detail.summary
+                        ) : (
+                          <span className="text-text-3">
+                            {detail.failed ? 'Couldn’t load the summary. Open to see the call.' : 'No summary for this call.'}
+                          </span>
+                        )}
+                      </span>
+                    </span>
+                    <span className="hidden shrink-0 items-center gap-1 text-label font-medium text-text-2 transition-colors group-hover:text-text sm:inline-flex">
+                      Review
+                      <ChevronRight
+                        aria-hidden
+                        strokeWidth={1.5}
+                        className="size-4 transition-[translate] duration-fast motion-safe:group-hover:translate-x-0.5"
+                      />
+                    </span>
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+          {shown.length < queue.total ? <Showing shown={shown.length} total={queue.total} /> : null}
+        </>
+      )}
     </section>
   );
 }
@@ -301,7 +363,6 @@ function NotConnectedCard({
   onCall: AskCall;
 }) {
   const heading = useRef<HTMLHeadingElement>(null);
-  // Five rows keep this card level with the hero beside it; the rest are a click away.
   const shown = queue.items.slice(0, VISIBLE_NOT_CONNECTED);
   return (
     <section aria-labelledby="home-not-connected" className={cn(CARD, 'flex flex-col overflow-hidden xl:col-span-7')}>
@@ -379,40 +440,8 @@ interface Stat {
   href?: string;
 }
 
-function StatCard({ label, value, icon, href }: Stat) {
-  const body = (
-    <>
-      {/* Three across anything narrower than xl leaves no room for the tile: the label keeps it. */}
-      <IconTile className="max-xl:hidden">{icon}</IconTile>
-      <span className="min-w-0 flex-1">
-        <span className="block text-meta text-text-2 sm:truncate sm:text-label">{label}</span>
-        {value === null ? (
-          <span className="mt-1 block text-meta text-text-3">Not shared with you</span>
-        ) : (
-          <span className="mt-0.5 block text-subpage text-text sm:text-page">{value}</span>
-        )}
-      </span>
-      {href ? (
-        <ChevronRight
-          aria-hidden
-          strokeWidth={1.5}
-          className="size-5 shrink-0 text-text-3 transition-[translate] duration-fast group-hover:translate-x-0.5 max-sm:hidden"
-        />
-      ) : null}
-    </>
-  );
-  // Phones: three small tiles in a row, label over the number.
-  const box = cn(CARD, 'flex h-full min-h-[5.75rem] items-center gap-4 p-3 sm:p-4');
-  return href && value !== null ? (
-    <Link href={href} className={cn(box, 'group transition-shadow duration-fast hover:shadow-card')}>
-      {body}
-    </Link>
-  ) : (
-    <div className={box}>{body}</div>
-  );
-}
-
-function StatCards({ snapshot, canReadCandidates }: { snapshot: HomeSnapshot; canReadCandidates: boolean }) {
+/** The counts behind the queues, as a short list of rows rather than equal tiles. */
+function AtAGlance({ snapshot, canReadCandidates }: { snapshot: HomeSnapshot; canReadCandidates: boolean }) {
   const { labels, stages } = useUseCase();
   const stageLabel = (value: string) => stages.find((stage) => stage.value === value)?.label ?? value;
   const stats: Stat[] = [
@@ -436,14 +465,53 @@ function StatCards({ snapshot, canReadCandidates }: { snapshot: HomeSnapshot; ca
       href: canReadCandidates ? '/candidates?stage=screening' : undefined,
     },
   ];
+  const row = 'flex min-h-14 items-center gap-3 px-5 py-2';
   return (
-    <ul role="list" aria-label="At a glance" className="m-0 grid list-none grid-cols-3 gap-2 p-0 sm:gap-4">
-      {stats.map((stat) => (
-        <li key={stat.label}>
-          <StatCard {...stat} />
-        </li>
-      ))}
-    </ul>
+    <section aria-labelledby="home-glance" className={cn(CARD, 'overflow-hidden xl:col-span-5')}>
+      <div className="flex min-h-[4.25rem] items-center px-5 pt-3">
+        <h2 id="home-glance" className="m-0 text-section text-text">
+          At a glance
+        </h2>
+      </div>
+      <ul role="list" className="m-0 mt-2 list-none divide-y divide-border border-t border-border p-0">
+        {stats.map((stat) => {
+          const body = (
+            <>
+              <span
+                aria-hidden
+                className="grid size-9 shrink-0 place-items-center rounded-card-sm bg-subtle text-text-2 [&_svg]:size-[1.125rem] [&_svg]:[stroke-width:1.5]"
+              >
+                {stat.icon}
+              </span>
+              <span className="min-w-0 flex-1 truncate text-text-2">{stat.label}</span>
+              {stat.value === null ? (
+                <span className="text-meta text-text-3">Not shared with you</span>
+              ) : (
+                <span className="text-title font-semibold tabular-nums text-text">{stat.value}</span>
+              )}
+              {stat.href && stat.value !== null ? (
+                <ChevronRight
+                  aria-hidden
+                  strokeWidth={1.5}
+                  className="size-4 shrink-0 text-text-3 transition-[translate] duration-fast motion-safe:group-hover:translate-x-0.5"
+                />
+              ) : null}
+            </>
+          );
+          return (
+            <li key={stat.label}>
+              {stat.href && stat.value !== null ? (
+                <Link href={stat.href} className={cn(row, 'group transition-colors duration-fast hover:bg-subtle')}>
+                  {body}
+                </Link>
+              ) : (
+                <div className={row}>{body}</div>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </section>
   );
 }
 
@@ -554,21 +622,23 @@ export function Queues({ snapshot, can }: { snapshot: HomeSnapshot; can: (permis
   return (
     <div className="space-y-4">
       {queues ? (
-        <div className="grid gap-4 xl:grid-cols-12">
-          <ReviewHero queue={queues.readyForReview} canSeeCalls={can('agents.sessions.read')} />
+        <ReviewCard queue={queues.readyForReview} canSeeCalls={can('agents.sessions.read')} />
+      ) : (
+        <Alert kind="info" title="Candidates aren’t shared with you">
+          Ask a workspace admin for access to see calls to review and retry.
+        </Alert>
+      )}
+      <div className="grid items-start gap-4 xl:grid-cols-12">
+        {queues ? (
           <NotConnectedCard
             queue={queues.notConnected}
             gate={gate}
             canSeeCalls={can('agents.sessions.read')}
             onCall={call.ask}
           />
-        </div>
-      ) : (
-        <Alert kind="info" title="Candidates aren’t shared with you">
-          Ask a workspace admin for access to see calls to review and retry.
-        </Alert>
-      )}
-      <StatCards snapshot={snapshot} canReadCandidates={can('candidates.read')} />
+        ) : null}
+        <AtAGlance snapshot={snapshot} canReadCandidates={can('candidates.read')} />
+      </div>
       {queues ? (
         <NotCalledCard
           queue={queues.notCalled}

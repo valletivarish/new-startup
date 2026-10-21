@@ -1,27 +1,38 @@
 'use client';
 
 import Link from 'next/link';
-import { useState, type FormEvent } from 'react';
+import { useState, type FormEvent, type ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowRight, ArrowUpRight, ChevronRight, Circle, CircleCheck, Sparkles } from 'lucide-react';
-import { ensureOrganization, myOrganizations, switchOrganization } from '@/lib/api';
+import {
+  ArrowUpRight,
+  AudioLines,
+  BriefcaseBusiness,
+  Check,
+  ChevronRight,
+  CircleCheck,
+  PhoneCall,
+  UsersRound,
+} from 'lucide-react';
+import { ensureOrganization, getTelephonyStatus, myOrganizations, switchOrganization } from '@/lib/api';
 import { messageText, toUserMessage } from '@/lib/errors';
 import type { HomeSnapshot } from '@/lib/hiring-people';
 import { toPublicId } from '@/lib/public-id';
 import { meQueryKey } from '@/lib/use-me';
 import { useUseCase } from '@/lib/use-cases';
 import { organizationsQueryKey } from '@/components/layout/app-shell/account';
+import { Agent } from '@/components/brand/agent';
 import { Button } from '@/components/ui/button';
+import { cn } from '@/components/ui/cn';
 import { ErrorState } from '@/components/ui/error-state';
 import { Field, Input } from '@/components/ui/input';
 import { Alert } from '@/components/ui/notice';
 import { SkeletonGroup } from '@/components/ui/skeleton';
 import { StatusBadge } from '@/components/ui/state-tag';
-import { HERO, HeroAgent, HeroLabel } from './queues';
 
 interface Step {
   title: string;
   detail: string;
+  icon: ReactNode;
   /** null: this person can't see whether it is done. */
   done: boolean | null;
   action: string;
@@ -30,19 +41,43 @@ interface Step {
   blocked?: string;
 }
 
+/** Progress as the voice bars: one bar per step, filled when it's done. The words carry it. */
+function StepBars({ done, total }: { done: number; total: number }) {
+  return (
+    <span aria-hidden className="flex items-end gap-1">
+      {Array.from({ length: total }, (_, i) => (
+        <span
+          key={i}
+          className={cn(
+            'w-1.5 rounded-pill transition-colors duration-base forced-colors:bg-[CanvasText]',
+            i < done ? 'bg-primary' : 'bg-muted forced-colors:opacity-40',
+            i % 2 === 0 ? 'h-6' : 'h-4',
+          )}
+        />
+      ))}
+    </span>
+  );
+}
+
 /**
- * First run (spec 7.1, audit H4): the three steps to a first call, each ticked from real data.
- * The sky card holds them, since setting up is the one thing Home asks for until it's done.
+ * First run (spec 7.1, audit H4): the steps to a first call as one checklist, each ticked from
+ * real data, with one navy pill on the step that comes next. Beside it, the agent says what it
+ * will do once setup is done (D2's pale card, not a saturated block).
  */
 export function GettingStarted({ snapshot, can }: { snapshot: HomeSnapshot; can: (permission: string) => boolean }) {
   const { labels } = useUseCase();
   const job = labels.workItem.one.toLowerCase();
+  const contact = labels.contact.one.toLowerCase();
   const contacts = labels.contact.many.toLowerCase();
   const askAdmin = 'Ask a workspace admin to do this.';
+  // The same calling-number check as Home's call buttons; without the permission the step isn't theirs.
+  const canCall = can('calls.initiate');
+  const telephony = useQuery({ queryKey: ['telephony-status'], queryFn: getTelephonyStatus, enabled: canCall });
   const steps: Step[] = [
     {
       title: 'Set up your agent',
       detail: 'Pick a voice and publish it, so it can place calls.',
+      icon: <AudioLines />,
       done: snapshot.agents === null ? null : snapshot.agents > 0,
       action: 'Set up agent',
       href: '/agents/new?returnTo=%2Fdashboard',
@@ -51,14 +86,16 @@ export function GettingStarted({ snapshot, can }: { snapshot: HomeSnapshot; can:
     {
       title: `Create a ${job}`,
       detail: 'Add the job description and the questions to ask.',
+      icon: <BriefcaseBusiness />,
       done: snapshot.jobs > 0,
       action: `Create ${job}`,
       href: '/jobs?create=1',
       blocked: can('jobs.create') ? undefined : askAdmin,
     },
     {
-      title: `Add ${contacts} and call`,
-      detail: 'Add people one by one or import a CSV, then call them.',
+      title: `Add ${contacts}`,
+      detail: 'Add people one by one, import a CSV or upload resumes.',
+      icon: <UsersRound />,
       done: snapshot.candidates === null ? null : snapshot.candidates > 0,
       action: `Add ${contacts}`,
       href: snapshot.firstJobId ? `/jobs/${toPublicId(snapshot.firstJobId)}/candidates` : '/jobs',
@@ -69,73 +106,147 @@ export function GettingStarted({ snapshot, can }: { snapshot: HomeSnapshot; can:
           : undefined,
     },
   ];
+  if (canCall) {
+    steps.push({
+      title: 'Connect your calling number',
+      detail: 'Needed for phone calls. Until then, you can try a screen in the browser from any job.',
+      icon: <PhoneCall />,
+      // A check that failed or hasn't answered yet isn't shown as done or not done.
+      done: telephony.data ? telephony.data.outboundPhone : null,
+      action: 'See calling number',
+      href: '/settings?section=workspace',
+    });
+  }
   const doneCount = steps.filter((step) => step.done).length;
-  const next = steps.findIndex((step) => step.done === false);
-  const primary = steps.findIndex((step) => step.done === false && !step.blocked);
+  const next = steps.findIndex((step) => step.done === false && !step.blocked);
+  const left = steps.length - doneCount;
 
   return (
-    <section aria-labelledby="home-setup" className={HERO}>
-      {/* Idle: no call has happened yet. The corner is the agent's, so the count sits by the label,
-          on the bare sky (glass under 12px text would drop below 4.5:1). */}
-      <HeroAgent state="idle" />
-      <div className="flex flex-wrap items-center gap-3 pr-16 sm:pr-24">
-        <HeroLabel id="home-setup" icon={<Sparkles />}>
-          Getting started
-        </HeroLabel>
-        <p className="m-0 rounded-pill border border-[var(--glass-border)] px-2.5 py-0.5 text-caption font-medium tabular-nums">
-          {doneCount} of {steps.length} done
-        </p>
-      </div>
-      <p className="mb-0 mt-6 max-w-[24ch] text-subpage">Three steps to your first screening call</p>
-      <p className="mb-0 mt-2 max-w-[56ch] text-body">
-        Then the agent calls each {labels.contact.one.toLowerCase()}, asks your questions and hands you the answers.
-      </p>
-      <ol role="list" className="m-0 mt-7 grid list-none gap-3 p-0 lg:grid-cols-3">
-        {steps.map((step, index) => (
-          <li key={step.title} className="flex flex-col rounded-card bg-canvas p-5 text-text shadow-xs">
-            <div className="flex items-center justify-between gap-3">
-              <span
-                aria-hidden
-                className="grid size-8 place-items-center rounded-pill border border-border bg-subtle text-label font-semibold tabular-nums text-text-2"
+    <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_19rem] xl:grid-cols-[minmax(0,1fr)_22rem]">
+      <section aria-labelledby="home-setup" className="overflow-hidden rounded-card border border-border bg-canvas">
+        <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3 px-5 pb-4 pt-5 sm:px-6 sm:pt-6">
+          <div className="min-w-0">
+            <h2 id="home-setup" className="m-0 text-section text-text">
+              Get ready for your first screening call
+            </h2>
+            <p className="mb-0 mt-1 text-text-2">Each step ticks itself off once it’s done.</p>
+          </div>
+          <p className="m-0 flex items-center gap-3 text-label font-medium tabular-nums text-text-2">
+            <StepBars done={doneCount} total={steps.length} />
+            {doneCount} of {steps.length} done
+          </p>
+        </div>
+        <ol role="list" className="m-0 list-none divide-y divide-border border-t border-border p-0">
+          {steps.map((step, index) => {
+            const isNext = index === next;
+            return (
+              <li
+                key={step.title}
+                aria-current={isNext ? 'step' : undefined}
+                className={cn(
+                  'grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-4 gap-y-3 px-5 py-4 sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:px-6',
+                  isNext && 'bg-accent-soft',
+                )}
               >
-                {index + 1}
-              </span>
-              {step.done === true ? (
-                <StatusBadge tone="success" icon={CircleCheck}>
-                  Done
-                </StatusBadge>
-              ) : step.done === false ? (
-                index === next ? (
-                  <StatusBadge tone="info" icon={ArrowRight}>
-                    Up next
+                <StepMarker index={index} done={step.done === true} isNext={isNext} icon={step.icon} />
+                <div className="min-w-0">
+                  <h3
+                    className={cn(
+                      'm-0 text-md font-medium',
+                      step.done === true ? 'text-text-2' : 'text-text',
+                    )}
+                  >
+                    {step.title}
+                    {step.done === true ? <span className="sr-only"> (done)</span> : null}
+                  </h3>
+                  {step.done === true ? null : <p className="mb-0 mt-0.5 text-meta text-text-2">{step.detail}</p>}
+                  {step.done !== true && step.blocked ? (
+                    <p className="mb-0 mt-1 text-meta text-text-3">{step.blocked}</p>
+                  ) : null}
+                </div>
+                {step.done === true ? (
+                  <StatusBadge tone="success" icon={CircleCheck} className="col-start-2 justify-self-start sm:col-start-auto">
+                    Done
                   </StatusBadge>
-                ) : (
-                  <StatusBadge tone="neutral" icon={Circle}>
-                    To do
-                  </StatusBadge>
-                )
-              ) : null}
-            </div>
-            <h3 className="mb-0 mt-4 text-title font-semibold">{step.title}</h3>
-            <p className="mb-0 mt-1 text-text-2">{step.detail}</p>
-            {step.done === true ? null : (
-              <div className="mt-auto pt-5">
-                {step.blocked ? (
-                  <p className="m-0 text-meta text-text-3">{step.blocked}</p>
-                ) : (
-                  <Button asChild variant={index === primary ? 'primary' : 'secondary'}>
+                ) : step.blocked ? null : (
+                  <Button
+                    asChild
+                    variant={isNext ? 'primary' : 'secondary'}
+                    size={isNext ? 'md' : 'sm'}
+                    className="col-start-2 justify-self-start sm:col-start-auto"
+                  >
                     <Link href={step.href}>
                       {step.action}
-                      {index === primary ? <ArrowUpRight aria-hidden strokeWidth={1.5} /> : null}
+                      {isNext ? <ArrowUpRight aria-hidden strokeWidth={1.5} /> : null}
                     </Link>
                   </Button>
                 )}
-              </div>
-            )}
+              </li>
+            );
+          })}
+        </ol>
+        <p className="m-0 border-t border-border px-5 py-3 text-meta text-text-3 sm:px-6">
+          {left === 0
+            ? 'All set. Calls that need you show up here.'
+            : `${left} ${left === 1 ? 'step' : 'steps'} left. Once calls start, this page lists the ones that need you.`}
+        </p>
+      </section>
+      <AgentNote contact={contact} job={job} />
+    </div>
+  );
+}
+
+/** Numbered ring, the step's icon on the step that comes next, a navy tick once done. */
+function StepMarker({ index, done, isNext, icon }: { index: number; done: boolean; isNext: boolean; icon: ReactNode }) {
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        'grid size-10 shrink-0 place-items-center rounded-pill text-label font-semibold tabular-nums [&_svg]:size-[1.125rem] [&_svg]:[stroke-width:1.5]',
+        done
+          ? 'bg-primary text-primary-foreground'
+          : isNext
+            ? 'border border-primary bg-canvas text-text'
+            : 'border border-border bg-subtle text-text-2',
+      )}
+    >
+      {done ? <Check /> : isNext ? icon : index + 1}
+    </span>
+  );
+}
+
+/** What the agent does once setup is done, said by the agent: it never decides, the recruiter does. */
+function AgentNote({ contact, job }: { contact: string; job: string }) {
+  const lines = [
+    `Calls each ${contact} on their phone`,
+    `Asks the questions you set for the ${job}`,
+    'Hands you the answers, a summary and the recording',
+  ];
+  return (
+    <aside aria-labelledby="home-agent-note" className="rounded-card border border-border bg-subtle p-5 sm:p-6">
+      <div className="flex items-center gap-3">
+        <Agent size={56} state="idle" onLight hoverable />
+        <h2 id="home-agent-note" className="m-0 text-title font-semibold text-text">
+          Then your agent takes the calls
+        </h2>
+      </div>
+      <ol role="list" className="m-0 mt-5 list-none space-y-3 p-0">
+        {lines.map((line, i) => (
+          <li key={line} className="flex gap-3 text-text-2">
+            <span
+              aria-hidden
+              className="mt-0.5 grid size-6 shrink-0 place-items-center rounded-pill bg-canvas text-caption font-semibold tabular-nums text-text-2 shadow-xs"
+            >
+              {i + 1}
+            </span>
+            {line}
           </li>
         ))}
       </ol>
-    </section>
+      <p className="mb-0 mt-5 border-t border-border pt-4 text-meta text-text-2">
+        You read what was said and decide who moves forward.
+      </p>
+    </aside>
   );
 }
 

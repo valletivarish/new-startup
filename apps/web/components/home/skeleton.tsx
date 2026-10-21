@@ -33,41 +33,35 @@ export function HomeHeaderSkeleton() {
 
 const CARD = 'rounded-card border border-border bg-canvas';
 
-/** Hero and the card beside it, three stat cards, the not-called list. */
-export function HomeBodySkeleton() {
+function ListCard({ rows, className }: { rows: string[]; className?: string }) {
   return (
-    <div className="space-y-4">
-      <div className="grid gap-4 xl:grid-cols-12">
-        <span className={cn(BLOCK, 'h-[17.5rem] rounded-canvas xl:col-span-5')} />
-        <div className={cn(CARD, 'xl:col-span-7')}>
-          <div className="flex h-[4.25rem] items-center px-5 pt-3">
-            <Bar className="h-4 w-56" />
-          </div>
-          <div className="mt-2 divide-y divide-border border-t border-border">
-            {['w-2/5', 'w-1/3', 'w-1/2'].map((width) => (
-              <div key={width} className="flex min-h-14 items-center gap-3 px-5">
-                <Bar className="size-8 shrink-0" />
-                <span className="min-w-0 flex-1 space-y-2">
-                  <Bar className={cn('h-2.5', width)} />
-                  <Bar className="h-2 w-1/4" />
-                </span>
-                <Bar className="hidden h-6 w-24 sm:block" />
-                <Bar className="h-9 w-28" />
-              </div>
-            ))}
-          </div>
-        </div>
+    <div className={cn(CARD, className)}>
+      <div className="flex h-[4.25rem] items-center gap-3 px-5 pt-3">
+        <Bar className="h-4 w-48" />
       </div>
-      <div className="grid grid-cols-3 gap-2 sm:gap-4">
-        {[0, 1, 2].map((i) => (
-          <div key={i} className={cn(CARD, 'flex min-h-[5.75rem] items-center gap-4 p-3 sm:p-4')}>
-            <span className={cn(BLOCK, 'size-12 shrink-0 rounded-card-sm max-xl:hidden')} />
-            <span className="flex-1 space-y-2.5">
-              <Bar className="h-2.5 w-1/2" />
-              <Bar className="h-5 w-10" />
+      <div className="mt-2 divide-y divide-border border-t border-border">
+        {rows.map((width, i) => (
+          <div key={i} className="flex min-h-16 items-center gap-3 px-5">
+            <Bar className="size-8 shrink-0" />
+            <span className="min-w-0 flex-1 space-y-2">
+              <Bar className={cn('h-2.5', width)} />
+              <Bar className="h-2 w-1/4" />
             </span>
           </div>
         ))}
+      </div>
+    </div>
+  );
+}
+
+/** Calls to review, then didn't connect beside at a glance, then the not-called list. */
+export function HomeBodySkeleton() {
+  return (
+    <div className="space-y-4">
+      <ListCard rows={['w-2/5', 'w-1/3', 'w-1/2']} />
+      <div className="grid items-start gap-4 xl:grid-cols-12">
+        <ListCard rows={['w-1/2', 'w-2/5']} className="xl:col-span-7" />
+        <ListCard rows={['w-1/2', 'w-2/5', 'w-1/3']} className="xl:col-span-5" />
       </div>
       <div className={cn(CARD, 'px-5 pb-5')}>
         <div className="flex h-[4.25rem] items-center pt-3">

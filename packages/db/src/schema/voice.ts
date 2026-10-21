@@ -104,6 +104,8 @@ export const voiceSessions = pgTable(
     summary: text('summary'),
     /** Structured key-value answers extracted by the agent, if any. */
     structuredAnswers: jsonb('structured_answers'),
+    /** Fit against the job's requirements (migration 0035); null = none set or not scored. */
+    fit: jsonb('fit'),
     /**
      * Immutable provision config frozen at call start (PO Q2=B).
      * Captures job/agent criteria, language, knowledge ids, and prompt fields

@@ -21,6 +21,20 @@ export type JobScreeningQuestion = {
   readonly label: string;
 };
 
+/** What HR says the role needs (migration 0035); validated by the API (hiring/requirements.ts). */
+export type JobRequirementsRecord = {
+  readonly salaryMinLakh: number | null;
+  readonly salaryMaxLakh: number | null;
+  readonly salaryFlexible: boolean;
+  readonly maxNoticeDays: number | null;
+  readonly workMode: 'on_site' | 'hybrid' | 'remote' | null;
+  readonly officeDaysPerWeek: number | null;
+  readonly city: string | null;
+  readonly mustHaves: readonly string[];
+  readonly nightShiftRequired: boolean;
+  readonly replyWithinWorkingDays: number;
+};
+
 export const jobs = pgTable(
   'jobs',
   {
@@ -39,6 +53,8 @@ export const jobs = pgTable(
       .$type<JobScreeningQuestion[]>()
       .notNull()
       .default([]),
+    /** Null = no requirements set, so calls get no fit (migration 0035). */
+    requirements: jsonb('requirements').$type<JobRequirementsRecord>(),
     /** en | hi | bn | mr | te | ta | gu | ur | kn | ml | pa (migration 0033) — drives call language when job screening is set. */
     screeningLanguage: text('screening_language').notNull().default('en'),
     /** Voice engine arm for this job's calls (migration 0031). */

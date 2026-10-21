@@ -12,6 +12,7 @@
  */
 
 import {
+  boolean,
   index,
   pgTable,
   text,
@@ -28,6 +29,8 @@ export const organizations = pgTable(
     slug: citext('slug').notNull().unique(),
     /** active | suspended */
     status: text('status').notNull().default('active'),
+    /** Move Meets-all candidates forward automatically (migration 0035). */
+    autoAdvanceMeetsAll: boolean('auto_advance_meets_all').notNull().default(false),
     createdAt: timestamp('created_at', { withTimezone: true })
       .notNull()
       .defaultNow(),

@@ -187,19 +187,7 @@ export function createOwnLoopService(
         result.endedReason === 'voicemail' ? 'voicemail' : failed ? 'engine_error' : null;
       const transcript = result.transcript.filter((t) => t.message.trim());
 
-      await asOrg(row.organization_id, (tx) =>
-        tx.execute(sql`
-          update voice_sessions set
-            status = ${failed ? 'failed' : 'ended'},
-            failure_reason = coalesce(${failureReason}, failure_reason),
-            transcript = ${JSON.stringify(transcript)}::jsonb,
-            duration_seconds = ${Math.max(0, Math.round(result.durationSeconds))},
-            ended_at = coalesce(ended_at, now()),
-            webhook_received_at = now()
-          where id = ${row.id} and organization_id = ${row.organization_id}
-        `),
-      );
-
+      // Answers first: a client that sees "ended" reads the results straight away.
       const snap = row.provision_snapshot ?? {};
       const questions = (Array.isArray(snap['evaluationCriteria']) ? snap['evaluationCriteria'] : [])
         .filter((c): c is Record<string, unknown> => Boolean(c) && typeof c === 'object')
@@ -208,16 +196,22 @@ export function createOwnLoopService(
         { questions, transcript, language: String(snap['screeningLanguage'] ?? 'en') },
         { apiKey: env.GEMINI_API_KEY, baseUrl: env.GEMINI_BASE_URL, model: env.GEMINI_MODEL },
       );
-      if (extracted.summary || Object.keys(extracted.answers).length > 0) {
-        await asOrg(row.organization_id, (tx) =>
-          tx.execute(sql`
-            update voice_sessions set
-              summary = ${extracted.summary},
-              structured_answers = ${JSON.stringify(extracted.answers)}::jsonb
-            where id = ${row.id} and organization_id = ${row.organization_id}
-          `),
-        );
-      }
+      const found = Boolean(extracted.summary) || Object.keys(extracted.answers).length > 0;
+
+      await asOrg(row.organization_id, (tx) =>
+        tx.execute(sql`
+          update voice_sessions set
+            status = ${failed ? 'failed' : 'ended'},
+            failure_reason = coalesce(${failureReason}, failure_reason),
+            transcript = ${JSON.stringify(transcript)}::jsonb,
+            duration_seconds = ${Math.max(0, Math.round(result.durationSeconds))},
+            ended_at = coalesce(ended_at, now()),
+            webhook_received_at = now(),
+            summary = case when ${found} then ${extracted.summary} else summary end,
+            structured_answers = case when ${found} then ${JSON.stringify(extracted.answers)}::jsonb else structured_answers end
+          where id = ${row.id} and organization_id = ${row.organization_id}
+        `),
+      );
 
       await costs.recordCallCost(row.organization_id, row.id, { usage: result.usage });
       await onCallEnded(row.organization_id, row.id);

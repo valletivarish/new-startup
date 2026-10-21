@@ -30,8 +30,11 @@ from pipecat.serializers.exotel import ExotelFrameSerializer
 from pipecat.services.deepgram.stt import DeepgramSTTService
 from pipecat.services.elevenlabs.tts import ElevenLabsTTSService
 from pipecat.services.google.llm import GoogleLLMService
+from pipecat.services.google.tts import GoogleTTSService
+from google.cloud import texttospeech_v1
 from pipecat.services.llm_service import FunctionCallParams
 from pipecat.services.sarvam.tts import SarvamTTSService
+from pipecat.transcriptions.language import Language
 from pipecat.transports.websocket.fastapi import FastAPIWebsocketParams, FastAPIWebsocketTransport
 
 from meter import CallMeter, MeterObserver
@@ -54,6 +57,35 @@ PHONE_RULES = {
         "If you reach a voicemail or answering machine, call end_call with reason 'voicemail' at once."
     ),
 }
+# India launch set (docs/voice-selection.md). Calls run in `<code>-IN`.
+LANGUAGE_NAMES = {
+    "en": "English", "hi": "Hindi", "bn": "Bengali", "mr": "Marathi", "te": "Telugu", "ta": "Tamil",
+    "gu": "Gujarati", "ur": "Urdu", "kn": "Kannada", "ml": "Malayalam", "pa": "Punjabi",
+}
+NAMES_RULE = (
+    "Keep person and company names in English letters; never transliterate them into another script."
+)
+# Deepgram nova-3: Hindi callers code-mix, so `multi` (en+hi). Malayalam has no nova-3 model:
+# ponytail: `multi` only hears its English words; switch STT provider for ml if it launches.
+STT_LANGUAGE = {"en": "en-IN", "hi": "multi", "ml": "multi"}
+# Gemini 2.5 Flash TTS has no Bengali or Urdu voice: those calls stay on Chirp 3 HD.
+GEMINI_TTS_LANGS = {"en", "hi", "mr", "te", "ta", "gu", "kn", "ml", "pa"}
+GEMINI_TTS_MODEL = "gemini-2.5-flash-tts"
+GEMINI_TTS_PROMPT = "Warm, friendly Indian recruiter on a phone call, relaxed natural pace."
+
+
+def phone_rules(lang: str) -> str:
+    if lang in PHONE_RULES:
+        rules = PHONE_RULES[lang]
+    else:
+        name = LANGUAGE_NAMES[lang]
+        rules = (
+            f"{PHONE_RULES['en']} Speak natural, polite {name} throughout, written in {name} script; "
+            "English words people normally use (notice period, CTC, Java) are fine."
+        )
+    return f"{rules} {NAMES_RULE}"
+
+
 STILL_THERE = {"en": "Are you still there?", "hi": "क्या आप लाइन पर हैं?"}
 GOODBYE_SILENT = {
     "en": "I can't hear you, so I'll end the call here. Thank you, goodbye.",
@@ -77,7 +109,59 @@ END_CALL = FunctionSchema(
 )
 
 
+class GoogleVoiceTTS(GoogleTTSService):
+    """Chirp 3 HD, or Gemini 2.5 Flash with the same persona when `gemini` is set.
+
+    A Gemini line that fails before any audio (429 quota, unsupported language, …)
+    is spoken again by Chirp 3 HD, so the caller never hears silence.
+    """
+
+    def __init__(self, *, gemini: bool, **kwargs):
+        super().__init__(**kwargs)
+        self._gemini = gemini
+
+    async def run_tts(self, text: str, context_id: str):
+        if self._gemini:
+            voice = texttospeech_v1.VoiceSelectionParams(
+                language_code=self._settings.language,
+                name=str(self._settings.voice).rsplit("-", 1)[-1],  # en-IN-Chirp3-HD-Kore → Kore
+                model_name=GEMINI_TTS_MODEL,
+            )
+            config = texttospeech_v1.StreamingSynthesizeConfig(
+                voice=voice,
+                streaming_audio_config=texttospeech_v1.StreamingAudioConfig(
+                    audio_encoding=texttospeech_v1.AudioEncoding.PCM,
+                    sample_rate_hertz=self.sample_rate,
+                ),
+            )
+            spoke = False
+            try:
+                async for frame in self._stream_tts(config, text, context_id, GEMINI_TTS_PROMPT):
+                    spoke = True
+                    yield frame
+                return
+            except Exception as err:  # noqa: BLE001
+                if spoke:
+                    await self.push_error(error_msg=f"Gemini TTS failed mid-line: {err}", exception=err)
+                    return
+                logger.warning(f"Gemini TTS failed, falling back to Chirp 3 HD: {err}")
+        async for frame in super().run_tts(text, context_id):
+            yield frame
+
+
 def build_tts(plan: dict, lang: str):
+    if plan["engine"] == "own_loop_google_voice":
+        gemini = plan.get("ttsModel") == "gemini_flash" and lang in GEMINI_TTS_LANGS
+        return GoogleVoiceTTS(
+            gemini=gemini,
+            # Credentials: GOOGLE_APPLICATION_CREDENTIALS (a key file) or ADC.
+            # Gemini voices only come at 24 kHz; Chirp at the phone line's 8 kHz.
+            sample_rate=24000 if gemini else 8000,
+            settings=GoogleTTSService.Settings(
+                voice=plan.get("voiceId") or f"{lang}-IN-Chirp3-HD-Kore",
+                language=Language(f"{lang}-IN"),
+            ),
+        )
     if plan["engine"] == "own_loop_sarvam_voice":
         return SarvamTTSService(
             api_key=os.environ["SARVAM_API_KEY"],
@@ -127,7 +211,8 @@ def transcript_of(context: LLMContext) -> list[dict]:
 
 
 async def run_call(websocket: WebSocket, call_id: str, stream_id: str, plan: dict) -> None:
-    lang = "hi" if str(plan.get("language", "en")).startswith("hi") else "en"
+    code = str(plan.get("language", "en"))[:2].lower()
+    lang = code if code in LANGUAGE_NAMES else "en"
     meter = CallMeter()
     outcome = {"reason": "candidate_hung_up"}
 
@@ -145,13 +230,13 @@ async def run_call(websocket: WebSocket, call_id: str, stream_id: str, plan: dic
         api_key=os.environ["DEEPGRAM_API_KEY"],
         settings=DeepgramSTTService.Settings(
             model="nova-3",
-            language="multi" if lang == "hi" else "en-IN",
+            language=STT_LANGUAGE.get(lang, lang),
             smart_format=True,
             punctuate=True,
             interim_results=True,
         ),
     )
-    llm = build_llm(f"{plan.get('prompt', '')}\n\n{PHONE_RULES[lang]}")
+    llm = build_llm(f"{plan.get('prompt', '')}\n\n{phone_rules(lang)}")
     tts = build_tts(plan, lang)
 
     context = LLMContext(tools=ToolsSchema(standard_tools=[END_CALL]))
@@ -200,10 +285,10 @@ async def run_call(websocket: WebSocket, call_id: str, stream_id: str, plan: dic
     async def on_idle(_aggregator):
         silent_prompts["count"] += 1
         if silent_prompts["count"] == 1:
-            await worker.queue_frame(TTSSpeakFrame(STILL_THERE[lang]))
+            await worker.queue_frame(TTSSpeakFrame(STILL_THERE.get(lang, STILL_THERE["en"])))
         else:
             outcome["reason"] = "silence"
-            await worker.queue_frames([TTSSpeakFrame(GOODBYE_SILENT[lang]), EndFrame()])
+            await worker.queue_frames([TTSSpeakFrame(GOODBYE_SILENT.get(lang, GOODBYE_SILENT["en"])), EndFrame()])
 
     @aggregators.user().event_handler("on_user_turn_started")
     async def on_user_spoke(*_args):
@@ -222,7 +307,7 @@ async def run_call(websocket: WebSocket, call_id: str, stream_id: str, plan: dic
     async def time_limit():
         await asyncio.sleep(int(plan.get("maxCallSeconds", 480)))
         outcome["reason"] = "max_duration"
-        await worker.queue_frames([TTSSpeakFrame(GOODBYE_TIME[lang]), EndFrame()])
+        await worker.queue_frames([TTSSpeakFrame(GOODBYE_TIME.get(lang, GOODBYE_TIME["en"])), EndFrame()])
 
     limiter = asyncio.create_task(time_limit())
     try:

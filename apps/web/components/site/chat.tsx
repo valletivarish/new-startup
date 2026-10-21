@@ -324,7 +324,7 @@ const ENTRIES: readonly Entry[] = [
       'greenhouse',
     ],
     answer:
-      'Not yet. Add candidates from a spreadsheet saved as CSV or from their resumes. Your team reviews each call and moves candidates forward in HRVoice.',
+      'Zoho Recruit, yes. An admin connects it once from Settings and picks the Zoho jobs. New applicants on those jobs come into HRVoice within about 15 minutes, and after each call a note with their answers goes onto the candidate in Zoho. Rejected and hired people are never called, and no score is sent. Other hiring systems don’t connect directly yet: add candidates from a spreadsheet saved as CSV, from their resumes, or through our API.',
   },
   {
     id: 'other',

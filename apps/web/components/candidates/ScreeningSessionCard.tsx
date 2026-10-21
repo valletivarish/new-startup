@@ -45,6 +45,8 @@ export function ScreeningSessionCard({
 }) {
   const player = useRef<RecordingPlayerHandle>(null);
   const [time, setTime] = useState<number | null>(null);
+  // The server said this call kept no recording: stop promising one in the header.
+  const [noRecording, setNoRecording] = useState(false);
   const turns = toTranscriptTurns(session.transcript, candidateName);
   const answers = answerItems(session.structuredAnswers, screeningQuestions);
   const hasResults = sessionHasResults(session);
@@ -93,11 +95,11 @@ export function ScreeningSessionCard({
 
       <TranscriptCard
         title="AI hiring agent"
-        subtitle={recording ? 'Transcript and recording' : turns.length > 0 ? 'Transcript' : undefined}
+        subtitle={recording && !noRecording ? 'Transcript and recording' : turns.length > 0 ? 'Transcript' : undefined}
         agentState={face}
         turns={turns}
         currentTime={time}
-        onPlayFrom={recording ? (at) => player.current?.seek(at) : undefined}
+        onPlayFrom={recording && !noRecording ? (at) => player.current?.seek(at) : undefined}
         label={`Transcript of the call with ${candidateName}`}
         contactLabel={candidateName}
         className={turns.length > 0 ? 'max-h-[34rem]' : undefined}
@@ -109,6 +111,7 @@ export function ScreeningSessionCard({
                   ref={player}
                   src={recording}
                   onTimeChange={setTime}
+                  onMissing={() => setNoRecording(true)}
                   label={`Recording of the call with ${candidateName}`}
                 />
               ) : null}

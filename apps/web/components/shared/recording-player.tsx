@@ -16,6 +16,8 @@ export interface RecordingPlayerProps {
   src: string;
   /** The playback position in seconds as it changes, including after a seek. Feed it to Transcript currentTime. */
   onTimeChange?: (seconds: number) => void;
+  /** The call turned out to have no recording (the server has none), so a caller can stop promising one. */
+  onMissing?: () => void;
   /** Accessible name of the player. */
   label?: string;
   className?: string;
@@ -23,6 +25,23 @@ export interface RecordingPlayerProps {
 }
 
 const finite = (n: number) => (Number.isFinite(n) && n > 0 ? n : null);
+
+/** Why a recording wouldn't load: none was kept, the viewer is offline, or something else went wrong. */
+export type RecordingFailure = 'missing' | 'offline' | 'error';
+
+/**
+ * An audio element only says it failed, not why. Ask the server again: a 404 or 410 means the
+ * call has no recording, a fetch that throws (or no network at all) is the viewer's connection.
+ */
+export async function recordingFailure(src: string): Promise<RecordingFailure> {
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) return 'offline';
+  try {
+    const res = await fetch(src, { method: 'HEAD', cache: 'no-store' });
+    return res.status === 404 || res.status === 410 ? 'missing' : 'error';
+  } catch {
+    return 'offline';
+  }
+}
 
 // The native range stays the control (keyboard, touch, screen readers). Its track draws the
 // played part in accent up to --played; the thumb is an accent dot with a white ring, and keyboard
@@ -42,11 +61,13 @@ const RANGE =
 
 /**
  * The call recording as a pill: a round play/pause button, the position slider and the times.
- * A seek handle serves time pills and transcript turns; a load failure shows a plain error with Retry.
+ * A seek handle serves time pills and transcript turns. A call with no recording says so quietly;
+ * any other load failure shows a plain error with Retry.
  */
 export function RecordingPlayer({
   src,
   onTimeChange,
+  onMissing,
   label = 'Call recording',
   className,
   ref,
@@ -56,11 +77,17 @@ export function RecordingPlayer({
   const toggle = useRef<HTMLButtonElement>(null);
   const retry = useRef<HTMLButtonElement>(null);
   const [failed, setFailed] = useState(false);
+  // Why it failed, once the server has been asked. null while asking.
+  const [failure, setFailure] = useState<RecordingFailure | null>(null);
   // Retry keeps the error and its focused button in place until the reload settles.
   const [retrying, setRetrying] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [time, setTime] = useState(0);
   const [duration, setDuration] = useState<number | null>(null);
+  const settle = (why: RecordingFailure) => {
+    setFailure(why);
+    if (why === 'missing') onMissing?.();
+  };
   // Where focus goes once the error appears or goes: only when it was inside the player.
   const refocus = useRef(false);
 
@@ -69,6 +96,7 @@ export function RecordingPlayer({
   if (loaded !== src) {
     setLoaded(src);
     setFailed(false);
+    setFailure(null);
     setPlaying(false);
     setTime(0);
     setDuration(null);
@@ -86,8 +114,10 @@ export function RecordingPlayer({
   useEffect(() => {
     const el = audio.current;
     if (!el) return;
-    if (el.error) setFailed(true);
-    else setDuration(finite(el.duration));
+    if (el.error) {
+      setFailed(true);
+      void recordingFailure(el.currentSrc || el.src).then(settle);
+    } else setDuration(finite(el.duration));
   }, []);
 
   useImperativeHandle(
@@ -134,14 +164,21 @@ export function RecordingPlayer({
         onTimeUpdate={(event) => report(event.currentTarget)}
         onPlay={() => setPlaying(true)}
         onPause={() => setPlaying(false)}
-        onError={() => {
+        onError={(event) => {
           refocus.current = focusInside();
           setFailed(true);
+          const at = event.currentTarget.currentSrc || src;
+          void recordingFailure(at).then(settle);
           setRetrying(false);
           setPlaying(false);
         }}
       />
-      {failed ? (
+      {failed && failure === 'missing' ? (
+        <p className="m-0 px-1 text-meta text-text-3">No recording for this call</p>
+      ) : failed && failure === null ? (
+        // Asking the server why: hold the space quietly rather than flash an error.
+        <div className="h-12" />
+      ) : failed ? (
         <Notice
           kind="error"
           title="Couldn’t load the recording"
@@ -161,7 +198,7 @@ export function RecordingPlayer({
             </Button>
           }
         >
-          Check your connection, then retry.
+          {failure === 'offline' ? 'Check your connection, then retry.' : 'Something went wrong on our side. Retry in a moment.'}
         </Notice>
       ) : (
         <div

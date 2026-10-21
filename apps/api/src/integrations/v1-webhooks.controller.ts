@@ -55,7 +55,8 @@ export class V1WebhooksController {
     const input = parse(V1WebhookEndpointCreate, body);
     // Call events carry the transcript, so only a caller who may read transcripts subscribes.
     const ctx = requireOrganization(req.authContext ?? (() => { throw ApiError.unauthorized(); })());
-    if (!ctx.organization.permissions.has('calls.read_transcript')) {
+    const callEvents = input.events.some((e) => e.startsWith('call.'));
+    if (callEvents && !ctx.organization.permissions.has('calls.read_transcript')) {
       throw ApiError.forbidden('Webhook endpoints need the results scope (calls.read_transcript).');
     }
     return this.write(req, reply, async () => ({

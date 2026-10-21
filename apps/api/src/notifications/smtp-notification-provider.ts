@@ -43,6 +43,7 @@ export function createSmtpNotificationProvider(
         subject: params.subject,
         text: params.text,
         ...(params.html !== undefined ? { html: params.html } : {}),
+        ...(params.replyTo !== undefined ? { replyTo: params.replyTo } : {}),
       });
       logger.info({ to: params.to, subject: params.subject }, 'notification.email.sent');
     },

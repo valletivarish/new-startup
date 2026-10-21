@@ -12,7 +12,7 @@ import { createJobsService } from '../hiring/jobs.service.js';
 import type { JobQueue } from '../jobs/queue.js';
 import { recordingLink, toV1Result } from './public-mappers.js';
 
-export const WEBHOOK_EVENTS = ['call.completed', 'call.failed'] as const;
+export const WEBHOOK_EVENTS = ['call.completed', 'call.failed', 'ticket.updated'] as const;
 export type WebhookEvent = (typeof WEBHOOK_EVENTS)[number];
 
 const SYSTEM_USER = '00000000-0000-0000-0000-000000000000';
@@ -25,7 +25,7 @@ type WebhookQueue = { enqueueWebhook?: JobQueue['enqueueWebhook'] } | null;
 async function recordOnce(
   tx: Tx,
   organizationId: string,
-  type: WebhookEvent,
+  type: 'call.completed' | 'call.failed',
   data: { callId: string } & Record<string, unknown>,
 ): Promise<string[]> {
   const seen = await tx.execute(sql`
@@ -57,6 +57,35 @@ async function enqueueAll(
     await queue?.enqueueWebhook?.({ organizationId, deliveryId }).catch((error: unknown) =>
       logger.error({ err: (error as Error).message, deliveryId }, 'webhooks.enqueue_failed'),
     );
+  }
+}
+
+/**
+ * `ticket.updated` to every endpoint subscribed to it (staff replied, status changed).
+ * Not de-duplicated: each change is its own event. Never throws.
+ */
+export async function emitTicketEvent(
+  database: Database,
+  queue: WebhookQueue,
+  organizationId: string,
+  data: { ticketId: string } & Record<string, unknown>,
+  logger: Logger = { error: (obj, msg) => console.error(msg, obj) },
+): Promise<void> {
+  try {
+    const payload = { id: `evt_${randomUUID()}`, type: 'ticket.updated', createdAt: new Date().toISOString(), data };
+    const rows = await withTenantContext(database.db, { organizationId, userId: SYSTEM_USER }, (tx) =>
+      tx.execute<{ id: string }>(sql`
+        insert into webhook_deliveries (organization_id, endpoint_id, event, payload)
+        select ${organizationId}, e.id, 'ticket.updated', ${JSON.stringify(payload)}::jsonb
+        from webhook_endpoints e
+        where e.organization_id = ${organizationId} and e.disabled_at is null
+          and 'ticket.updated' = any(e.events)
+        returning id
+      `),
+    );
+    await enqueueAll(queue, organizationId, rows.map((r) => r.id), logger);
+  } catch (error) {
+    logger.error({ err: (error as Error).message, organizationId }, 'webhooks.emit_failed');
   }
 }
 

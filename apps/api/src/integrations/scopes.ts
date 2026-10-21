@@ -12,6 +12,7 @@ export const API_SCOPES = [
   'results',
   'webhooks',
   'usage',
+  'support',
 ] as const;
 
 export type ApiScope = (typeof API_SCOPES)[number];
@@ -33,6 +34,8 @@ export const SCOPE_PERMISSIONS: Record<ApiScope, readonly Permission[]> = {
     'integrations.delete',
   ],
   usage: ['usage.read'],
+  // Raise, read and reply to the company's support tickets.
+  support: ['support.use'],
 };
 
 /** Every permission granted by any of `scopes`. Unknown scopes grant nothing. */

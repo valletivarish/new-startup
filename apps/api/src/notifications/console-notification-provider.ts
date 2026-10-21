@@ -18,7 +18,7 @@ export function createConsoleNotificationProvider(
       // The body may contain verification/reset URLs. That is acceptable for
       // a local console transport and would NOT be for production logging.
       logger.info(
-        { to: params.to, subject: params.subject, body: params.text },
+        { to: params.to, subject: params.subject, replyTo: params.replyTo, body: params.text },
         'notification.email (console transport)',
       );
     },

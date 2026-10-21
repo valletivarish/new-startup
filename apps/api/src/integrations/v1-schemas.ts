@@ -107,7 +107,7 @@ export const V1Usage = z.object({
   amountInr: z.number().nullable(),
 });
 
-export const V1WebhookEventType = z.enum(['call.completed', 'call.failed']);
+export const V1WebhookEventType = z.enum(['call.completed', 'call.failed', 'ticket.updated']);
 
 /** Shared by the controller (runtime) and OpenAPI (input side); events are de-duplicated. */
 export const V1WebhookEndpointCreate = z.object({
@@ -144,7 +144,7 @@ export const V1WebhookDelivery = z.object({
 
 export const V1WebhookEvent = z.object({
   id: z.string(),
-  type: V1WebhookEventType,
+  type: z.enum(['call.completed', 'call.failed']),
   createdAt: z.string(),
   data: z.object({
     callId: z.string(),
@@ -168,4 +168,55 @@ export const V1CandidateLinkSubmit = z.object({
   countryCode: z.string().trim().min(1).max(8).default('+91'),
   when: z.union([z.literal('now'), z.string().datetime({ offset: true })]),
   consent: z.literal(true),
+});
+
+// ---- Support tickets (scope `support`) ----
+
+const TicketStatus = z.enum(['open', 'waiting_on_us', 'waiting_on_customer', 'solved']);
+
+export const V1TicketCreate = z.object({
+  subject: z.string().trim().max(200).optional().describe('Defaults to the first line of body.'),
+  body: z.string().trim().min(1).max(5000),
+  jobId: z.string().uuid().optional(),
+  candidateId: z.string().uuid().optional(),
+  callId: z.string().uuid().optional(),
+  /** MCP servers send "mcp"; everything else is "api". */
+  channel: z.enum(['api', 'mcp']).default('api'),
+});
+
+export const V1TicketMessageCreate = z.object({ body: z.string().trim().min(1).max(5000) });
+
+export const V1TicketMessage = z.object({
+  id: z.string().uuid(),
+  authorKind: z.enum(['customer', 'staff', 'system']),
+  body: z.string(),
+  createdAt: z.string(),
+});
+
+export const V1Ticket = z.object({
+  id: z.string().uuid(),
+  ref: z.string().describe('Short reference; quote it as [#ref] in an email subject to reply by email.'),
+  subject: z.string(),
+  status: TicketStatus,
+  channel: z.enum(['dashboard', 'chat', 'email', 'api', 'mcp']),
+  jobId: z.string().uuid().nullable(),
+  candidateId: z.string().uuid().nullable(),
+  callId: z.string().uuid().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  lastMessageAt: z.string(),
+  messages: z.array(V1TicketMessage).optional(),
+});
+
+export const V1TicketEvent = z.object({
+  id: z.string(),
+  type: z.literal('ticket.updated'),
+  createdAt: z.string(),
+  data: z.object({
+    ticketId: z.string().uuid(),
+    ref: z.string(),
+    subject: z.string(),
+    status: TicketStatus,
+    message: V1TicketMessage.optional(),
+  }),
 });

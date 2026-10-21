@@ -200,6 +200,14 @@ const EnvSchema = z.object({
   /** Comma-separated emails allowed into the cross-company cost dashboard. */
   PLATFORM_ADMIN_EMAILS: z.string().default(''),
 
+  /**
+   * Support inbox address. Replies to ticket emails go to support+<ref>@<its domain>,
+   * which the inbound email webhook threads back onto the ticket.
+   */
+  SUPPORT_EMAIL: z.string().email().default('support@nexstopp.com'),
+  /** HMAC secret for POST /webhooks/inbound-email. Empty = the route answers 404. */
+  INBOUND_EMAIL_SECRET: z.string().default(''),
+
   /** Own voice loop (apps/voice). Off = every job uses the ElevenLabs agent. */
   VOICE_OWN_LOOP_ENABLED: z
     .string()

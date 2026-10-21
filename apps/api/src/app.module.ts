@@ -72,6 +72,7 @@ import {
   CANDIDATE_LINKS_SERVICE,
   WEBHOOKS_SERVICE,
   USAGE_SERVICE,
+  SUPPORT_SERVICE,
 } from './tokens.more.js';
 import {
   AuthController,
@@ -131,7 +132,16 @@ import { V1WebhooksController } from './integrations/v1-webhooks.controller.js';
 import { emitCallEvent } from './integrations/events.js';
 import { createWebhooksService } from './integrations/webhooks.service.js';
 import { createCallRequestsService } from './integrations/call-requests.service.js';
-import { CALL_QUEUE, type CallJob } from './jobs/queue.js';
+import { CALL_QUEUE, SUPPORT_QUEUE, type CallJob, type SupportJob } from './jobs/queue.js';
+import { createSupportService } from './support/support.service.js';
+import {
+  AdminSupportController,
+  InboundEmailController,
+  PublicSupportController,
+  SupportController,
+  V1TicketsController,
+} from './support/support.controller.js';
+import { StatusController } from './support/status.controller.js';
 
 export interface AppDeps {
   readonly env: Env;
@@ -198,6 +208,12 @@ export class AppModule {
         V1CandidateLinksController,
         PublicCandidateLinksController,
         V1WebhooksController,
+        SupportController,
+        V1TicketsController,
+        AdminSupportController,
+        PublicSupportController,
+        InboundEmailController,
+        StatusController,
       ],
       providers: [
         { provide: ENV, useValue: deps.env },
@@ -428,6 +444,27 @@ export class AppModule {
               queue: deps.jobs,
               production: deps.env.NODE_ENV === 'production',
             }),
+        },
+        {
+          // The API process runs the 5-minute unanswered-chat check (null queue in tests).
+          provide: SUPPORT_SERVICE,
+          inject: [COST_SERVICE],
+          useFactory: async (costs: ReturnType<typeof createCostService>) => {
+            const service = createSupportService({
+              database: deps.database,
+              notifications: deps.notifications,
+              queue: deps.jobs,
+              webUrl: deps.env.WEB_URL,
+              supportEmail: deps.env.SUPPORT_EMAIL,
+              adminEmails: deps.env.PLATFORM_ADMIN_EMAILS.split(',').map((e) => e.trim()).filter(Boolean),
+              isPlatformAdmin: (email) => costs.isPlatformAdmin(email),
+              logger: deps.logger,
+            });
+            await deps.jobs?.boss.work<SupportJob>(SUPPORT_QUEUE, async (batch) => {
+              for (const job of batch) await service.checkUnanswered(job.data);
+            });
+            return service;
+          },
         },
         {
           provide: USAGE_SERVICE,

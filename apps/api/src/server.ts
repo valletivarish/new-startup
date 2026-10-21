@@ -28,6 +28,7 @@ import { AppModule } from './app.module.js';
 import { ApiExceptionFilter } from './http-exception.filter.js';
 import type { VoiceSessionAdapter } from './providers/elevenlabs/adapter.js';
 import { registerVoiceWebhookRawBody } from './providers/elevenlabs/webhook-raw-body.js';
+import { registerInboundEmailRawBody } from './support/inbound-raw-body.js';
 
 export interface BuiltApp {
   readonly app: NestFastifyApplication;
@@ -137,6 +138,7 @@ export async function buildApp(
   const fastify = app.getHttpAdapter().getInstance();
 
   registerVoiceWebhookRawBody(fastify);
+  registerInboundEmailRawBody(fastify);
 
   await fastify.register(fastifyCookie);
   await fastify.register(fastifyHelmet, {

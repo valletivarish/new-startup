@@ -38,7 +38,7 @@ function registeredRoutes(): [string, string][] {
 describe('OpenAPI document', () => {
   it('is OpenAPI 3.1 with bearer auth, webhooks and Idempotency-Key', () => {
     expect((doc as unknown as { openapi: string }).openapi).toBe('3.1.0');
-    expect(Object.keys(doc.webhooks)).toEqual(['call.completed', 'call.failed']);
+    expect(Object.keys(doc.webhooks)).toEqual(['call.completed', 'call.failed', 'ticket.updated']);
     expect(JSON.stringify(doc)).toContain('bearerAuth');
     expect(JSON.stringify(doc)).toContain('Idempotency-Key');
   });

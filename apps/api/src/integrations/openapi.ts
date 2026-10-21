@@ -13,9 +13,11 @@ const schemas = {
   WebhookEndpointCreated: S.V1WebhookEndpointCreated, WebhookDelivery: S.V1WebhookDelivery,
   WebhookEvent: S.V1WebhookEvent, CandidateLinkCreate: S.V1CandidateLinkCreate,
   CandidateLinkSubmit: S.V1CandidateLinkSubmit,
+  Ticket: S.V1Ticket, TicketMessage: S.V1TicketMessage, TicketCreate: S.V1TicketCreate,
+  TicketMessageCreate: S.V1TicketMessageCreate, TicketEvent: S.V1TicketEvent,
 };
 // Requests are described by what a client may send (defaults optional); responses by what it gets.
-const INPUT = new Set(['WebhookEndpointCreate', 'JobCreate', 'JobPatch', 'CandidateCreate', 'CandidateBatch', 'CandidateLinkSubmit']);
+const INPUT = new Set(['WebhookEndpointCreate', 'JobCreate', 'JobPatch', 'CandidateCreate', 'CandidateBatch', 'CandidateLinkSubmit', 'TicketCreate', 'TicketMessageCreate']);
 
 const ref = (n: string) => ({ $ref: `#/components/schemas/${n}` });
 const json = (schema: object) => ({ 'application/json': { schema } });
@@ -111,7 +113,7 @@ export function buildOpenApi(): object {
     },
     servers: [{ url: '/' }],
     security: [{ bearerAuth: [] }],
-    tags: ['Account', 'Jobs', 'Candidates', 'Calls', 'Usage', 'Webhooks', 'Candidate links'].map((name) => ({ name })),
+    tags: ['Account', 'Jobs', 'Candidates', 'Calls', 'Usage', 'Webhooks', 'Candidate links', 'Support'].map((name) => ({ name })),
     paths: {
       '/v1/ping': { get: op({ summary: 'Check the key and name its company.', tag: 'Account',
         ok: ok('200', 'OK', obj({ organizationId: { type: 'string', format: 'uuid' },
@@ -189,6 +191,19 @@ export function buildOpenApi(): object {
         post: op({ summary: 'Re-queue the same delivery for another round of attempts.', tag: 'Webhooks', params: [id], write: true,
           ok: ok('201', 'Queued', ref('WebhookDelivery')), errors: ['404', '409'] }),
       },
+      '/v1/tickets': {
+        get: op({ summary: 'List the company\'s support tickets, newest first.', tag: 'Support', params: [limit, page],
+          ok: ok('200', 'OK', obj({ tickets: arrayOf('Ticket'), nextCursor: nullableStr })), errors: ['422'] }),
+        post: op({ summary: 'Raise a ticket. The company\'s recent integration errors are attached for support automatically.',
+          tag: 'Support', write: true, body: ref('TicketCreate'), ok: ok('201', 'Created', ref('Ticket')), errors: ['404', '422'] }),
+      },
+      '/v1/tickets/{id}': {
+        get: op({ summary: 'A ticket and its messages.', tag: 'Support', params: [id], ok: ok('200', 'OK', ref('Ticket')), errors: ['404'] }),
+      },
+      '/v1/tickets/{id}/messages': {
+        post: op({ summary: 'Reply on a ticket.', tag: 'Support', params: [id], write: true, body: ref('TicketMessageCreate'),
+          ok: ok('201', 'Created', ref('TicketMessage')), errors: ['404', '422'] }),
+      },
       '/v1/jobs/{jobId}/candidate-links': {
         post: op({ summary: 'Mint a link the candidate opens to consent and give their number.',
           tag: 'Candidate links', params: [jobId], body: ref('CandidateLinkCreate'),
@@ -204,7 +219,17 @@ export function buildOpenApi(): object {
           errors: ['404', '409', '422', '429', '503'] }),
       },
     },
-    webhooks: { 'call.completed': webhookOp('call.completed'), 'call.failed': webhookOp('call.failed') },
+    webhooks: {
+      'call.completed': webhookOp('call.completed'),
+      'call.failed': webhookOp('call.failed'),
+      'ticket.updated': {
+        post: {
+          ...webhookOp('ticket.updated').post,
+          summary: 'Sent when HRVoice support replies to a ticket or changes its status.',
+          requestBody: { required: true, content: json(ref('TicketEvent')) },
+        },
+      },
+    },
     components: {
       securitySchemes: { bearerAuth: { type: 'http', scheme: 'bearer', description: 'hrv_live_... or hrv_test_...' } },
       parameters: {

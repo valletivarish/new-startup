@@ -22,6 +22,7 @@ export function createQueuedNotificationProvider(
           subject: params.subject,
           text: params.text,
           ...(params.html !== undefined ? { html: params.html } : {}),
+          ...(params.replyTo !== undefined ? { replyTo: params.replyTo } : {}),
         },
         params.idempotencyKey,
       );

@@ -18,6 +18,13 @@ export const EMAIL_QUEUE = 'notifications.email';
 export const DOCUMENT_QUEUE = 'knowledge.document.process';
 export const CALL_QUEUE = 'calls.place';
 export const WEBHOOK_QUEUE = 'webhooks.deliver';
+export const SUPPORT_QUEUE = 'support.unanswered';
+
+/** Check a chat message 5 minutes on: still unanswered → email the customer. Ids only. */
+export interface SupportJob {
+  readonly ref: string;
+  readonly messageId: string;
+}
 
 /** Deliver one webhook_deliveries row. Org id because the worker has no tenant context. */
 export interface WebhookJob {
@@ -40,6 +47,7 @@ export interface EmailJob {
   readonly subject: string;
   readonly text: string;
   readonly html?: string;
+  readonly replyTo?: string;
   /**
    * Present when the email was triggered inside a tenant context. The worker
    * establishes that context per job, per transaction (ADR-003) before any
@@ -71,6 +79,7 @@ export interface JobQueue {
   /** `startAfter` holds the job until then (calls outside calling hours). */
   enqueueCall(job: CallJob, startAfter?: Date): Promise<void>;
   enqueueWebhook(job: WebhookJob): Promise<void>;
+  enqueueSupportCheck(job: SupportJob, startAfter: Date): Promise<void>;
   readonly boss: PgBoss;
 }
 
@@ -130,8 +139,13 @@ export function createJobQueue(
         retentionSeconds: 3 * 86_400,
         deleteAfterSeconds: 3600,
       });
+      await boss.createQueue(SUPPORT_QUEUE, {
+        // Ids only (ticket ref + message id); the thread stays in support_messages (RLS).
+        retentionSeconds: 86_400,
+        deleteAfterSeconds: 3600,
+      });
       logger.info(
-        { queues: [EMAIL_QUEUE, DOCUMENT_QUEUE, CALL_QUEUE, WEBHOOK_QUEUE] },
+        { queues: [EMAIL_QUEUE, DOCUMENT_QUEUE, CALL_QUEUE, WEBHOOK_QUEUE, SUPPORT_QUEUE] },
         'jobs.queue_ready',
       );
     },
@@ -171,6 +185,17 @@ export function createJobQueue(
         retryDelayMax: 21_600,
         retentionSeconds: 3 * 86_400,
         expireInSeconds: 60,
+      });
+    },
+
+    async enqueueSupportCheck(job, startAfter) {
+      await boss.send(SUPPORT_QUEUE, job as unknown as object, {
+        retryLimit: 2,
+        retryDelay: 60,
+        expireInSeconds: 120,
+        startAfter,
+        // One check per message, however often the enqueue is retried.
+        singletonKey: job.messageId,
       });
     },
 

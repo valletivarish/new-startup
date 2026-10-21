@@ -59,6 +59,7 @@ await queue.boss.work<EmailJob>(EMAIL_QUEUE, async (jobs) => {
       subject: job.data.subject,
       text: job.data.text,
       ...(job.data.html !== undefined ? { html: job.data.html } : {}),
+      ...(job.data.replyTo !== undefined ? { replyTo: job.data.replyTo } : {}),
     });
     logger.info({ jobId: job.id, to: job.data.to }, 'jobs.email_sent');
   }

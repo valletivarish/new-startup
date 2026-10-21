@@ -54,6 +54,14 @@ import {
   V1CandidateLinksController,
 } from '../src/integrations/candidate-links.controller.js';
 import { V1WebhooksController } from '../src/integrations/v1-webhooks.controller.js';
+import {
+  AdminSupportController,
+  InboundEmailController,
+  PublicSupportController,
+  SupportController,
+  V1TicketsController,
+} from '../src/support/support.controller.js';
+import { StatusController } from '../src/support/status.controller.js';
 
 // The complete controller list. app.module.ts must register exactly these;
 // the companion assertion below keeps the two lists from drifting.
@@ -87,6 +95,12 @@ const CONTROLLERS = [
   V1WebhooksController,
   V1CandidateLinksController,
   PublicCandidateLinksController,
+  SupportController,
+  V1TicketsController,
+  AdminSupportController,
+  PublicSupportController,
+  InboundEmailController,
+  StatusController,
 ];
 
 interface RouteInfo {
@@ -175,9 +189,16 @@ describe('every route declares its authorization requirement', () => {
     expect(publicRoutes).toEqual([
       'AuthController.consoleResetLink',
       'HealthController.health',
+      // Verified by HMAC signature (INBOUND_EMAIL_SECRET) inside the handler.
+      'InboundEmailController.inbound',
       'OpenApiController.get',
       'PublicCandidateLinksController.get',
       'PublicCandidateLinksController.submit',
+      // Logged-out chat: per-IP rate limits, email required, unassigned tickets only.
+      'PublicSupportController.create',
+      'PublicSupportController.get',
+      'PublicSupportController.reply',
+      'StatusController.status',
       'VoiceWebhookController.webhook',
     ]);
   });

@@ -260,5 +260,7 @@ export interface NotificationProvider {
     readonly text: string;
     readonly html?: string;
     readonly idempotencyKey?: string;
+    /** Where the recipient's reply goes (support threads: support+<ref>@…). */
+    readonly replyTo?: string;
   }): Promise<void>;
 }

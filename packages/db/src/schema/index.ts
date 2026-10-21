@@ -114,3 +114,7 @@ export {
   webhookDeliveries,
   candidateLinks,
 } from './clientIntegrations.js';
+
+/** Support tickets (migration 0036). Nullable org: see support.ts. */
+export const SUPPORT_TABLES = ['support_tickets', 'support_messages'] as const;
+export { supportTickets, supportMessages } from './support.js';

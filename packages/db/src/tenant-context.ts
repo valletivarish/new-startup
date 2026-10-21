@@ -182,6 +182,43 @@ export async function withConversationLookupContext<T>(
 }
 
 /**
+ * Run `fn` with only a support ticket's ref and/or a visitor token hash in
+ * scope (migration 0036).
+ *
+ * Used by the logged-out chat (visitor token), signature-verified inbound
+ * email (ticket ref) and the unanswered-chat job. The SELECT policy exposes
+ * exactly the ticket named; writes through it reach only UNASSIGNED tickets
+ * (organization_id IS NULL). A company ticket's reply is written in a second
+ * transaction under that company's tenant context.
+ */
+export async function withSupportLookupContext<T>(
+  db: PostgresJsDatabase<Record<string, never>>,
+  lookup: { readonly ref?: string; readonly visitorTokenHash?: string },
+  fn: (tx: TenantTransaction) => Promise<T>,
+): Promise<T> {
+  if (lookup.ref !== undefined && !/^[a-z0-9]{12}$/.test(lookup.ref)) {
+    throw new Error('tenant context: support ref is malformed');
+  }
+  if (lookup.visitorTokenHash !== undefined && !/^[a-f0-9]{64}$/.test(lookup.visitorTokenHash)) {
+    throw new Error('tenant context: visitor token hash must be sha-256 hex');
+  }
+  if (!lookup.ref && !lookup.visitorTokenHash) {
+    throw new Error('tenant context: a support lookup needs a ref or a token hash');
+  }
+  return db.transaction(async (tx) => {
+    if (lookup.ref) {
+      await tx.execute(sql`select set_config('app.support_ticket_ref', ${lookup.ref}, true)`);
+    }
+    if (lookup.visitorTokenHash) {
+      await tx.execute(
+        sql`select set_config('app.support_visitor_token_hash', ${lookup.visitorTokenHash}, true)`,
+      );
+    }
+    return fn(tx);
+  });
+}
+
+/**
  * Run `fn` as a platform administrator (cross-organization cost reporting).
  *
  * The caller MUST have verified the session's user against the platform

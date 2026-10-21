@@ -85,6 +85,7 @@ const AGENT_MANAGER_PERMISSIONS: readonly Permission[] = [
   'integrations.read',
   'analytics.read',
   'usage.read',
+  'support.use',
 ];
 
 /**
@@ -101,6 +102,7 @@ const KNOWLEDGE_MANAGER_PERMISSIONS: readonly Permission[] = [
   'knowledge.reindex',
   'jobs.read',
   'workflows.read',
+  'support.use',
 ];
 
 /**
@@ -137,6 +139,7 @@ const RECRUITER_PERMISSIONS: readonly Permission[] = [
   'integrations.read',
   'analytics.read',
   'usage.read',
+  'support.use',
 ];
 
 /**
@@ -155,6 +158,7 @@ const ANALYST_PERMISSIONS: readonly Permission[] = [
   'workflows.read',
   'analytics.read',
   'usage.read',
+  'support.use',
 ];
 
 /** Viewer sees business outcomes and no personal data of any kind. */
@@ -165,6 +169,7 @@ const VIEWER_PERMISSIONS: readonly Permission[] = [
   'calls.read',
   'workflows.read',
   'analytics.read',
+  'support.use',
 ];
 
 export const SYSTEM_ROLE_DEFINITIONS: readonly SystemRoleDefinition[] = [

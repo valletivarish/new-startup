@@ -111,15 +111,16 @@ describe('the seeded permission catalogue matches the code', () => {
     expect(inDb).toEqual(inCode);
   });
 
-  it('has 54 permissions: the approved 51 plus three added by Phase 2', async () => {
+  it('has 55 permissions: the approved 51, three added by Phase 2, and support.use', async () => {
     // Phase 2 added agents.archive, agents.sessions.read and
     // agents.sessions.manage. Publishing reuses agents.deploy, version
     // creation reuses agents.update, and version listing reuses agents.read.
+    // Migration 0036 added support.use (every role may ask for help).
     const rows = await db.db.execute<{ n: string }>(
       sql`select count(*)::text as n from permissions`,
     );
-    expect(rows[0]?.n).toBe('54');
-    expect(PERMISSIONS.length).toBe(54);
+    expect(rows[0]?.n).toBe('55');
+    expect(PERMISSIONS.length).toBe(55);
   });
 
   it('flags exactly the personal-data permissions as sensitive', async () => {

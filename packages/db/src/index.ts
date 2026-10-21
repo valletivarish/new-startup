@@ -20,6 +20,7 @@ export {
   withActorContext,
   withConversationLookupContext,
   withPlatformAdminContext,
+  withSupportLookupContext,
   withInvitationContext,
   withTenantContext,
   withoutTenantContext,

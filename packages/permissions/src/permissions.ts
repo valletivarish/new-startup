@@ -108,6 +108,9 @@ export const PERMISSIONS = [
 
   // Audit
   'audit.read',
+
+  // Support: ask HRVoice for help (tickets, chat). Every role holds it.
+  'support.use',
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];

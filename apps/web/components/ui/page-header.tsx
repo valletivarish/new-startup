@@ -5,9 +5,9 @@ export interface PageHeaderProps {
   /** The page's one h1, 28px/600. */
   title: ReactNode;
   /**
-   * The page's one serif-italic accent, set right after the title inside the h1:
+   * Words set right after the title inside the h1, in the same plain face: the serif-italic
+   * flourish belongs to the website, not the app.
    * <PageHeader title="Good evening," accent={firstName} /> reads "Good evening, Priya".
-   * Leave out on pages that already carry their accent elsewhere.
    */
   accent?: ReactNode;
   /** A record's state beside its name, as JobHeader shows a job's: <StatusTag domain="agent" … />. */
@@ -28,12 +28,7 @@ export function PageHeader({ title, accent, status, description, actions, breadc
   const heading = (
     <h1 className="m-0 text-page text-text">
       {title}
-      {accent ? (
-        <>
-          {' '}
-          <span className="serif-accent">{accent}</span>
-        </>
-      ) : null}
+      {accent ? <> {accent}</> : null}
     </h1>
   );
   return (

@@ -30,6 +30,7 @@ import { Field, FileInput, Select, Textarea, formatBytes } from '@/components/ui
 import { Alert } from '@/components/ui/notice';
 import { PageMain } from '@/components/ui/page-header';
 import { Segmented } from '@/components/ui/segmented';
+import { toastUndo } from '@/components/ui/toaster';
 import { Skeleton, SkeletonRecord, useHeldLoading } from '@/components/ui/skeleton';
 import { StatusBadge, StatusTag } from '@/components/ui/state-tag';
 import {
@@ -748,8 +749,12 @@ function JobSetup({ publicId }: { publicId: string }) {
                         variant="tertiary"
                         size="sm"
                         onClick={() => {
+                          const removed = questions;
                           setQuestions([]);
                           focusQuestion(null);
+                          toastUndo(`Removed ${removed.length} questions`, () => setQuestions(removed), {
+                            description: 'Nothing is saved until you save the questions.',
+                          });
                         }}
                       >
                         Remove all
@@ -1110,7 +1115,7 @@ function ReadyPanel({
       done: r.line === 'connected',
       detail: {
         connected: 'Connected',
-        'not-connected': 'Not connected yet. Test calls only',
+        'not-connected': 'Not connected yet',
         checking: 'Checking…',
         unknown: 'Not checked',
       }[r.line],

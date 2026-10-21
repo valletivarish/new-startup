@@ -57,7 +57,7 @@ function HomeContent({ me }: { me: UseQueryResult<Me> }) {
   );
 }
 
-/** "Good evening, Priya", the name in the page's one serif-italic accent. */
+/** "Good evening, Priya", in one plain heading. */
 function Greeting({ profile, description, actions }: { profile: Me; description: ReactNode; actions?: ReactNode }) {
   const name = firstNameOf(profile.user.name);
   // Rendered only once the profile is in, which is always in the browser, so the hour is local.

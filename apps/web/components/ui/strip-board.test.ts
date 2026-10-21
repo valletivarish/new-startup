@@ -76,9 +76,10 @@ describe('feedback', () => {
 });
 
 describe('page header', () => {
-  it('sets the one serif accent inside the h1, after the title', () => {
+  it('sets the accent inside the h1 as plain text: no serif flourish in the app', () => {
     const out = html(h(PageHeader, { title: 'Good evening,', accent: 'Priya', description: 'Two calls are ready.' }));
-    expect(out).toMatch(/<h1[^>]*>Good evening, <span class="serif-accent">Priya<\/span><\/h1>/);
+    expect(out).toMatch(/<h1[^>]*>Good evening, Priya<\/h1>/);
+    expect(out).not.toContain('serif-accent');
   });
 
   it('marks the current crumb and keeps chevrons out of the accessibility tree', () => {

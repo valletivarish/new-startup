@@ -843,7 +843,78 @@ export interface Job {
   voiceEngine?: VoiceEngine;
   voicePersona?: VoicePersona;
   ttsModel?: TtsModel;
+  /** What HR says the role needs; null when none are set. */
+  requirements?: JobRequirements | null;
 }
+
+export type WorkMode = 'on_site' | 'hybrid' | 'remote';
+
+/** The job's requirements sheet (apps/api/src/hiring/requirements.ts). All optional. */
+export interface JobRequirements {
+  salaryMinLakh: number | null;
+  salaryMaxLakh: number | null;
+  salaryFlexible: boolean;
+  maxNoticeDays: number | null;
+  workMode: WorkMode | null;
+  officeDaysPerWeek: number | null;
+  city: string | null;
+  /** Up to 5 short lines. */
+  mustHaves: string[];
+  nightShiftRequired: boolean;
+  replyWithinWorkingDays: number;
+}
+
+export type FitOverall = 'meets_all' | 'check' | 'doesnt_meet';
+export type FitVerdict = 'met' | 'not_met' | 'unclear';
+export type FitLane = FitOverall | 'not_screened';
+
+/** One call checked against the job's requirements. Evidence is dropped without transcript access. */
+export interface CallFit {
+  overall: FitOverall;
+  items: {
+    requirement: string;
+    label: string;
+    verdict: FitVerdict;
+    evidence?: string | null;
+    atSeconds?: number | null;
+  }[];
+  flags: {
+    kind: string;
+    text: string;
+    atSeconds?: number | null;
+    requirement?: string | null;
+  }[];
+}
+
+export type FitTotals = Record<FitLane, number>;
+
+export const getJobRequirements = (jobId: string) =>
+  call<{ requirements: JobRequirements | null }>(`/backend/jobs/${jobId}/requirements`);
+
+export const saveJobRequirements = (jobId: string, requirements: JobRequirements | null) =>
+  call<{ requirements: JobRequirements | null }>(`/backend/jobs/${jobId}/requirements`, {
+    method: 'PUT',
+    body: JSON.stringify({ requirements }),
+  });
+
+/** Drafted from the saved description; not saved. 409 when the assistant isn't set up. */
+export const draftJobRequirements = (jobId: string) =>
+  call<{ requirements: JobRequirements }>(`/backend/jobs/${jobId}/requirements/draft`, {
+    method: 'POST',
+    body: '{}',
+  });
+
+export interface OrganizationSettings {
+  autoAdvanceMeetsAll: boolean;
+}
+
+export const getOrganizationSettings = () => call<OrganizationSettings>('/backend/organization/settings');
+
+export const updateOrganizationSettings = (input: OrganizationSettings) =>
+  call<OrganizationSettings>('/backend/organization/settings', {
+    method: 'PUT',
+    body: JSON.stringify(input),
+  });
 
 export interface JobKnowledgeSource {
   id: string;
@@ -879,6 +950,8 @@ export interface JobCandidateAssignment {
   /** Why that call didn't connect, when the backend says (see VoiceSession.failureReason). */
   failureReason?: string | null;
   callReceived?: boolean;
+  /** The latest call checked against the job's requirements; null when not scored. */
+  fit?: CallFit | null;
   candidate: {
     id: string;
     fullName: string;
@@ -904,6 +977,7 @@ export interface CandidateScreeningResults {
   durationSeconds?: number | null;
   /** Why the call didn't connect, when the backend says (see VoiceSession.failureReason). */
   failureReason?: string | null;
+  fit?: CallFit | null;
 }
 
 export const listJobs = () => call<{ jobs: Job[] }>('/backend/jobs');
@@ -979,9 +1053,11 @@ export const listJobCandidates = (
     cursor?: string;
     status?: CandidateStage;
     q?: string;
+    fit?: FitLane;
   },
 ) => {
   const params = new URLSearchParams();
+  if (opts?.fit) params.set('fit', opts.fit);
   if (opts?.limit != null) params.set('limit', String(opts.limit));
   if (opts?.cursor) params.set('cursor', opts.cursor);
   if (opts?.status) params.set('status', opts.status);
@@ -998,6 +1074,8 @@ export const listJobCandidates = (
       /** Newer backends. */
       declined?: number;
     };
+    /** Newer backends. */
+    fitTotals?: FitTotals;
   }>(`/backend/jobs/${jobId}/candidates${qs ? `?${qs}` : ''}`);
 };
 
@@ -1019,6 +1097,7 @@ export interface HiringQueueItem {
   /** For didn't-connect rows; see VoiceSession.failureReason. */
   failureReason?: string | null;
   lastCallAt?: string | null;
+  fit?: CallFit | null;
 }
 
 /** Home queues: `total` is the true count, `items` the first few rows. */
@@ -1147,6 +1226,8 @@ export interface CandidateStageHistoryEvent {
   previous: string | null;
   status: string | null;
   reason?: string | null;
+  /** The system made the change (auto-advance), not a person. */
+  automatic?: boolean;
   actorUserId: string | null;
   actorName?: string | null;
   createdAt: string;

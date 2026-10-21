@@ -59,8 +59,25 @@ describe('extractScreeningResult', () => {
     const { fn } = fakeFetch({}, 500);
     const failed = await extractScreeningResult(
       { questions: QUESTIONS, transcript: TRANSCRIPT, language: 'en' },
-      { apiKey: 'k', fetchFn: fn },
+      { apiKey: 'k', fetchFn: fn, retryDelayMs: 0 },
     );
     expect(failed).toEqual({ summary: null, answers: {} });
+  });
+
+  it('retries a rate-limited request instead of losing the answers', async () => {
+    let calls = 0;
+    const fn = (async () => {
+      calls += 1;
+      const reply = { summary: 'Notice is thirty days.', answers: [{ id: 'notice_period', answer: '30 days' }] };
+      return calls === 1
+        ? new Response('{}', { status: 429 })
+        : new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: JSON.stringify(reply) }] } }] }));
+    }) as unknown as typeof fetch;
+    const r = await extractScreeningResult(
+      { questions: QUESTIONS, transcript: TRANSCRIPT, language: 'en' },
+      { apiKey: 'k', fetchFn: fn, retryDelayMs: 0 },
+    );
+    expect(calls).toBe(2);
+    expect(r.answers).toEqual({ notice_period: '30 days' });
   });
 });

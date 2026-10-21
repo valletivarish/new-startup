@@ -15,6 +15,8 @@ export interface ExtractDeps {
   baseUrl?: string;
   model?: string;
   fetchFn?: typeof fetch;
+  /** Wait before a retry after a rate limit or server error; grows with each attempt. */
+  retryDelayMs?: number;
 }
 
 export interface ExtractInput {
@@ -61,7 +63,7 @@ export async function extractScreeningResult(
   const url = `${deps.baseUrl || GEMINI_BASE}/models/${encodeURIComponent(model)}:generateContent`;
 
   try {
-    const res = await fetchFn(url, {
+    const send = () => fetchFn(url, {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-goog-api-key': deps.apiKey },
       body: JSON.stringify({
@@ -88,6 +90,12 @@ export async function extractScreeningResult(
         },
       }),
     });
+    // A busy model (429) or a server error is usually gone in seconds; a lost extraction is lost for good.
+    let res = await send();
+    for (let attempt = 1; attempt < 3 && (res.status === 429 || res.status >= 500); attempt++) {
+      await new Promise((r) => setTimeout(r, (deps.retryDelayMs ?? 3000) * attempt));
+      res = await send();
+    }
     if (!res.ok) return EMPTY;
     const body = (await res.json()) as {
       candidates?: { content?: { parts?: { text?: string }[] } }[];

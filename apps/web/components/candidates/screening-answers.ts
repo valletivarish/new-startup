@@ -1,3 +1,5 @@
+import { answerCoverage, type Answer } from '../shared/answers-list';
+
 export function formatAnswerValue(value: unknown): string {
   if (value == null) return 'None';
   if (typeof value === 'string') return value.trim() || 'None';
@@ -51,9 +53,8 @@ export function sessionListMeta(
   hasRecording: boolean;
   hasSummary: boolean;
 } {
-  const rows = scorecardRows(session.structuredAnswers, questions);
-  const answered = rows.filter((r) => r.answered).length;
-  const total = rows.length;
+  // One count everywhere: the same rule the Answers list uses.
+  const { answered, total } = answerCoverage(answerItems(session.structuredAnswers, questions));
   return {
     when: session.startedAt
       ? new Date(session.startedAt).toLocaleString()
@@ -107,7 +108,7 @@ export function scorecardRows(
       return {
         label: q.label.trim() || labelForAnswerKey(q.id, questions),
         value: hit ? formatAnswerValue(hit[1]) : 'No answer recorded',
-        answered: Boolean(hit),
+        answered: hit != null && formatAnswerValue(hit[1]) !== 'None',
       };
     });
     for (const [k, v] of entries) {
@@ -115,7 +116,7 @@ export function scorecardRows(
       rows.push({
         label: labelForAnswerKey(k, questions),
         value: formatAnswerValue(v),
-        answered: true,
+        answered: formatAnswerValue(v) !== 'None',
       });
     }
     return rows;
@@ -123,6 +124,22 @@ export function scorecardRows(
   return entries.map(([k, v]) => ({
     label: labelForAnswerKey(k, questions),
     value: formatAnswerValue(v),
-    answered: true,
+    answered: formatAnswerValue(v) !== 'None',
+  }));
+}
+
+/**
+ * A call's structured answers as AnswersList rows: the job's questions in order (null when
+ * nothing was said), then anything else the call collected, apart as extras. With no
+ * questions to match, everything is an extra, so nothing counts as a question it wasn't.
+ */
+export function answerItems(
+  answers: Record<string, unknown> | null | undefined,
+  questions: readonly { id: string; label: string }[],
+): Answer[] {
+  return scorecardRows(answers, questions).map((row, i) => ({
+    question: row.label,
+    answer: row.answered ? row.value : null,
+    extra: i >= questions.length,
   }));
 }

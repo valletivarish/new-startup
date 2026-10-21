@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest';
 import {
   callStatusLabel,
   formatCallDuration,
+  answerItems,
   sessionListMeta,
 } from './screening-answers';
+import { answerCoverage } from '../shared/answers-list';
 
 const QUESTIONS = [
   { id: 'java', label: 'How many years have you worked with Java?' },
@@ -51,6 +53,18 @@ describe('sessionListMeta', () => {
     expect(meta.durationLabel).toBeNull();
     expect(meta.answeredLabel).toBe('0 of 2 answered');
     expect(meta.turnCount).toBe(0);
+  });
+
+  it('counts a question as answered only when something was said, same as the Answers list', () => {
+    const answers = { java: '5 years', spring: null, notice: '' };
+    const questions = [...QUESTIONS, { id: 'notice', label: 'Notice period?' }];
+    const meta = sessionListMeta(
+      { status: 'ended', structuredAnswers: answers, transcript: null },
+      questions,
+    );
+    const { answered, total } = answerCoverage(answerItems(answers, questions));
+    expect(meta.answeredLabel).toBe('1 of 3 answered');
+    expect(meta.answeredLabel).toBe(`${answered} of ${total} answered`);
   });
 });
 

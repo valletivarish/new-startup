@@ -3,13 +3,17 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Acme Hiring: a pretend ATS that integrates with HR Voice over /v1, used by pnpm test:clients.",
+  "description": "Acme Hiring: a pretend ATS that integrates with HR Voice through @hrvoice/sdk and the MCP server, used by pnpm test:clients.",
   "scripts": {
     "start": "node src/server.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
+  "dependencies": {
+    "@hrvoice/sdk": "workspace:*"
+  },
   "devDependencies": {
+    "@modelcontextprotocol/sdk": "1.32.1",
     "@types/node": "^22.13.4",
     "typescript": "^5.7.3",
     "vitest": "^3.0.5"

@@ -1,15 +1,19 @@
 /**
  * Acme Hiring against a real HR Voice stack (started by `pnpm test:clients`):
- * API, worker, apps/voice test line, local Postgres. The checks run in order
- * and share one setup; every call is a test call on the fake line except
- * check 7, which is refused before anything could dial.
+ * API, worker, apps/voice test line, local Postgres. Acme talks to HR Voice
+ * only through @hrvoice/sdk; check 11 drives apps/mcp over stdio. The checks
+ * run in order and share one setup; every call is a test call on the fake line
+ * except check 7, which is refused before anything could dial.
  */
 
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import { resolve } from 'node:path';
+import { HRVoice, HRVoiceError } from '@hrvoice/sdk';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { createHrvoiceClient, type HrvoiceClient } from '../src/hrvoice.ts';
 import { createAcme, type Acme, type AcmeApplicant, type AcmeJob } from '../src/server.ts';
 
 const API = process.env['HRVOICE_API_URL'] ?? 'http://localhost:3001';
@@ -115,7 +119,7 @@ function keysOf(v: unknown, out: string[] = []): string[] {
 
 let org: Org;
 let testKey: string;
-let hv: HrvoiceClient;
+let hv: HRVoice;
 let acme: Acme;
 let job: AcmeJob;
 let first: AcmeApplicant;
@@ -138,8 +142,8 @@ describe('Acme Hiring on HR Voice /v1', () => {
     org = await setupOrg('acme');
     ({ key: testKey } = await org.mintKey('test'));
     expect(testKey).toMatch(/^hrv_test_[0-9A-Za-z]{32}$/);
-    hv = createHrvoiceClient(API, testKey);
-    expect((await hv.request('GET', '/v1/ping')).status).toBe(200);
+    hv = new HRVoice({ apiKey: testKey, baseUrl: API });
+    expect((await hv.ping()).apiKey?.mode).toBe('test');
   });
 
   it('2. Acme creates a job, registers its webhook and adds 2 consented applicants', async () => {
@@ -150,20 +154,18 @@ describe('Acme Hiring on HR Voice /v1', () => {
     first = await acme.addApplicant(job.id, 'Asha Rao', '9000000101');
     second = await acme.addApplicant(job.id, 'Vikram Shah', '9000000102');
 
-    const list = await hv.request('GET', `/v1/jobs/${job.hrvoiceJobId}/candidates`);
-    expect(list.status).toBe(200);
-    expect(list.body.candidates.map((c: { externalId: string }) => c.externalId).sort()).toEqual(
-      [first.id, second.id].sort(),
-    );
+    const list = await hv.listCandidates(job.hrvoiceJobId);
+    expect(list.candidates.map((c) => c.externalId).sort()).toEqual([first.id, second.id].sort());
     // Consent is required through /v1.
-    const noConsent = await hv.request('POST', `/v1/jobs/${job.hrvoiceJobId}/candidates`, { fullName: 'X', phone: '9000000199' });
-    expect(noConsent.status).toBe(422);
-    expect(noConsent.body.code).toBe('consent_required');
+    const noConsent = { fullName: 'X', phone: '9000000199' } as unknown as Parameters<HRVoice['addCandidate']>[1];
+    await expect(hv.addCandidate(job.hrvoiceJobId, noConsent)).rejects.toMatchObject({
+      status: 422,
+      code: 'consent_required',
+    });
   });
 
   it('3. calls complete and arrive signed on Acme, with answers and no score', async () => {
     const calls = [await acme.screen(first.id), await acme.screen(second.id)];
-    for (const c of calls) expect(c.status, JSON.stringify(c.body)).toBe(202);
 
     for (const a of [first, second]) {
       await until(`call.completed for ${a.name}`, () => a.resultEvent === 'call.completed' || undefined);
@@ -173,7 +175,7 @@ describe('Acme Hiring on HR Voice /v1', () => {
     }
     // Acme stores only events whose HRVoice-Signature verified.
     expect(acme.rejected).toBe(0);
-    for (const c of calls) expect(completedFor(c.body.id)?.isTest).toBe(true);
+    for (const c of calls) expect(completedFor(c.id)?.isTest).toBe(true);
 
     const stored = JSON.stringify({ applicants: [...acme.applicants.values()], events: acme.events });
     expect(stored).not.toMatch(/fitPercent/i);
@@ -193,10 +195,9 @@ describe('Acme Hiring on HR Voice /v1', () => {
   });
 
   it('4. /v1/usage shows 0 completed screens for test calls', async () => {
-    const u = await hv.request('GET', '/v1/usage');
-    expect(u.status).toBe(200);
-    expect(u.body.completedScreens).toBe(0);
-    expect(u.body.callsPlaced).toBe(0);
+    const u = await hv.getUsage();
+    expect(u.completedScreens).toBe(0);
+    expect(u.callsPlaced).toBe(0);
   });
 
   it('5. the same Idempotency-Key does not create a second call request', async () => {
@@ -204,22 +205,19 @@ describe('Acme Hiring on HR Voice /v1', () => {
     const key = `acme-${randomUUID()}`;
     const a = await acme.screen(third.id, key);
     const b = await acme.screen(third.id, key);
-    expect(a.status).toBe(202);
-    expect(b.status).toBe(202);
-    expect(b.body.id).toBe(a.body.id);
+    expect(b.id).toBe(a.id);
     expect(psql(`select count(*) from call_requests where candidate_id = '${third.hrvoiceCandidateId}'`)).toBe('1');
     // Let it finish so it does not hold a test-line slot for the next checks.
-    await until('the idempotent call to finish', () => completedFor(a.body.id) ?? acme.events.find((e) => e.callId === a.body.id));
+    await until('the idempotent call to finish', () => completedFor(a.id) ?? acme.events.find((e) => e.callId === a.id));
   });
 
   it('6. a revoked key gets 401 on its next request', async () => {
     const k = await org.mintKey('test');
-    const c = createHrvoiceClient(API, k.key);
-    expect((await c.request('GET', `/v1/jobs/${job.hrvoiceJobId}`)).status).toBe(200);
+    const c = new HRVoice({ apiKey: k.key, baseUrl: API });
+    expect((await c.getJob(job.hrvoiceJobId)).id).toBe(job.hrvoiceJobId);
     const del = await http('DELETE', `/organization/api-keys/${k.id}`, { cookie: org.cookie });
     expect(del.status).toBe(204);
-    const after = await c.request('GET', `/v1/jobs/${job.hrvoiceJobId}`);
-    expect(after.status).toBe(401);
+    await expect(c.getJob(job.hrvoiceJobId)).rejects.toMatchObject({ status: 401, code: 'unauthorized' });
   });
 
   it('7. a live key over calls_per_day=0 gets 429 call_limit_reached and nothing dials', async () => {
@@ -230,17 +228,17 @@ describe('Acme Hiring on HR Voice /v1', () => {
     });
     expect(set.status, JSON.stringify(set.body)).toBe(200);
 
-    const live = createHrvoiceClient(API, (await org.mintKey('live')).key);
-    const j = await live.request('POST', '/v1/jobs', { title: 'Live role', mustAskQuestions: QUESTIONS });
-    expect(j.status).toBe(201);
-    const c = await live.request('POST', `/v1/jobs/${j.body.id}/candidates`, { fullName: 'Live Person', phone: '9000000201', consent: true });
-    expect(c.status).toBe(201);
-    const call = await live.request('POST', `/v1/jobs/${j.body.id}/candidates/${c.body.id}/calls`);
-    expect(call.status, JSON.stringify(call.body)).toBe(429);
-    expect(call.body.code).toBe('call_limit_reached');
-    expect(Date.parse(call.body.details.resetsAt)).toBeGreaterThan(Date.now());
+    const live = new HRVoice({ apiKey: (await org.mintKey('live')).key, baseUrl: API });
+    const j = await live.createJob({ title: 'Live role', mustAskQuestions: QUESTIONS });
+    const c = await live.addCandidate(j.id, { fullName: 'Live Person', phone: '9000000201', consent: true });
+    expect(c.created).toBe(true);
+    // The SDK does not sit out a limit that resets hours from now: it throws at once.
+    const err = (await live.startCall(j.id, c.id).catch((e: unknown) => e)) as HRVoiceError;
+    expect(err).toBeInstanceOf(HRVoiceError);
+    expect(err).toMatchObject({ status: 429, code: 'call_limit_reached' });
+    expect(err.resetsAt!.getTime()).toBeGreaterThan(Date.now());
     // Refused at request time: no call request row and no live voice session was ever created.
-    expect(psql(`select count(*) from call_requests where candidate_id = '${c.body.id}'`)).toBe('0');
+    expect(psql(`select count(*) from call_requests where candidate_id = '${c.id}'`)).toBe('0');
     expect(psql(`select count(*) from voice_sessions where organization_id = '${org.orgId}' and not is_test`)).toBe('0');
   });
 
@@ -249,34 +247,32 @@ describe('Acme Hiring on HR Voice /v1', () => {
     await acme.stop();
     const stoppedAt = Date.now();
     const call = await acme.screen(fourth.id);
-    expect(call.status).toBe(202);
 
     // The first attempt fails against the stopped listener (attempts >= 1, still pending).
     const delivery = await until('a failed first delivery attempt', async () => {
-      const d = await hv.request('GET', '/v1/webhook-deliveries?status=pending');
-      return (d.body.deliveries as { id: string; attempts: number; lastError: string | null }[]).find(
-        (x) => x.attempts >= 1 && x.lastError,
-      );
+      const pending = await hv.listWebhookDeliveries({ status: 'pending' });
+      return pending.find((x) => x.attempts >= 1 && x.lastError);
     });
     expect(delivery.attempts).toBeGreaterThanOrEqual(1);
     await new Promise((r) => setTimeout(r, Math.max(0, 10_000 - (Date.now() - stoppedAt))));
     await acme.start(ACME_PORT);
 
     // The check is the retry, so either outcome event counts.
-    const evt = await until('the retried call event', () => acme.events.find((e) => e.callId === call.body.id), 240_000);
+    const evt = await until('the retried call event', () => acme.events.find((e) => e.callId === call.id), 240_000);
     expect(evt.externalId).toBe(fourth.id);
     expect(fourth.resultEvent).toBe(evt.type);
-    const delivered = await hv.request('GET', '/v1/webhook-deliveries?status=delivered');
-    const d = (delivered.body.deliveries as { id: string; attempts: number }[]).find((x) => x.id === delivery.id);
+    const delivered = await hv.listWebhookDeliveries({ status: 'delivered' });
+    const d = delivered.find((x) => x.id === delivery.id);
     expect(d?.attempts).toBeGreaterThanOrEqual(2);
   }, 480_000);
 
   it("9. a second org's key gets 404 on the first org's job and call", async () => {
     const other = await setupOrg('globex');
-    const c = createHrvoiceClient(API, (await other.mintKey('test')).key);
-    expect((await c.request('GET', `/v1/jobs/${job.hrvoiceJobId}`)).status).toBe(404);
-    expect((await c.request('GET', `/v1/calls/${first.callIds[0]}`)).status).toBe(404);
-    expect((await c.request('GET', `/v1/jobs/${job.hrvoiceJobId}/candidates/${first.hrvoiceCandidateId}/results`)).status).toBe(404);
+    const c = new HRVoice({ apiKey: (await other.mintKey('test')).key, baseUrl: API });
+    const notFound = { status: 404, code: 'not_found' };
+    await expect(c.getJob(job.hrvoiceJobId)).rejects.toMatchObject(notFound);
+    await expect(c.getCall(first.callIds[0]!)).rejects.toMatchObject(notFound);
+    await expect(c.getResults(job.hrvoiceJobId, first.hrvoiceCandidateId)).rejects.toMatchObject(notFound);
   });
 
   it('10. "ask the candidate" link: the public form queues a link call that completes', async () => {
@@ -297,5 +293,57 @@ describe('Acme Hiring on HR Voice /v1', () => {
     expect(evt.externalId).toBeNull();
     expect(psql(`select source from call_requests where id = '${evt.callId}'`)).toBe('link');
     expect((evt.result as { answers: unknown[] }).answers.length).toBeGreaterThan(0);
+  });
+
+  it('11. an AI assistant screens a candidate through the MCP server (stdio)', async () => {
+    const transport = new StdioClientTransport({
+      command: process.execPath,
+      args: [resolve(import.meta.dirname, '../../mcp/src/index.ts')],
+      env: { PATH: process.env['PATH'] ?? '', HRVOICE_API_KEY: testKey, HRVOICE_API_URL: API },
+      stderr: 'inherit',
+    });
+    const mcp = new Client({ name: 'acme-assistant', version: '1.0.0' });
+    await mcp.connect(transport);
+    try {
+      const tool = async <T>(name: string, args: Record<string, unknown>): Promise<T> => {
+        const r = await mcp.callTool({ name, arguments: args });
+        const text = (r.content as { type: string; text: string }[])[0]!.text;
+        expect(r.isError, `${name}: ${text}`).toBeFalsy();
+        expect(text).not.toMatch(/fitPercent|score|recommend/i);
+        return JSON.parse(text) as T;
+      };
+      const names = (await mcp.listTools()).tools.map((t) => t.name).sort();
+      expect(names).toEqual(
+        ['add_candidates', 'create_job', 'get_call', 'get_results', 'get_usage', 'list_candidates', 'list_jobs', 'start_call'],
+      );
+
+      const j = await tool<{ id: string }>('create_job', { title: 'Java Developer (MCP)', mustAskQuestions: QUESTIONS });
+      const [cand] = await tool<{ id: string; created: boolean }[]>('add_candidates', {
+        jobId: j.id,
+        consent: true,
+        candidates: [{ fullName: 'Priya Nair', phone: '9000000106', externalId: `mcp-${randomUUID()}` }],
+      });
+      expect(cand!.created).toBe(true);
+      const call = await tool<{ id: string }>('start_call', { jobId: j.id, candidateId: cand!.id });
+
+      const result = await until('the MCP call to end', async () => {
+        const c = await tool<{ status: string; result: { status: string } | null }>('get_call', { callId: call.id });
+        if (c.status === 'failed' || c.status === 'skipped') throw new Error(`call ${c.status}`);
+        if (c.result?.status !== 'ended') return undefined;
+        return tool<{ status: string; answers: unknown[]; summary: string | null; transcript?: unknown }>(
+          'get_results', { jobId: j.id, candidateId: cand!.id },
+        );
+      });
+      expect(result.status).toBe('ended');
+      expect(result.answers.length).toBeGreaterThan(0);
+      expect(result).not.toHaveProperty('transcript');
+
+      // A refused request comes back as a readable tool error, not a crash.
+      const bad = await mcp.callTool({ name: 'get_call', arguments: { callId: randomUUID() } });
+      expect(bad.isError).toBe(true);
+      expect((bad.content as { text: string }[])[0]!.text).toContain('not_found');
+    } finally {
+      await mcp.close();
+    }
   });
 });

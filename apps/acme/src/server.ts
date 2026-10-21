@@ -1,6 +1,6 @@
 /**
  * Acme Hiring: a pretend ATS that uses HR Voice the way a real client would,
- * only through /v1 and signed webhooks. In-memory jobs and applicants.
+ * only through @hrvoice/sdk (/v1) and signed webhooks. In-memory jobs and applicants.
  *
  *   GET  /                  jobs
  *   GET  /jobs/:id          applicants for a job
@@ -10,10 +10,10 @@
  * Run alone: HRVOICE_API_KEY=hrv_test_... node src/server.ts
  */
 
-import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 
-import { createHrvoiceClient, type HrvoiceClient } from './hrvoice.ts';
+import { HRVoice, verifyWebhook, type HRVoiceEvent } from '@hrvoice/sdk';
 
 export interface AcmeJob {
   id: string;
@@ -44,16 +44,6 @@ export interface AcmeEvent {
   receivedAt: string;
 }
 
-/** HRVoice-Signature: t=<unix>,v1=<hex HMAC-SHA256(secret, "<t>.<raw body>")>, within 5 minutes. */
-export function verifySignature(secret: string, header: string, raw: string, nowMs = Date.now()): boolean {
-  const parts = Object.fromEntries(header.split(',').map((p) => p.trim().split('=', 2)));
-  const t = Number(parts['t']);
-  if (!Number.isInteger(t) || Math.abs(nowMs / 1000 - t) > 300) return false;
-  const expected = createHmac('sha256', secret).update(`${parts['t']}.${raw}`).digest();
-  const got = Buffer.from(String(parts['v1'] ?? ''), 'hex');
-  return got.length === expected.length && timingSafeEqual(got, expected);
-}
-
 const esc = (s: unknown) =>
   String(s ?? '').replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
@@ -76,26 +66,23 @@ function readBody(req: IncomingMessage): Promise<string> {
   });
 }
 
-export function createAcme(hrvoice: HrvoiceClient) {
+export function createAcme(hrvoice: HRVoice) {
   const jobs = new Map<string, AcmeJob>();
   const applicants = new Map<string, AcmeApplicant>();
   const events: AcmeEvent[] = [];
   let webhookSecret: string | null = null;
   let rejected = 0;
 
-  async function must<T>(p: Promise<{ status: number; body: T }>, ok: number[], what: string): Promise<T> {
-    const r = await p;
-    if (!ok.includes(r.status)) throw new Error(`${what}: HTTP ${r.status} ${JSON.stringify(r.body)}`);
-    return r.body;
-  }
-
-  function onEvent(raw: string, signature: string, res: ServerResponse) {
-    if (!webhookSecret || !verifySignature(webhookSecret, signature, raw)) {
+  async function onEvent(raw: string, signature: string, res: ServerResponse) {
+    let evt: HRVoiceEvent;
+    try {
+      if (!webhookSecret) throw new Error('no webhook registered');
+      evt = await verifyWebhook(raw, signature, webhookSecret);
+    } catch {
       rejected += 1;
       res.writeHead(400).end('bad signature');
       return;
     }
-    const evt = JSON.parse(raw) as { id: string; type: string; data: Omit<AcmeEvent, 'id' | 'type' | 'receivedAt'> };
     // Retries can repeat an event; the id makes it a no-op.
     if (!events.some((e) => e.id === evt.id)) {
       const d = evt.data;
@@ -180,23 +167,12 @@ export function createAcme(hrvoice: HrvoiceClient) {
     },
 
     async registerWebhook(url: string): Promise<void> {
-      const out = await must(
-        hrvoice.request<{ secret: string }>('POST', '/v1/webhook-endpoints', {
-          url,
-          events: ['call.completed', 'call.failed'],
-        }),
-        [201],
-        'register webhook',
-      );
+      const out = await hrvoice.createWebhookEndpoint({ url, events: ['call.completed', 'call.failed'] });
       webhookSecret = out.secret;
     },
 
     async createJob(title: string, questions: string[]): Promise<AcmeJob> {
-      const out = await must(
-        hrvoice.request<{ id: string }>('POST', '/v1/jobs', { title, mustAskQuestions: questions }),
-        [201],
-        'create job',
-      );
+      const out = await hrvoice.createJob({ title, mustAskQuestions: questions });
       const j = { id: randomUUID(), title, hrvoiceJobId: out.id };
       jobs.set(j.id, j);
       return j;
@@ -207,16 +183,7 @@ export function createAcme(hrvoice: HrvoiceClient) {
       const j = jobs.get(jobId);
       if (!j) throw new Error(`no job ${jobId}`);
       const id = randomUUID();
-      const out = await must(
-        hrvoice.request<{ id: string }>('POST', `/v1/jobs/${j.hrvoiceJobId}/candidates`, {
-          fullName: name,
-          phone,
-          externalId: id,
-          consent: true,
-        }),
-        [200, 201],
-        'add candidate',
-      );
+      const out = await hrvoice.addCandidate(j.hrvoiceJobId, { fullName: name, phone, externalId: id, consent: true });
       const a: AcmeApplicant = {
         id, jobId, name, phone, hrvoiceCandidateId: out.id, callIds: [], result: null, resultEvent: null,
       };
@@ -224,30 +191,20 @@ export function createAcme(hrvoice: HrvoiceClient) {
       return a;
     },
 
-    /** Requests a screen; returns the raw /v1 response so callers can see limits and replays. */
+    /** Requests a screen; throws HRVoiceError on a limit or refusal. */
     async screen(applicantId: string, idempotencyKey?: string) {
       const a = applicants.get(applicantId);
       if (!a) throw new Error(`no applicant ${applicantId}`);
       const j = jobs.get(a.jobId)!;
-      const r = await hrvoice.request<{ id: string; status: string }>(
-        'POST',
-        `/v1/jobs/${j.hrvoiceJobId}/candidates/${a.hrvoiceCandidateId}/calls`,
-        undefined,
-        idempotencyKey ? { idempotencyKey } : {},
-      );
-      if (r.status === 202 && !a.callIds.includes(r.body.id)) a.callIds.push(r.body.id);
-      return r;
+      const call = await hrvoice.startCall(j.hrvoiceJobId, a.hrvoiceCandidateId, idempotencyKey ? { idempotencyKey } : {});
+      if (!a.callIds.includes(call.id)) a.callIds.push(call.id);
+      return call;
     },
 
     /** An "ask the candidate" link for a person Acme has no phone number for yet. */
     async askCandidateLink(jobId: string): Promise<string> {
       const j = jobs.get(jobId)!;
-      const out = await must(
-        hrvoice.request<{ url: string }>('POST', `/v1/jobs/${j.hrvoiceJobId}/candidate-links`, {}),
-        [201],
-        'create candidate link',
-      );
-      return out.url;
+      return (await hrvoice.createCandidateLink(j.hrvoiceJobId)).url;
     },
   };
 }
@@ -257,7 +214,7 @@ export type Acme = ReturnType<typeof createAcme>;
 if (import.meta.url === `file://${process.argv[1]}`) {
   const key = process.env['HRVOICE_API_KEY'];
   if (!key) throw new Error('set HRVOICE_API_KEY');
-  const acme = createAcme(createHrvoiceClient(process.env['HRVOICE_API_URL'] ?? 'http://localhost:3001', key));
+  const acme = createAcme(new HRVoice({ apiKey: key, baseUrl: process.env['HRVOICE_API_URL'] ?? 'http://localhost:3001' }));
   const port = Number(process.env['ACME_PORT'] ?? 4100);
   await acme.start(port);
   if (process.env['ACME_WEBHOOK_URL']) await acme.registerWebhook(process.env['ACME_WEBHOOK_URL']);

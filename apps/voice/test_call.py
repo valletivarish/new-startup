@@ -1,5 +1,5 @@
 """Test-mode calls: the fake line rings our own /voice/exotel and plays the
-recorded answers in test_clips/{en,hi,ta,te}/answer_{1..4}.wav, so a test key gets
+recorded answers in test_clips/{en,hi,ta,te,ml}/answer_{1..4}.wav, so a test key gets
 a whole screen (plan, agent, transcript, result) without a phone or carrier.
 """
 
@@ -18,7 +18,7 @@ MAX_SECONDS = 240
 
 
 def load_clips(lang: str, clips_dir: Path = CLIPS_DIR) -> list[bytes]:
-    # Recorded answers exist for en, hi, ta, te; other languages hear the English ones.
+    # Recorded answers exist for en, hi, ta, te, ml; other languages hear the English ones.
     lang = lang[:2] if (clips_dir / lang[:2]).is_dir() else "en"
     clips = []
     for i in range(1, 5):

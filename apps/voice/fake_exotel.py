@@ -7,7 +7,7 @@ long the agent took to start replying after each line.
     python fake_exotel.py --url ws://localhost:8765/voice/exotel --call-id <CallSid> \
         --lang en "Thirty days." "Twelve lakhs per annum." "Yes, I can join in November."
 
-    python fake_exotel.py --save-clips   # (re)make test_clips/ for test-mode calls
+    python fake_exotel.py --save-clips [ml …]  # (re)make test_clips/ (all, or these languages)
 """
 
 from __future__ import annotations
@@ -57,6 +57,12 @@ TEST_ANSWERS = {
         "వచ్చే నెల ఒకటో తేదీ నుండి జాయిన్ అవ్వగలను.",
         "నా వైపు నుండి ప్రశ్నలు ఏమీ లేవు. ధన్యవాదాలు.",
     ],
+    "ml": [
+        "എന്റെ നോട്ടീസ് പീരിയഡ് മുപ്പത് ദിവസമാണ്.",
+        "എന്റെ ഇപ്പോഴത്തെ സിടിസി വർഷം ആറ് ലക്ഷം ആണ്, ഏഴര ലക്ഷം പ്രതീക്ഷിക്കുന്നു.",
+        "അടുത്ത മാസം ഒന്നാം തീയതി മുതൽ ജോയിൻ ചെയ്യാം.",
+        "എന്റെ ഭാഗത്ത് നിന്ന് ചോദ്യങ്ങളൊന്നുമില്ല. നന്ദി.",
+    ],
 }
 
 
@@ -79,8 +85,9 @@ def synth(text: str, lang: str) -> bytes:
         return w.readframes(w.getnframes())
 
 
-def save_clips() -> None:
-    for lang, lines in TEST_ANSWERS.items():
+def save_clips(langs: list[str]) -> None:
+    for lang in langs:
+        lines = TEST_ANSWERS[lang]
         (CLIPS_DIR / lang).mkdir(parents=True, exist_ok=True)
         for i, line in enumerate(lines, 1):
             with wave.open(str(CLIPS_DIR / lang / f"answer_{i}.wav"), "wb") as w:
@@ -197,7 +204,7 @@ if __name__ == "__main__":
     p.add_argument("lines", nargs="*")
     a = p.parse_args()
     if a.save_clips:
-        save_clips()
+        save_clips(a.lines or list(TEST_ANSWERS))
         raise SystemExit(0)
     if not (a.url and a.call_id and a.lines):
         p.error("--url, --call-id and at least one line are required")

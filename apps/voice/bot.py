@@ -30,6 +30,7 @@ from pipecat.serializers.exotel import ExotelFrameSerializer
 from pipecat.services.deepgram.stt import DeepgramSTTService
 from pipecat.services.elevenlabs.tts import ElevenLabsTTSService
 from pipecat.services.google.llm import GoogleLLMService
+from pipecat.services.google.stt import GoogleSTTService
 from pipecat.services.google.tts import GoogleTTSService
 from google.cloud import texttospeech_v1
 from pipecat.services.llm_service import FunctionCallParams
@@ -68,12 +69,101 @@ NAMES_RULE = (
     "or it is a voicemail."
 )
 # Deepgram nova-3: Hindi callers code-mix, so `multi` (en+hi). Malayalam has no nova-3 model:
-# ponytail: `multi` only hears its English words; switch STT provider for ml if it launches.
-STT_LANGUAGE = {"en": "en-IN", "hi": "multi", "ml": "multi"}
+# Nest's plan sends those calls to Google (sttProvider = google).
+STT_LANGUAGE = {"en": "en-IN", "hi": "multi"}
+# Chirp 2 streams ml-IN only from regional endpoints; Singapore is the closest to India.
+GOOGLE_STT_LOCATION = os.environ.get("GOOGLE_STT_LOCATION", "asia-southeast1")
+GOOGLE_STT_MODEL = "chirp_2"
 # Gemini 2.5 Flash TTS has no Bengali or Urdu voice: those calls stay on Chirp 3 HD.
 GEMINI_TTS_LANGS = {"en", "hi", "mr", "te", "ta", "gu", "kn", "ml", "pa"}
 GEMINI_TTS_MODEL = "gemini-2.5-flash-tts"
 GEMINI_TTS_PROMPT = "Warm, friendly Indian recruiter on a phone call, relaxed natural pace."
+
+
+# Goes first in the system prompt, in the call language itself where we have it written.
+LANGUAGE_FIRST_HI = (
+    "भाषा का नियम (सबसे ज़रूरी): यह पूरी कॉल हिंदी में है। आपका हर जवाब, हर सवाल और विदाई सिर्फ़ "
+    "हिंदी में, देवनागरी लिपि में बोलिए, पहले जवाब से ही; भले ही उम्मीदवार अंग्रेज़ी शब्द मिलाए। नीचे "
+    "दिए गए सवाल अंग्रेज़ी में लिखे हैं: हर सवाल स्वाभाविक, विनम्र हिंदी में पूछिए। आम अंग्रेज़ी शब्द "
+    "(notice period, CTC, Java) चल सकते हैं। लोगों और कंपनियों के नाम अंग्रेज़ी अक्षरों में ही रखिए।"
+)
+
+
+SPEAKER_HI = {
+    "woman": "आप एक महिला हैं: अपने लिए स्त्रीलिंग रूप बोलिए (बोल रही हूँ, समझ गई)।",
+    "man": "आप एक पुरुष हैं: अपने लिए पुल्लिंग रूप बोलिए (बोल रहा हूँ, समझ गया)।",
+}
+
+
+def speaker(plan: dict) -> str | None:
+    """The Google persona's gender (Kore woman, Iapetus man); other voices: unknown."""
+    if plan.get("engine") != "own_loop_google_voice":
+        return None
+    return "man" if "Iapetus" in str(plan.get("voiceId") or "") else "woman"
+
+
+def language_first(lang: str, who: str | None = None) -> str:
+    if lang == "en":
+        return ""
+    name = LANGUAGE_NAMES[lang]
+    gender = (
+        f" You are a {who}: wherever {name} genders your own words, use the {who}'s forms."
+        if who
+        else ""
+    )
+    rule = (
+        f"LANGUAGE (most important rule): this whole call is in {name}. Say every reply, every "
+        f"question and the goodbye only in {name}, written in {name} script, from your first reply "
+        f"on, even if the candidate mixes in English words. The questions below are written in "
+        f"English: ask each one in natural, polite {name}. Never answer in English sentences.{gender}"
+    )
+    if lang == "hi":
+        return "\n".join(x for x in (LANGUAGE_FIRST_HI, SPEAKER_HI.get(who or ""), rule) if x)
+    return rule
+
+
+def system_prompt(plan: dict, lang: str) -> str:
+    head = language_first(lang, speaker(plan))
+    body = f"{plan.get('prompt', '')}\n\n{phone_rules(lang)}"
+    return f"{head}\n\n{body}" if head else body
+
+
+def premature_end(reason: str, turns: list[dict], questions: list) -> bool:
+    """A 'completed' hang-up before every question could have been asked and answered.
+
+    Each must-ask question takes at least one agent line and one candidate reply.
+    ponytail: counts turns, not which questions were covered; a re-asked question
+    still counts once per turn. Good enough to stop hanging up halfway.
+    """
+    if reason != "completed":
+        return False
+    agent = sum(1 for t in turns if t["role"] == "agent")
+    user = sum(1 for t in turns if t["role"] == "user")
+    return agent < len(questions) or user < len(questions)
+
+
+def build_stt(plan: dict, lang: str):
+    if plan.get("sttProvider") == "google":
+        # Credentials: GOOGLE_APPLICATION_CREDENTIALS (a key file) or ADC, like the voice.
+        return GoogleSTTService(
+            location=GOOGLE_STT_LOCATION,
+            settings=GoogleSTTService.Settings(
+                languages=[Language(f"{lang}-IN")],
+                model=GOOGLE_STT_MODEL,
+                enable_automatic_punctuation=True,
+                enable_interim_results=True,
+            ),
+        )
+    return DeepgramSTTService(
+        api_key=os.environ["DEEPGRAM_API_KEY"],
+        settings=DeepgramSTTService.Settings(
+            model="nova-3",
+            language=STT_LANGUAGE.get(lang, lang),
+            smart_format=True,
+            punctuate=True,
+            interim_results=True,
+        ),
+    )
 
 
 def phone_rules(lang: str) -> str:
@@ -234,17 +324,8 @@ async def run_call(websocket: WebSocket, call_id: str, stream_id: str, plan: dic
             serializer=serializer,
         ),
     )
-    stt = DeepgramSTTService(
-        api_key=os.environ["DEEPGRAM_API_KEY"],
-        settings=DeepgramSTTService.Settings(
-            model="nova-3",
-            language=STT_LANGUAGE.get(lang, lang),
-            smart_format=True,
-            punctuate=True,
-            interim_results=True,
-        ),
-    )
-    llm = build_llm(f"{plan.get('prompt', '')}\n\n{phone_rules(lang)}")
+    stt = build_stt(plan, lang)
+    llm = build_llm(system_prompt(plan, lang))
     tts = build_tts(plan, lang)
 
     context = LLMContext(tools=ToolsSchema(standard_tools=[END_CALL]))
@@ -279,8 +360,23 @@ async def run_call(websocket: WebSocket, call_id: str, stream_id: str, plan: dic
         idle_timeout_secs=60,
     )
 
+    questions = plan.get("questions") or []
+    early_refusals = {"count": 0}
+
     async def end_call(params: FunctionCallParams):
         reason = str(params.arguments.get("reason", "completed"))
+        # Twice at most, so a confused model can still hang up instead of looping.
+        if early_refusals["count"] < 2 and premature_end(reason, transcript_of(context), questions):
+            early_refusals["count"] += 1
+            name = LANGUAGE_NAMES[lang]
+            await params.result_callback(
+                {
+                    "ok": False,
+                    "error": "Not every question has been asked yet; do not hang up. Ask the next "
+                    f"question you have not asked, in {name}, without saying goodbye.",
+                }
+            )
+            return
         outcome["reason"] = "voicemail" if reason == "voicemail" else "completed"
         await params.result_callback({"ok": True}, properties=FunctionCallResultProperties(run_llm=False))
         await params.llm.push_frame(EndTaskFrame(), FrameDirection.UPSTREAM)

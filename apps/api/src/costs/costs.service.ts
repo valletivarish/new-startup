@@ -194,10 +194,12 @@ export function createCostService(database: Database, env: Env): CostService {
             channel: string | null;
             is_test: boolean;
             tts_model: string | null;
+            stt_provider: string | null;
           }>(sql`
             select vs.status, vs.engine, vs.failure_reason, vs.duration_seconds,
                    vs.cost_credits::text, vs.transcript, vs.job_id, vs.candidate_id,
-                   s.channel, vs.is_test, vs.provision_snapshot->>'ttsModel' as tts_model
+                   s.channel, vs.is_test, vs.provision_snapshot->>'ttsModel' as tts_model,
+                   vs.provision_snapshot->>'sttProvider' as stt_provider
             from voice_sessions vs
             left join agent_sessions s on s.id = vs.session_id
             where vs.id = ${voiceSessionId} and vs.organization_id = ${organizationId}
@@ -239,6 +241,7 @@ export function createCostService(database: Database, env: Env): CostService {
             llmOutputTokens: pick(u.llmOutputTokens, num(prev?.llm_output_tokens)),
             ttsCharacters: pick(u.ttsCharacters, prev?.tts_characters),
             ttsModel: vs.tts_model,
+            sttProvider: vs.stt_provider,
             providerCredits: num(vs.cost_credits),
           };
           const rates = await loadRates(tx);
@@ -257,7 +260,7 @@ export function createCostService(database: Database, env: Env): CostService {
               stt_seconds, tts_characters, llm_input_tokens, llm_output_tokens,
               provider_reported_cost, provider_cost_unit,
               telephony_cost, stt_cost, tts_cost, llm_cost, agent_cost, total_cost,
-              telephony_billed, response_p50_ms, response_p90_ms, interruptions, rate_card
+              telephony_billed, response_p50_ms, response_p90_ms, interruptions, rate_card, stt_provider
             ) values (
               ${organizationId}, ${voiceSessionId}, 'hiring', ${vs.channel ?? 'phone'}, ${outcome},
               ${vs.job_id}, ${vs.candidate_id},
@@ -270,7 +273,8 @@ export function createCostService(database: Database, env: Env): CostService {
               ${pick(u.responseP50Ms, prev?.response_p50_ms)},
               ${pick(u.responseP90Ms, prev?.response_p90_ms)},
               ${pick(u.interruptions, prev?.interruptions)},
-              ${rateCard}
+              ${rateCard},
+              ${vs.engine === 'elevenlabs_agent' ? null : vs.stt_provider === 'google' ? 'google' : 'deepgram'}
             )
             on conflict (voice_session_id) do update set
               outcome = excluded.outcome,
@@ -294,6 +298,7 @@ export function createCostService(database: Database, env: Env): CostService {
               response_p90_ms = excluded.response_p90_ms,
               interruptions = excluded.interruptions,
               rate_card = excluded.rate_card,
+              stt_provider = excluded.stt_provider,
               updated_at = now()
           `);
         },
@@ -339,7 +344,8 @@ export function createCostService(database: Database, env: Env): CostService {
         const sums = await tx.execute<Record<string, string | null>>(sql`
           select
             coalesce(sum(telephony_cost), 0)::text as telephony,
-            coalesce(sum(stt_cost), 0)::text as stt,
+            coalesce(sum(stt_cost) filter (where stt_provider is distinct from 'google'), 0)::text as stt,
+            coalesce(sum(stt_cost) filter (where stt_provider = 'google'), 0)::text as stt_google,
             coalesce(sum(llm_cost), 0)::text as llm,
             coalesce(sum(tts_cost) filter (where engine = 'own_loop_elevenlabs_voice'), 0)::text as tts_el,
             coalesce(sum(tts_cost) filter (where engine = 'own_loop_sarvam_voice'), 0)::text as tts_sarvam,
@@ -355,6 +361,7 @@ export function createCostService(database: Database, env: Env): CostService {
         const usageByKey: Record<string, number> = {
           exotel_minute: Number(s['telephony'] ?? 0),
           deepgram_stt: Number(s['stt'] ?? 0),
+          google_stt: Number(s['stt_google'] ?? 0),
           gemini_input: Number(s['llm'] ?? 0),
           elevenlabs_tts: Number(s['tts_el'] ?? 0),
           sarvam_tts: Number(s['tts_sarvam'] ?? 0),

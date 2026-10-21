@@ -37,6 +37,8 @@ export interface CallUsage {
   /** Exotel's billed price for this call, when fetched. */
   telephonyBilledInr?: number | null;
   sttSeconds?: number | null;
+  /** Which STT listened (own loop): google is priced on google_stt, anything else on deepgram_stt. */
+  sttProvider?: string | null;
   llmInputTokens?: number | null;
   llmOutputTokens?: number | null;
   ttsCharacters?: number | null;
@@ -78,7 +80,8 @@ export function priceCall(u: CallUsage, rates: Rates): CallPrice {
     };
   }
 
-  const stt = ((u.sttSeconds ?? 0) / 60) * r(rates, 'deepgram_stt');
+  const stt =
+    ((u.sttSeconds ?? 0) / 60) * r(rates, u.sttProvider === 'google' ? 'google_stt' : 'deepgram_stt');
   const llm =
     ((u.llmInputTokens ?? 0) / 1_000_000) * r(rates, 'gemini_input') +
     ((u.llmOutputTokens ?? 0) / 1_000_000) * r(rates, 'gemini_output');

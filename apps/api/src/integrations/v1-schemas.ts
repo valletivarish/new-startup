@@ -2,7 +2,9 @@
 
 import { z } from 'zod';
 
-const Language = z.enum(['en', 'hi']);
+import { SCREENING_LANGUAGES } from '../hiring/jobs.service.js';
+
+const Language = z.enum(SCREENING_LANGUAGES);
 
 export const V1JobCreate = z.object({
   title: z.string().trim().min(1).max(200),

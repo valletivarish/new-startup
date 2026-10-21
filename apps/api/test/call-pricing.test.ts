@@ -8,6 +8,8 @@ const RATES: Rates = {
   gemini_output: 35.2,
   elevenlabs_tts: 4.4,
   sarvam_tts: 1.5,
+  google_tts: 2.64,
+  gemini_flash_tts: 1.3,
   elevenlabs_agent: 0.0185,
 };
 
@@ -39,6 +41,16 @@ describe('priceCall', () => {
     );
     expect(p.tts).toBeCloseTo(4.4);
     expect(p.stt).toBe(0);
+  });
+
+  it('prices the Google voice at the Chirp 3 HD rate, or the Gemini Flash rate for that model', () => {
+    const chirp = priceCall({ engine: 'own_loop_google_voice', callSeconds: 60, ttsCharacters: 1_000 }, RATES);
+    expect(chirp.tts).toBeCloseTo(2.64);
+    const gemini = priceCall(
+      { engine: 'own_loop_google_voice', callSeconds: 60, ttsCharacters: 1_000, ttsModel: 'gemini_flash' },
+      RATES,
+    );
+    expect(gemini.tts).toBeCloseTo(1.3);
   });
 
   it('prices the baseline from ElevenLabs credits plus telephony', () => {

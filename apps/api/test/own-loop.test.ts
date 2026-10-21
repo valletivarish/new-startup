@@ -218,6 +218,31 @@ describe('job voice engine', () => {
     const job = await api.request({ method: 'POST', url: '/jobs', cookie, payload: { title: 'Java dev' } });
     expect(job.statusCode).toBe(201);
     const jobId = (JSON.parse(job.body) as { id: string }).id;
+    // Migration 0033: new jobs run on our loop with the Kore Chirp 3 HD voice.
+    expect(JSON.parse((await api.request({ method: 'GET', url: `/jobs/${jobId}`, cookie })).body)).toMatchObject({
+      voiceEngine: 'own_loop_google_voice',
+      voicePersona: 'kore',
+      ttsModel: 'chirp3_hd',
+    });
+
+    const voice = await api.request({
+      method: 'POST',
+      url: `/admin/costs/jobs/${jobId}/engine`,
+      cookie,
+      payload: { engine: 'own_loop_google_voice', persona: 'iapetus', ttsModel: 'gemini_flash' },
+    });
+    expect(voice.statusCode).toBe(201);
+    expect(JSON.parse((await api.request({ method: 'GET', url: `/jobs/${jobId}`, cookie })).body)).toMatchObject({
+      voicePersona: 'iapetus',
+      ttsModel: 'gemini_flash',
+    });
+    const bad = await api.request({
+      method: 'POST',
+      url: `/admin/costs/jobs/${jobId}/engine`,
+      cookie,
+      payload: { engine: 'own_loop_google_voice', persona: 'charon' },
+    });
+    expect(bad.statusCode).toBe(422);
 
     const set = await api.request({
       method: 'POST',
@@ -228,6 +253,7 @@ describe('job voice engine', () => {
     expect(set.statusCode).toBe(201);
     const read = JSON.parse((await api.request({ method: 'GET', url: `/jobs/${jobId}`, cookie })).body);
     expect(read.voiceEngine).toBe('own_loop_sarvam_voice');
+    expect(read.voicePersona).toBe('iapetus'); // engine-only change keeps the persona
 
     const other = await registerUser(api, 'not-admin');
     const denied = await api.request({
@@ -237,5 +263,34 @@ describe('job voice engine', () => {
       payload: { engine: 'elevenlabs_agent' },
     });
     expect(denied.statusCode).toBe(404);
+  });
+});
+
+describe('migration 0033: Google voice', () => {
+  it('prices Google voices and turns ElevenLabs off', async () => {
+    const superDb = superDatabase();
+    const rows = await superDb.db.execute<{ key: string; rate_inr: string; status: string }>(sql`
+      select key, rate_inr::text, status from cost_services
+      where key in ('google_tts', 'gemini_flash_tts', 'elevenlabs_tts', 'elevenlabs_agent', 'elevenlabs_plan')
+      order by key
+    `);
+    await superDb.close();
+    const byKey = Object.fromEntries(rows.map((r) => [r.key, r]));
+    expect(Number(byKey['google_tts']!.rate_inr)).toBeCloseTo(2.64);
+    expect(byKey['google_tts']!.status).toBe('in_use');
+    expect(Number(byKey['gemini_flash_tts']!.rate_inr)).toBeCloseTo(1.3);
+    for (const k of ['elevenlabs_tts', 'elevenlabs_agent', 'elevenlabs_plan']) expect(byKey[k]!.status).toBe('off');
+  });
+
+  it('jobs take the 11 launch languages and reject others', async () => {
+    const owner = await registerUser(api, 'langs');
+    await createOrganization(api, owner, `langs-org-${Math.floor(Math.random() * 1e6)}`);
+    const ok = await api.request({ method: 'POST', url: '/jobs', cookie: owner.cookie, payload: { title: 'Tamil role', screeningLanguage: 'ta' } });
+    expect(ok.statusCode).toBe(201);
+    const jobId = (JSON.parse(ok.body) as { id: string }).id;
+    const read = JSON.parse((await api.request({ method: 'GET', url: `/jobs/${jobId}`, cookie: owner.cookie })).body);
+    expect(read.screeningLanguage).toBe('ta');
+    const bad = await api.request({ method: 'POST', url: '/jobs', cookie: owner.cookie, payload: { title: 'Odia role', screeningLanguage: 'or' } });
+    expect(bad.statusCode).toBe(422);
   });
 });

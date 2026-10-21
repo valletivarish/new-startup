@@ -54,6 +54,8 @@ export interface CallPlan {
   prompt: string;
   firstMessage: string;
   voiceId: string | null;
+  /** Google voice model: chirp3_hd | gemini_flash (other engines: chirp3_hd, unused). */
+  ttsModel: string;
   questions: { id: string; label: string }[];
   maxCallSeconds: number;
 }
@@ -165,6 +167,7 @@ export function createOwnLoopService(
         prompt: String(snap['agentPrompt'] ?? ''),
         firstMessage: String(snap['firstMessage'] ?? ''),
         voiceId: typeof snap['voiceId'] === 'string' ? snap['voiceId'] : null,
+        ttsModel: snap['ttsModel'] === 'gemini_flash' ? 'gemini_flash' : 'chirp3_hd',
         questions: criteria
           .filter((c): c is Record<string, unknown> => Boolean(c) && typeof c === 'object')
           .map((c) => ({ id: String(c['id'] ?? ''), label: String(c['label'] ?? '') }))

@@ -46,6 +46,18 @@ import { buildVoiceProvisionSnapshot } from './provision-snapshot.js';
 import type { CostService } from '../../costs/costs.service.js';
 import type { ExotelClient } from '../exotel/exotel.js';
 import type { VoiceEngine } from '../../costs/pricing.js';
+import { SCREENING_LANGUAGES, type ScreeningLanguage } from '../../hiring/jobs.service.js';
+
+/** Google Chirp 3 HD voice id for a call: `<code>-IN-Chirp3-HD-<Kore|Iapetus>`. */
+export function googleVoiceId(language: string, persona: string): string {
+  return `${language}-IN-Chirp3-HD-${persona === 'iapetus' ? 'Iapetus' : 'Kore'}`;
+}
+
+/** Job / agent language tag ('en-IN', 'hi', 'ta-IN', …) → screening language code; unknown → en. */
+export function screeningLanguageOf(tag: string): ScreeningLanguage {
+  const code = tag.trim().toLowerCase().slice(0, 2);
+  return (SCREENING_LANGUAGES as readonly string[]).includes(code) ? (code as ScreeningLanguage) : 'en';
+}
 
 // ---------------------------------------------------------------------------
 // DB record shapes (raw SQL rows)
@@ -650,10 +662,10 @@ export function createVoiceSessionService(
                 ]),
               ];
             }
-            if (jobCtx.language === 'hi') {
-              primaryLanguage = 'hi';
-            } else if (jobCtx.language === 'en') {
+            if (jobCtx.language === 'en') {
               primaryLanguage = 'en-IN';
+            } else if ((SCREENING_LANGUAGES as readonly string[]).includes(jobCtx.language)) {
+              primaryLanguage = jobCtx.language;
             }
           }
         }
@@ -720,8 +732,7 @@ export function createVoiceSessionService(
         primaryLanguage,
         companyFacts,
       });
-      const screeningLanguage: 'en' | 'hi' =
-        primaryLanguage.toLowerCase().startsWith('hi') ? 'hi' : 'en';
+      const screeningLanguage = screeningLanguageOf(primaryLanguage);
       return {
         agent,
         versionId,
@@ -1084,13 +1095,17 @@ export function createVoiceSessionService(
         database.db,
         { organizationId: actor.organizationId, userId: actor.userId },
         async (tx) =>
-          tx.execute<{ voice_engine: VoiceEngine }>(sql`
-            select voice_engine from jobs
+          tx.execute<{ voice_engine: VoiceEngine; voice_persona: string; tts_model: string }>(sql`
+            select voice_engine, voice_persona, tts_model from jobs
             where id = ${jobId} and organization_id = ${actor.organizationId}
           `),
       );
+      const jobEngine = engineRows[0]?.voice_engine;
+      // Test calls always run on the own loop: the job's own-loop engine, else Google.
       const engine: VoiceEngine = isTest
-        ? 'own_loop_sarvam_voice'
+        ? jobEngine && jobEngine !== 'elevenlabs_agent'
+          ? jobEngine
+          : 'own_loop_google_voice'
         : env.VOICE_OWN_LOOP_ENABLED && engineRows[0]?.voice_engine
           ? engineRows[0].voice_engine
           : 'elevenlabs_agent';
@@ -1131,9 +1146,11 @@ export function createVoiceSessionService(
         // Same script as the baseline, no provider agent: apps/voice runs it.
         const plan = await resolveScreeningPlan(actor, agentId, { jobId });
         const voiceId =
-          engine === 'own_loop_sarvam_voice'
-            ? env.OWN_LOOP_SARVAM_VOICE
-            : env.OWN_LOOP_ELEVENLABS_VOICE_ID.trim() || env.ELEVENLABS_DEFAULT_VOICE_ID?.trim() || null;
+          engine === 'own_loop_google_voice'
+            ? googleVoiceId(plan.screeningLanguage, engineRows[0]?.voice_persona ?? 'kore')
+            : engine === 'own_loop_sarvam_voice'
+              ? env.OWN_LOOP_SARVAM_VOICE
+              : env.OWN_LOOP_ELEVENLABS_VOICE_ID.trim() || env.ELEVENLABS_DEFAULT_VOICE_ID?.trim() || null;
         provisionSnapshot = buildVoiceProvisionSnapshot({
           jobId: plan.jobId ?? null,
           agentId,
@@ -1150,6 +1167,7 @@ export function createVoiceSessionService(
           firstMessage: plan.provisionFields.firstMessage,
           transferPhones: [],
           voiceId,
+          ...(engine === 'own_loop_google_voice' ? { ttsModel: engineRows[0]?.tts_model ?? 'chirp3_hd' } : {}),
         });
       } else {
         // Always re-sync so data_collection matches job (or agent) must-ask questions.

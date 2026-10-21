@@ -29,7 +29,12 @@ import {
 } from '../tokens.more.js';
 import type { AuditService } from '../audit/audit.service.js';
 import type { KnowledgeService } from '../knowledge/knowledge.service.js';
-import { CANDIDATE_STAGES, type CandidateScreeningResults, type JobsService } from './jobs.service.js';
+import {
+  CANDIDATE_STAGES,
+  SCREENING_LANGUAGES,
+  type CandidateScreeningResults,
+  type JobsService,
+} from './jobs.service.js';
 import type { CandidatesService } from './candidates.service.js';
 import type { VoiceSessionService } from '../providers/elevenlabs/voice-session.service.js';
 import { assistJobDescription } from './jd-assist.js';
@@ -106,7 +111,7 @@ const CreateJob = z
     description: z.string().trim().max(5000).optional(),
     agentId: z.string().uuid().optional(),
     mustAskQuestions: MustAskQuestions.optional(),
-    screeningLanguage: z.enum(['en', 'hi']).optional(),
+    screeningLanguage: z.enum(SCREENING_LANGUAGES).optional(),
   })
   .strict();
 
@@ -117,7 +122,7 @@ const UpdateJob = z
     status: z.enum(['draft', 'open', 'closed']).optional(),
     agentId: z.string().uuid().nullable().optional(),
     mustAskQuestions: MustAskQuestions.optional(),
-    screeningLanguage: z.enum(['en', 'hi']).optional(),
+    screeningLanguage: z.enum(SCREENING_LANGUAGES).optional(),
   })
   .strict();
 

@@ -45,6 +45,8 @@ export interface VoiceProvisionSnapshot {
   readonly firstMessage: string;
   readonly transferPhones: readonly string[];
   readonly voiceId: string | null;
+  /** Own loop, Google voice: chirp3_hd | gemini_flash (absent = chirp3_hd). */
+  readonly ttsModel?: string;
 }
 
 export function fingerprintKnowledgeContent(content: string): string {
@@ -64,6 +66,7 @@ export function buildVoiceProvisionSnapshot(input: {
   firstMessage: string;
   transferPhones: readonly string[];
   voiceId?: string | null;
+  ttsModel?: string;
   frozenAt?: string;
 }): VoiceProvisionSnapshot {
   const jobId = input.jobId ?? null;
@@ -98,6 +101,7 @@ export function buildVoiceProvisionSnapshot(input: {
     firstMessage: input.firstMessage,
     transferPhones: [...input.transferPhones],
     voiceId: input.voiceId ?? null,
+    ...(input.ttsModel ? { ttsModel: input.ttsModel } : {}),
   };
 }
 

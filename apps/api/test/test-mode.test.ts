@@ -102,7 +102,7 @@ function v1(key: string, method: 'GET' | 'POST', url: string, payload?: object) 
   });
 }
 
-async function jobWithCandidates(key: string, n: number, language?: 'en' | 'hi') {
+async function jobWithCandidates(key: string, n: number, language?: string) {
   const job = await v1(key, 'POST', '/v1/jobs', {
     title: 'Picker',
     // A job's language applies once the job has its own screening content.
@@ -210,7 +210,7 @@ describe('test mode', () => {
       select is_test, provider, engine, external_conversation_id
       from voice_sessions where id = ${cr.voice_session_id}
     `);
-    expect(vs).toMatchObject({ is_test: true, provider: 'own_loop', engine: 'own_loop_sarvam_voice' });
+    expect(vs).toMatchObject({ is_test: true, provider: 'own_loop', engine: 'own_loop_google_voice' });
     expect(vs!.external_conversation_id).toMatch(/^test-[0-9a-f-]{36}$/);
     const callId = vs!.external_conversation_id;
 
@@ -223,6 +223,7 @@ describe('test mode', () => {
     // The fake line can fetch the plan, then posts a long, spoken result.
     const plan = await line.ownLoop.getCallPlan(callId);
     expect(plan.voiceSessionId).toBe(cr.voice_session_id);
+    expect(plan).toMatchObject({ engine: 'own_loop_google_voice', voiceId: 'hi-IN-Chirp3-HD-Kore', ttsModel: 'chirp3_hd' });
     await line.ownLoop.saveCallResult(callId, {
       transcript: [
         { role: 'agent', message: 'What is your notice period?' },
@@ -242,6 +243,34 @@ describe('test mode', () => {
     const month = new Date(Date.now() + 330 * 60_000).toISOString().slice(0, 7);
     const usage = await createUsageService(api.built.database).month(org.orgId, month);
     expect(usage).toMatchObject({ callsPlaced: 0, completedScreens: 0 });
+  });
+
+  it("speaks the job's language with its persona and model; keeps a job's own-loop engine", async () => {
+    const org = await setupOrg('testmode-voice');
+    const key = await org.key('test');
+    const ta = await jobWithCandidates(key, 1, 'ta');
+    await superSql(sql`update jobs set voice_persona = 'iapetus', tts_model = 'gemini_flash' where id = ${ta.jobId}`);
+    const sarvam = await jobWithCandidates(key, 1);
+    await superSql(sql`update jobs set voice_engine = 'own_loop_sarvam_voice' where id = ${sarvam.jobId}`);
+    const line = testLine();
+
+    const taCall = await requestAndPlace(org, key, ta.jobId, ta.candidateIds[0]!, line.calls);
+    const [taVs] = await superSql<{ external_conversation_id: string }>(sql`
+      select external_conversation_id from voice_sessions where id = ${taCall.voice_session_id}
+    `);
+    expect(line.posted[0]!.body).toMatchObject({ language: 'ta' });
+    expect(await line.ownLoop.getCallPlan(taVs!.external_conversation_id)).toMatchObject({
+      engine: 'own_loop_google_voice',
+      language: 'ta',
+      voiceId: 'ta-IN-Chirp3-HD-Iapetus',
+      ttsModel: 'gemini_flash',
+    });
+
+    const sarvamCall = await requestAndPlace(org, key, sarvam.jobId, sarvam.candidateIds[0]!, line.calls);
+    const [sVs] = await superSql<{ engine: string }>(sql`
+      select engine from voice_sessions where id = ${sarvamCall.voice_session_id}
+    `);
+    expect(sVs!.engine).toBe('own_loop_sarvam_voice');
   });
 
   it('skips the calling-hours hold', async () => {

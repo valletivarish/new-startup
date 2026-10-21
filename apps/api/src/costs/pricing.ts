@@ -8,13 +8,25 @@
 export type VoiceEngine =
   | 'elevenlabs_agent'
   | 'own_loop_elevenlabs_voice'
-  | 'own_loop_sarvam_voice';
+  | 'own_loop_sarvam_voice'
+  | 'own_loop_google_voice';
 
 export const VOICE_ENGINES: readonly VoiceEngine[] = [
   'elevenlabs_agent',
   'own_loop_elevenlabs_voice',
   'own_loop_sarvam_voice',
+  'own_loop_google_voice',
 ];
+
+/** New jobs' engine (migration 0033 column default). */
+export const DEFAULT_VOICE_ENGINE: VoiceEngine = 'own_loop_google_voice';
+
+/** Own-loop engine → cost_services key of its voice. */
+export const TTS_RATE_KEY: Record<Exclude<VoiceEngine, 'elevenlabs_agent'>, string> = {
+  own_loop_elevenlabs_voice: 'elevenlabs_tts',
+  own_loop_sarvam_voice: 'sarvam_tts',
+  own_loop_google_voice: 'google_tts',
+};
 
 /** cost_services.key → rate_inr */
 export type Rates = Readonly<Record<string, number>>;
@@ -28,6 +40,8 @@ export interface CallUsage {
   llmInputTokens?: number | null;
   llmOutputTokens?: number | null;
   ttsCharacters?: number | null;
+  /** Google voice model (own_loop_google_voice): gemini_flash is priced on its own rate. */
+  ttsModel?: string | null;
   /** ElevenLabs credits for the conversation (baseline arm). */
   providerCredits?: number | null;
 }
@@ -68,7 +82,11 @@ export function priceCall(u: CallUsage, rates: Rates): CallPrice {
   const llm =
     ((u.llmInputTokens ?? 0) / 1_000_000) * r(rates, 'gemini_input') +
     ((u.llmOutputTokens ?? 0) / 1_000_000) * r(rates, 'gemini_output');
-  const ttsKey = u.engine === 'own_loop_sarvam_voice' ? 'sarvam_tts' : 'elevenlabs_tts';
+  // ponytail: a Gemini call's lines that fell back to Chirp are still priced at the Gemini rate.
+  const ttsKey =
+    u.engine === 'own_loop_google_voice' && u.ttsModel === 'gemini_flash'
+      ? 'gemini_flash_tts'
+      : TTS_RATE_KEY[u.engine];
   const tts = ((u.ttsCharacters ?? 0) / 1_000) * r(rates, ttsKey);
   return {
     telephony: round4(telephony),

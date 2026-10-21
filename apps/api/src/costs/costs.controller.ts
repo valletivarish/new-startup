@@ -15,6 +15,8 @@ import { parse } from '../validate.js';
 import { COST_SERVICE, USAGE_SERVICE } from '../tokens.more.js';
 import type { UsageService } from '../integrations/usage.service.js';
 import type { CostService } from './costs.service.js';
+import { VOICE_ENGINES, type VoiceEngine } from './pricing.js';
+import { TTS_MODELS, VOICE_PERSONAS } from '../hiring/jobs.service.js';
 
 const ServicePatch = z
   .object({
@@ -32,7 +34,11 @@ const Rating = z
   .strict();
 
 const EngineBody = z
-  .object({ engine: z.enum(['elevenlabs_agent', 'own_loop_elevenlabs_voice', 'own_loop_sarvam_voice']) })
+  .object({
+    engine: z.enum(VOICE_ENGINES as [VoiceEngine, ...VoiceEngine[]]),
+    persona: z.enum(VOICE_PERSONAS).optional(),
+    ttsModel: z.enum(TTS_MODELS).optional(),
+  })
   .strict();
 
 const MonthQuery = z.object({
@@ -111,9 +117,12 @@ export class AdminCostsController {
     const userId = this.adminUserId(req);
     const organizationId = req.authContext?.organization?.organizationId;
     if (!organizationId) throw ApiError.notFound('Job');
-    const { engine } = parse(EngineBody, body);
-    await this.costs.setJobEngine(organizationId, userId, parse(z.string().uuid(), jobId), engine);
-    return { ok: true, engine };
+    const { engine, persona, ttsModel } = parse(EngineBody, body);
+    await this.costs.setJobEngine(organizationId, userId, parse(z.string().uuid(), jobId), engine, {
+      persona,
+      ttsModel,
+    });
+    return { ok: true, engine, ...(persona ? { persona } : {}), ...(ttsModel ? { ttsModel } : {}) };
   }
 
   @Authenticated()

@@ -18,6 +18,7 @@ import {
 import type { Env } from '../config.js';
 import { ApiError } from '../errors.js';
 import { priceCall, type CallUsage, type Rates, type VoiceEngine } from './pricing.js';
+import type { TtsModel, VoicePersona } from '../hiring/jobs.service.js';
 
 const SYSTEM_ACTOR_ID = '00000000-0000-0000-0000-000000000000';
 
@@ -58,7 +59,13 @@ export interface CostService {
   adminListOrganizations(userId: string): Promise<{ id: string; name: string }[]>;
   adminRateCall(userId: string, voiceSessionId: string, rating: number, note: string | null): Promise<void>;
   /** Pick a job's engine — in the admin's own active workspace (tenant RLS applies). */
-  setJobEngine(organizationId: string, userId: string, jobId: string, engine: VoiceEngine): Promise<void>;
+  setJobEngine(
+    organizationId: string,
+    userId: string,
+    jobId: string,
+    engine: VoiceEngine,
+    voice?: { persona?: VoicePersona; ttsModel?: TtsModel },
+  ): Promise<void>;
 }
 
 export interface ServiceRow {
@@ -186,10 +193,11 @@ export function createCostService(database: Database, env: Env): CostService {
             candidate_id: string | null;
             channel: string | null;
             is_test: boolean;
+            tts_model: string | null;
           }>(sql`
             select vs.status, vs.engine, vs.failure_reason, vs.duration_seconds,
                    vs.cost_credits::text, vs.transcript, vs.job_id, vs.candidate_id,
-                   s.channel, vs.is_test
+                   s.channel, vs.is_test, vs.provision_snapshot->>'ttsModel' as tts_model
             from voice_sessions vs
             left join agent_sessions s on s.id = vs.session_id
             where vs.id = ${voiceSessionId} and vs.organization_id = ${organizationId}
@@ -230,6 +238,7 @@ export function createCostService(database: Database, env: Env): CostService {
             llmInputTokens: pick(u.llmInputTokens, num(prev?.llm_input_tokens)),
             llmOutputTokens: pick(u.llmOutputTokens, num(prev?.llm_output_tokens)),
             ttsCharacters: pick(u.ttsCharacters, prev?.tts_characters),
+            ttsModel: vs.tts_model,
             providerCredits: num(vs.cost_credits),
           };
           const rates = await loadRates(tx);
@@ -334,6 +343,9 @@ export function createCostService(database: Database, env: Env): CostService {
             coalesce(sum(llm_cost), 0)::text as llm,
             coalesce(sum(tts_cost) filter (where engine = 'own_loop_elevenlabs_voice'), 0)::text as tts_el,
             coalesce(sum(tts_cost) filter (where engine = 'own_loop_sarvam_voice'), 0)::text as tts_sarvam,
+            -- ponytail: Gemini Flash voice spend is summed under google_tts too (the ledger
+            -- has no model column); add one if both models carry real traffic.
+            coalesce(sum(tts_cost) filter (where engine = 'own_loop_google_voice'), 0)::text as tts_google,
             coalesce(sum(agent_cost), 0)::text as agent
           from call_cost_ledger
           where created_at >= ${monthStart}::date
@@ -346,6 +358,7 @@ export function createCostService(database: Database, env: Env): CostService {
           gemini_input: Number(s['llm'] ?? 0),
           elevenlabs_tts: Number(s['tts_el'] ?? 0),
           sarvam_tts: Number(s['tts_sarvam'] ?? 0),
+          google_tts: Number(s['tts_google'] ?? 0),
           elevenlabs_agent: Number(s['agent'] ?? 0),
         };
         const serviceRows = services
@@ -463,10 +476,13 @@ export function createCostService(database: Database, env: Env): CostService {
       });
     },
 
-    async setJobEngine(organizationId, userId, jobId, engine) {
+    async setJobEngine(organizationId, userId, jobId, engine, voice = {}) {
       await withTenantContext(database.db, { organizationId, userId }, async (tx) => {
         const rows = await tx.execute<{ id: string }>(sql`
-          update jobs set voice_engine = ${engine}, updated_at = now()
+          update jobs set voice_engine = ${engine},
+            voice_persona = coalesce(${voice.persona ?? null}, voice_persona),
+            tts_model = coalesce(${voice.ttsModel ?? null}, tts_model),
+            updated_at = now()
           where id = ${jobId} and organization_id = ${organizationId}
           returning id
         `);

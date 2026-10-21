@@ -1,6 +1,7 @@
 import { sql, withTenantContext, type Database } from '@platform/db';
 
 import { ApiError } from '../errors.js';
+import { DEFAULT_VOICE_ENGINE } from '../costs/pricing.js';
 import { AgentConfiguration } from '../agents/configuration.js';
 import { computeFitPercent } from './fit-percent.js';
 import { decodeCursor, encodeCursor } from '../pagination.js';
@@ -16,7 +17,13 @@ export interface ScreeningQuestion {
   readonly label: string;
 }
 
-export type ScreeningLanguage = 'en' | 'hi';
+/** India launch languages (docs/voice-selection.md); the call locale is `<code>-IN`. */
+export const SCREENING_LANGUAGES = ['en', 'hi', 'bn', 'mr', 'te', 'ta', 'gu', 'ur', 'kn', 'ml', 'pa'] as const;
+export type ScreeningLanguage = (typeof SCREENING_LANGUAGES)[number];
+export const VOICE_PERSONAS = ['kore', 'iapetus'] as const;
+export type VoicePersona = (typeof VOICE_PERSONAS)[number];
+export const TTS_MODELS = ['chirp3_hd', 'gemini_flash'] as const;
+export type TtsModel = (typeof TTS_MODELS)[number];
 
 export interface JobRow {
   readonly id: string;
@@ -28,6 +35,9 @@ export interface JobRow {
   readonly screeningLanguage: ScreeningLanguage;
   /** Which voice engine runs this job's calls (set by the platform admin). */
   readonly voiceEngine: string;
+  /** Google voice persona (kore | iapetus) and model (chirp3_hd | gemini_flash). */
+  readonly voicePersona: string;
+  readonly ttsModel: string;
   readonly createdAt: string;
   readonly updatedAt: string;
   /** True when knowledge docs are attached (file or saved JD text). */
@@ -192,6 +202,8 @@ type JobRecord = {
   screening_questions: unknown;
   screening_language: string;
   voice_engine?: string | null;
+  voice_persona?: string | null;
+  tts_model?: string | null;
   created_at: string;
   updated_at: string;
   has_jd_docs?: boolean | string | number | null;
@@ -205,7 +217,6 @@ export const CANDIDATE_STAGES = ['new', 'screening', 'reviewed', 'declined'] as 
 const ASSIGNMENT_STATUSES = CANDIDATE_STAGES;
 type AssignmentStatus = (typeof ASSIGNMENT_STATUSES)[number];
 
-const SCREENING_LANGUAGES = ['en', 'hi'] as const;
 
 type JobCandidateRecord = {
   id: string;
@@ -292,7 +303,9 @@ function toJob(r: JobRecord): JobRow {
     agentId: r.agent_id,
     screeningQuestions: parseScreeningQuestions(r.screening_questions),
     screeningLanguage: lang,
-    voiceEngine: r.voice_engine ?? 'elevenlabs_agent',
+    voiceEngine: r.voice_engine ?? DEFAULT_VOICE_ENGINE,
+    voicePersona: r.voice_persona ?? 'kore',
+    ttsModel: r.tts_model ?? 'chirp3_hd',
     createdAt: r.created_at,
     updatedAt: r.updated_at,
     hasJdDocs,
@@ -417,7 +430,7 @@ export function createJobsService(database: Database): JobsService {
   ): Promise<JobRecord> {
     const rows = await tx.execute<JobRecord>(sql`
       select id, title, description, status, agent_id,
-             screening_questions, screening_language, voice_engine,
+             screening_questions, screening_language, voice_engine, voice_persona, tts_model,
              created_at::text, updated_at::text,
              exists (
                select 1
@@ -485,7 +498,7 @@ export function createJobsService(database: Database): JobsService {
         async (tx) =>
           tx.execute<JobRecord>(sql`
             select id, title, description, status, agent_id,
-                   screening_questions, screening_language, voice_engine,
+                   screening_questions, screening_language, voice_engine, voice_persona, tts_model,
                    created_at::text, updated_at::text,
                    exists (
                      select 1

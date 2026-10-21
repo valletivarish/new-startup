@@ -127,7 +127,7 @@ const STEPS: readonly { title: string; body: string; preview: ReactNode }[] = [
   },
   {
     title: 'Add candidates',
-    body: 'Type them in one at a time, upload a spreadsheet saved as CSV, or upload their resumes. We pick up each phone number from the resume. On Zoho Recruit? Connect it once and new applicants come in on their own.',
+    body: 'Type them in one at a time, upload a spreadsheet saved as CSV, or upload their resumes. We pick up each phone number from the resume. There is no applicant tracking system link yet.',
     preview: <CandidatesPreview />,
   },
   {

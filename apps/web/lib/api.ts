@@ -10,7 +10,25 @@
 
 import { loginPathForReturn } from './auth-redirect';
 import { ApiClientError, NotAvailableError, type ApiFailure } from './errors';
-import type { VoiceEngine } from '@/app/admin/costs-api';
+import type { TtsModel, VoiceEngine, VoicePersona } from '@/app/admin/costs-api';
+
+/** Call languages (India launch set, docs/voice-selection.md). */
+export const SCREENING_LANGUAGE_LABEL = {
+  en: 'English',
+  hi: 'Hindi',
+  bn: 'Bengali',
+  mr: 'Marathi',
+  te: 'Telugu',
+  ta: 'Tamil',
+  gu: 'Gujarati',
+  ur: 'Urdu',
+  kn: 'Kannada',
+  ml: 'Malayalam',
+  pa: 'Punjabi',
+} as const;
+export type ScreeningLanguage = keyof typeof SCREENING_LANGUAGE_LABEL;
+export const isScreeningLanguage = (v: unknown): v is ScreeningLanguage =>
+  typeof v === 'string' && v in SCREENING_LANGUAGE_LABEL;
 
 export { ApiClientError, NotAvailableError };
 export type { ApiFailure };
@@ -817,12 +835,14 @@ export interface Job {
   status: string;
   agentId: string | null;
   screeningQuestions: { id: string; label: string }[];
-  screeningLanguage: 'en' | 'hi';
+  screeningLanguage: ScreeningLanguage;
   createdAt: string;
   updatedAt: string;
   /** Attached JD knowledge docs (file upload or saved text). Both backends always send it. */
   hasJdDocs: boolean;
   voiceEngine?: VoiceEngine;
+  voicePersona?: VoicePersona;
+  ttsModel?: TtsModel;
 }
 
 export interface JobKnowledgeSource {
@@ -895,7 +915,7 @@ export const createJob = (input: {
   description?: string;
   agentId?: string;
   mustAskQuestions?: string[];
-  screeningLanguage?: 'en' | 'hi';
+  screeningLanguage?: ScreeningLanguage;
 }) =>
   call<{ id: string }>('/backend/jobs', {
     method: 'POST',
@@ -910,7 +930,7 @@ export const updateJob = (
     status?: 'draft' | 'open' | 'closed';
     agentId?: string | null;
     mustAskQuestions?: string[];
-    screeningLanguage?: 'en' | 'hi';
+    screeningLanguage?: ScreeningLanguage;
   },
 ) =>
   call(`/backend/jobs/${id}`, {

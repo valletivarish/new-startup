@@ -6,11 +6,28 @@
 
 import { call } from '@/lib/api';
 
-export type VoiceEngine = 'elevenlabs_agent' | 'own_loop_elevenlabs_voice' | 'own_loop_sarvam_voice';
+export type VoiceEngine =
+  | 'elevenlabs_agent'
+  | 'own_loop_elevenlabs_voice'
+  | 'own_loop_sarvam_voice'
+  | 'own_loop_google_voice';
 export const ENGINE_LABEL: Record<VoiceEngine, string> = {
-  elevenlabs_agent: 'ElevenLabs agent (baseline)',
-  own_loop_elevenlabs_voice: 'Our loop + ElevenLabs voice',
+  own_loop_google_voice: 'Our loop + Google voice (Kore/Iapetus)',
   own_loop_sarvam_voice: 'Our loop + Sarvam voice',
+  own_loop_elevenlabs_voice: 'Our loop + ElevenLabs voice',
+  elevenlabs_agent: 'ElevenLabs agent (baseline)',
+};
+/** New jobs' engine; the only one with a persona and model to pick. */
+export const GOOGLE_VOICE_ENGINE: VoiceEngine = 'own_loop_google_voice';
+export type VoicePersona = 'kore' | 'iapetus';
+export const PERSONA_LABEL: Record<VoicePersona, string> = {
+  kore: 'Kore (female)',
+  iapetus: 'Iapetus (male)',
+};
+export type TtsModel = 'chirp3_hd' | 'gemini_flash';
+export const TTS_MODEL_LABEL: Record<TtsModel, string> = {
+  chirp3_hd: 'Chirp 3 HD (fast, all languages)',
+  gemini_flash: 'Gemini 2.5 Flash (more expressive; en, hi, mr, te, ta, gu, kn, ml, pa)',
 };
 export interface CostServiceRow {
   key: string;
@@ -74,10 +91,14 @@ export const updateCostService = (
     body: JSON.stringify(patch),
   });
 /** Platform admin only: which voice engine phones this job's candidates. */
-export const setJobEngine = (jobId: string, engine: VoiceEngine) =>
+export const setJobEngine = (
+  jobId: string,
+  engine: VoiceEngine,
+  voice: { persona?: VoicePersona; ttsModel?: TtsModel } = {},
+) =>
   call<{ ok: true; engine: VoiceEngine }>(`/backend/admin/costs/jobs/${jobId}/engine`, {
     method: 'POST',
-    body: JSON.stringify({ engine }),
+    body: JSON.stringify({ engine, ...voice }),
   });
 export const listCostCalls = () => call<{ calls: CostCall[] }>('/backend/admin/costs/calls');
 export const rateCostCall = (voiceSessionId: string, rating: number, note: string | null) =>

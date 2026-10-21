@@ -39,18 +39,30 @@ import {
   formatApiError,
   getAgent,
   getJob,
+  isScreeningLanguage,
   JOB_SOURCE_DESCRIPTION,
   listAgents,
   listJobCandidates,
   listJobKnowledge,
   listKnowledgeSources,
   saveJobDescriptionText,
+  SCREENING_LANGUAGE_LABEL,
   updateJob,
   uploadKnowledgeDocument,
   type Job,
+  type ScreeningLanguage,
   type JobKnowledgeSource,
 } from '@/lib/api';
-import { ENGINE_LABEL, setJobEngine, type VoiceEngine } from '@/app/admin/costs-api';
+import {
+  ENGINE_LABEL,
+  GOOGLE_VOICE_ENGINE,
+  PERSONA_LABEL,
+  setJobEngine,
+  TTS_MODEL_LABEL,
+  type TtsModel,
+  type VoiceEngine,
+  type VoicePersona,
+} from '@/app/admin/costs-api';
 import { useUnsavedChangesGuard } from '@/lib/drafts';
 import { toUserMessage } from '@/lib/errors';
 import { shortRef } from '@/lib/format';
@@ -96,7 +108,7 @@ function JobSetup({ publicId }: { publicId: string }) {
   const [docsPreparing, setDocsPreparing] = useState(false);
   const [jobKnowledge, setJobKnowledge] = useState<JobKnowledgeSource[]>([]);
   const [questions, setQuestions] = useState<string[]>([]);
-  const [screeningLanguage, setScreeningLanguage] = useState<'en' | 'hi'>('en');
+  const [screeningLanguage, setScreeningLanguage] = useState<ScreeningLanguage>('en');
   const [savingScreening, setSavingScreening] = useState(false);
   const [jdFiles, setJdFiles] = useState<File[]>([]);
   const [uploadingJd, setUploadingJd] = useState(false);
@@ -139,7 +151,7 @@ function JobSetup({ publicId }: { publicId: string }) {
         hydrated.current = true;
         setJdText((j.description ?? '').trim());
         setQuestions((j.screeningQuestions ?? []).map((q) => q.label));
-        setScreeningLanguage(j.screeningLanguage === 'hi' ? 'hi' : 'en');
+        setScreeningLanguage(isScreeningLanguage(j.screeningLanguage) ? j.screeningLanguage : 'en');
       }
       void reloadJobKnowledge();
       try {
@@ -225,7 +237,7 @@ function JobSetup({ publicId }: { publicId: string }) {
 
   const savedDescription = (job?.description ?? '').trim();
   const savedQuestions = (job?.screeningQuestions ?? []).map((q) => q.label);
-  const savedLanguage = job?.screeningLanguage === 'hi' ? 'hi' : 'en';
+  const savedLanguage: ScreeningLanguage = isScreeningLanguage(job?.screeningLanguage) ? job.screeningLanguage : 'en';
   const jdDirty = job !== null && jdText.trim() !== savedDescription;
   const questionsDirty =
     job !== null && (!sameQuestions(questions, savedQuestions) || screeningLanguage !== savedLanguage);
@@ -750,10 +762,13 @@ function JobSetup({ publicId }: { publicId: string }) {
                     >
                       <Select
                         value={screeningLanguage}
-                        onChange={(e) => setScreeningLanguage(e.target.value === 'hi' ? 'hi' : 'en')}
+                        onChange={(e) => setScreeningLanguage(isScreeningLanguage(e.target.value) ? e.target.value : 'en')}
                       >
-                        <option value="en">English</option>
-                        <option value="hi">Hindi</option>
+                        {(Object.keys(SCREENING_LANGUAGE_LABEL) as ScreeningLanguage[]).map((code) => (
+                          <option key={code} value={code}>
+                            {SCREENING_LANGUAGE_LABEL[code]}
+                          </option>
+                        ))}
                       </Select>
                     </Field>
                     <Button
@@ -775,7 +790,7 @@ function JobSetup({ publicId }: { publicId: string }) {
                     ))}
                   </ol>
                   <p className="mb-0 mt-4 text-meta text-text-3">
-                    Calls are in {savedLanguage === 'hi' ? 'Hindi' : 'English'}.
+                    Calls are in {SCREENING_LANGUAGE_LABEL[savedLanguage]}.
                   </p>
                 </>
               ) : (
@@ -925,13 +940,21 @@ function SetupCard({
 /** Platform admin only: which voice engine phones this job's candidates (the A/B arms). */
 function EngineCard({ job, onChange }: { job: Job; onChange: (job: Job) => void }) {
   const [saving, setSaving] = useState(false);
-  const current = job.voiceEngine ?? 'elevenlabs_agent';
-  async function pick(engine: VoiceEngine) {
+  const current = job.voiceEngine ?? GOOGLE_VOICE_ENGINE;
+  const persona = job.voicePersona ?? 'kore';
+  const ttsModel = job.ttsModel ?? 'chirp3_hd';
+  async function pick(engine: VoiceEngine, voice: { persona?: VoicePersona; ttsModel?: TtsModel } = {}) {
     setSaving(true);
     try {
-      await setJobEngine(job.id, engine);
-      onChange({ ...job, voiceEngine: engine });
-      toast.success(`Calls for this job now use: ${ENGINE_LABEL[engine]}`);
+      await setJobEngine(job.id, engine, voice);
+      onChange({ ...job, voiceEngine: engine, ...(voice.persona ? { voicePersona: voice.persona } : {}), ...(voice.ttsModel ? { ttsModel: voice.ttsModel } : {}) });
+      toast.success(
+        voice.persona
+          ? `Calls for this job now use the ${PERSONA_LABEL[voice.persona]} voice`
+          : voice.ttsModel
+            ? `Calls for this job now use ${TTS_MODEL_LABEL[voice.ttsModel]}`
+            : `Calls for this job now use: ${ENGINE_LABEL[engine]}`,
+      );
     } catch (err) {
       toast.error(toUserMessage(err).detail);
     } finally {
@@ -953,6 +976,38 @@ function EngineCard({ job, onChange }: { job: Job; onChange: (job: Job) => void 
           ))}
         </Select>
       </Field>
+      {current === GOOGLE_VOICE_ENGINE ? (
+        <div className="mt-4 grid gap-4 sm:grid-cols-2">
+          <Field label="Voice" htmlFor="voice-persona">
+            <Select
+              id="voice-persona"
+              value={persona}
+              disabled={saving}
+              onChange={(e) => void pick(current, { persona: e.target.value as VoicePersona })}
+            >
+              {(Object.keys(PERSONA_LABEL) as VoicePersona[]).map((p) => (
+                <option key={p} value={p}>
+                  {PERSONA_LABEL[p]}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="Voice model" htmlFor="tts-model">
+            <Select
+              id="tts-model"
+              value={ttsModel}
+              disabled={saving}
+              onChange={(e) => void pick(current, { ttsModel: e.target.value as TtsModel })}
+            >
+              {(Object.keys(TTS_MODEL_LABEL) as TtsModel[]).map((m) => (
+                <option key={m} value={m}>
+                  {TTS_MODEL_LABEL[m]}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        </div>
+      ) : null}
     </section>
   );
 }

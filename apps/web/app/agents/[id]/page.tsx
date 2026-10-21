@@ -13,6 +13,7 @@ import { useParams } from 'next/navigation';
 import { Archive, ChevronDown, CirclePause, Radio } from 'lucide-react';
 import { toast } from 'sonner';
 import { AppShell } from '@/components/AppShell';
+import { PhoneListField } from '@/components/PhoneListField';
 import { agentStateCopy } from '@/components/agents/copy';
 import { AgentSources } from '@/components/agents/sources';
 import { HiringVoiceFace } from '@/components/fx/HiringVoiceFace';
@@ -102,7 +103,7 @@ export default function AgentDetailPage() {
   const [agentTools, setAgentTools] = useState<Tool[]>([]);
   const [executions, setExecutions] = useState<ToolExecution[]>([]);
   const [showAdvanced, setShowAdvanced] = useState(false);
-  const [transferEdit, setTransferEdit] = useState('');
+  const [transferEdit, setTransferEdit] = useState<string[]>([]);
   const [savingTransfer, setSavingTransfer] = useState(false);
   const [transferError, setTransferError] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<unknown>(null);
@@ -127,7 +128,7 @@ export default function AgentDetailPage() {
         (draft?.configuration as Record<string, unknown> | undefined) ??
         (published?.configuration as Record<string, unknown> | undefined);
       if (draft) setDraftText(JSON.stringify(draft.configuration, null, 2));
-      setTransferEdit(transferPhonesFromConfig(cfg).join('\n'));
+      setTransferEdit(transferPhonesFromConfig(cfg));
       if (p.activeOrganization?.permissions.includes('agents.sessions.read')) {
         setSessions((await listSessions(agentId)).sessions);
       }
@@ -219,11 +220,7 @@ export default function AgentDetailPage() {
     setSavingTransfer(true);
     setTransferError(null);
     try {
-      const phones = transferEdit
-        .split('\n')
-        .map((s) => s.trim())
-        .filter(Boolean)
-        .slice(0, 10);
+      const phones = transferEdit.filter(Boolean).slice(0, 10);
 
       let draftId = versions.find((v) => v.status === 'draft')?.id;
       const publishedVer = versions.find((v) => v.status === 'published');
@@ -433,18 +430,12 @@ export default function AgentDetailPage() {
                       void saveTransferPhones();
                     }}
                   >
-                    <Field
+                    <PhoneListField
                       label="Hand-off numbers"
-                      hint="One number per line, with the country code, like +91 98765 43210. Up to 10."
                       error={transferError}
-                    >
-                      <Textarea
-                        value={transferEdit}
-                        onChange={(e) => setTransferEdit(e.target.value)}
-                        placeholder="+91 98765 43210"
-                        rows={3}
-                      />
-                    </Field>
+                      value={transferEdit}
+                      onChange={setTransferEdit}
+                    />
                     <div>
                       <Button type="submit" variant="secondary" loading={savingTransfer}>
                         Save numbers

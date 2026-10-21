@@ -9,6 +9,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNod
 import Link from 'next/link';
 import { Check, Lock, Plus, Radio } from 'lucide-react';
 import { AppShell } from '@/components/AppShell';
+import { PhoneListField } from '@/components/PhoneListField';
 import { HiringVoiceFace } from '@/components/fx/HiringVoiceFace';
 import { Breadcrumb } from '@/components/ui/breadcrumb';
 import { Button } from '@/components/ui/button';
@@ -43,12 +44,6 @@ const STEPS: { key: Step; label: string }[] = [
 const CARD = 'max-w-2xl rounded-card border border-border bg-canvas p-5 sm:p-6';
 const CRUMBS = [{ label: 'Agents', href: '/agents' }, { label: 'Set up an agent' }];
 
-function parseLines(value: string): string[] {
-  return value
-    .split('\n')
-    .map((s) => s.trim())
-    .filter(Boolean);
-}
 
 export default function NewAgentPage() {
   const { labels } = useUseCase();
@@ -61,7 +56,7 @@ export default function NewAgentPage() {
   const [name, setName] = useState('');
   const [purpose, setPurpose] = useState('');
   const [purposeError, setPurposeError] = useState<string | null>(null);
-  const [transferPhones, setTransferPhones] = useState('');
+  const [transferPhones, setTransferPhones] = useState<string[]>([]);
   const [createdId, setCreatedId] = useState<string | null>(null);
   const [createdVersionId, setCreatedVersionId] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<unknown>(null);
@@ -150,7 +145,7 @@ export default function NewAgentPage() {
         name: name.trim(),
         purpose: purpose.trim(),
         agentType: selectedPack.id,
-        transferPhones: parseLines(transferPhones),
+        transferPhones: transferPhones.filter(Boolean),
       });
 
       setCreatedId(result.id);
@@ -217,7 +212,7 @@ export default function NewAgentPage() {
     );
   } else {
     const stepIndex = STEPS.findIndex((s) => s.key === step);
-    const phones = parseLines(transferPhones);
+    const phones = transferPhones.filter(Boolean);
     body = (
       <>
         {header}
@@ -283,17 +278,12 @@ export default function NewAgentPage() {
                 rows={4}
               />
             </Field>
-            <Field
+            <PhoneListField
               label="Hand-off numbers (optional)"
-              hint={`When a ${contact} asks for a person, it transfers the call to one of these. One number per line, with the country code, like +91 98765 43210.`}
-            >
-              <Textarea
-                value={transferPhones}
-                onChange={(e) => setTransferPhones(e.target.value)}
-                placeholder="+91 98765 43210"
-                rows={2}
-              />
-            </Field>
+              hint={`When a ${contact} asks for a person, the call goes to one of these.`}
+              value={transferPhones}
+              onChange={setTransferPhones}
+            />
             <div className="flex flex-wrap gap-2">
               <Button type="submit">Continue</Button>
               <Button asChild variant="tertiary">

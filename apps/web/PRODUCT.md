@@ -53,7 +53,7 @@ Not a generic voice API, not a cheaper clone of a competitor, not a wrapper arou
 - Never ship "HireFlow". "Hiring desk" is retired as a brand.
 - No vendor names (speech, model or telephony providers) anywhere in the UI or marketing copy.
 - Plain language a recruiter uses. No API paths, provider jargon or raw status codes.
-- The product never recommends hire or reject. It reports what was said.
+- The product never judges a person on its own; it checks HR's stated requirements and shows the evidence. HR decides, or HR chooses to auto-advance on its own criteria.
 
 ## Evidence on Hand
 

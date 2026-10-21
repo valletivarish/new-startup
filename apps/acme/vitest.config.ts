@@ -7,5 +7,7 @@ export default defineConfig({
     testTimeout: 300_000,
     hookTimeout: 120_000,
     sequence: { concurrent: false },
+    // One file at a time: the fake phone line takes one test call at a time.
+    fileParallelism: false,
   },
 });

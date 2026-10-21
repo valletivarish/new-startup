@@ -6,7 +6,8 @@
  * the developer's `platform` data is untouched), the API and worker on tsx,
  * and the apps/voice container running test calls on the fake line. Acme
  * itself is started on :4100 inside the vitest run, because check 8 stops
- * and restarts its webhook listener.
+ * and restarts its webhook listener. The fake Zoho Recruit
+ * (apps/acme/src/fake-zoho.ts) is started on :4200 there too; the API points at it.
  *
  * Exotel and ElevenLabs settings are never passed to the API: nothing can
  * dial a real phone from this run.
@@ -96,7 +97,7 @@ function tail(name, lines = 40) {
 }
 
 async function main() {
-  for (const port of [Number(API_PORT), 4100, 8765]) {
+  for (const port of [Number(API_PORT), 4100, 4200, 8765]) {
     if (!(await portFree(port))) throw new Error(`port ${port} is in use; stop whatever is on it first`);
   }
 
@@ -181,6 +182,10 @@ async function main() {
     GEMINI_API_KEY: providers.GEMINI_API_KEY,
     GEMINI_BASE_URL: providers.GEMINI_BASE_URL,
     GEMINI_MODEL: providers.GEMINI_MODEL,
+    // The Zoho Recruit connector talks to the fake Zoho the vitest run starts on :4200.
+    ZOHO_CLIENT_ID: 'clients-test',
+    ZOHO_CLIENT_SECRET: randomBytes(16).toString('hex'),
+    ZOHO_TEST_BASE_URL: 'http://127.0.0.1:4200',
   };
   console.log(`· api + worker (logs: ${logDir})`);
   start('api', ['--filter', '@platform/api', 'exec', 'tsx', 'src/main.ts'], apiEnv);
@@ -196,6 +201,7 @@ async function main() {
       ...process.env,
       HRVOICE_API_URL: `http://localhost:${API_PORT}`,
       ACME_PORT: '4100',
+      FAKE_ZOHO_PORT: '4200',
       CLIENTS_ADMIN_EMAIL: ADMIN_EMAIL,
       CLIENTS_TEST_DB: DB,
     },

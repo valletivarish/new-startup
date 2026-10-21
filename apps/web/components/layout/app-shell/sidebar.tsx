@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useId, useRef, useState, useSyncExternalStore, type CSSProperties, type FocusEvent, type PointerEvent } from 'react';
+import { useEffect, useId, useRef, useState, useSyncExternalStore, type FocusEvent, type PointerEvent } from 'react';
 import { Pin, PanelLeftClose, PanelLeftOpen, Sparkle } from 'lucide-react';
 import type { Me } from '@/lib/api';
 import { cn } from '@/lib/utils';
@@ -11,6 +11,7 @@ import { IconButton } from '@/components/ui/icon-button';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { UserMenu, WorkspaceSwitcher } from './account';
 import { gate, isActive, type NavItem } from './nav';
+import { NavIcon } from './nav-icons';
 import { PLACEHOLDER, RAIL } from './parts';
 
 /*
@@ -65,41 +66,32 @@ function subscribeDesktop(notify: () => void) {
  * with fixed padding, never centred), so only the label moves: it fades and slides in beside the
  * icon, clipped by the row so it never wraps while the width animates.
  */
-/** Each icon's hover animation, by page (keyframes in globals.css). Unlisted pages just lift. */
-const ICON_MOTION: Record<string, string> = {
-  '/dashboard': 'hop',
-  '/jobs': 'tilt',
-  '/candidates': 'sway',
-  '/calls': 'ring',
-  '/agents': 'bars',
-  '/knowledge': 'open',
-  '/tools': 'twist',
-  '/analytics': 'grow',
-  '/settings': 'spin',
-  '/admin/costs': 'flip',
-};
-
-function NavRow({ item, active, index }: { item: NavItem; active: boolean; index: number }) {
-  const Icon = item.icon;
+function NavRow({ item, active, index, ripple }: { item: NavItem; active: boolean; index: number; ripple: number }) {
+  // The icon plays on each hover or keyboard focus, and in turn when the rail springs open.
+  const [hovers, setHovers] = useState(0);
+  const [fromRipple, setFromRipple] = useState(false);
+  useEffect(() => {
+    if (ripple > 0) setFromRipple(true);
+  }, [ripple]);
+  const play = () => {
+    setFromRipple(false);
+    setHovers((n) => n + 1);
+  };
   return (
     <li>
       <Link
         href={item.href}
         aria-current={active ? 'page' : undefined}
+        onPointerEnter={play}
+        onFocus={(event) => event.currentTarget.matches(':focus-visible') && play()}
         className={cn(
-          'nav-row group/row flex min-h-10 items-center gap-3 overflow-hidden rounded-input px-3 text-label transition-[background-color,color,box-shadow] duration-150 [@media(pointer:coarse)]:min-h-11',
+          'group/row flex min-h-10 items-center gap-3 overflow-hidden rounded-input px-3 text-label transition-[background-color,color,box-shadow] duration-150 [@media(pointer:coarse)]:min-h-11',
           active
             ? 'bg-canvas font-medium text-text shadow-xs'
             : 'text-text-2 hover:bg-[color-mix(in_srgb,var(--canvas)_72%,transparent)] hover:text-text active:bg-canvas',
         )}
       >
-        <Icon
-          aria-hidden
-          strokeWidth={1.5}
-          data-motion={ICON_MOTION[item.href] ?? 'lift'}
-          style={{ '--i': index } as CSSProperties}
-          className="nav-icon size-[1.125rem] shrink-0"
-        />
+        <NavIcon href={item.href} fallback={item.icon} play={hovers + ripple} delay={fromRipple ? index * 0.045 : 0} />
         <span className={cn('min-w-0 whitespace-nowrap', LABEL)}>{item.label}</span>
       </Link>
     </li>
@@ -111,12 +103,15 @@ function NavList({
   pathname,
   labelledBy,
   offset = 0,
+  ripple,
 }: {
   items: (NavItem & { pending: boolean })[];
   pathname: string;
   labelledBy?: string;
   /** Where this list starts in the open-ripple order. */
   offset?: number;
+  /** Bumps each time the rail springs open, to ripple the icons. */
+  ripple: number;
 }) {
   return (
     <ul role="list" aria-labelledby={labelledBy} className="m-0 flex list-none flex-col gap-0.5 p-0">
@@ -128,7 +123,7 @@ function NavList({
             <span className={cn(PLACEHOLDER.onGround, 'h-3 w-20 shrink-0 rounded-pill', LABEL)} />
           </li>
         ) : (
-          <NavRow key={item.href} item={item} active={isActive(pathname, item.href)} index={offset + i} />
+          <NavRow key={item.href} item={item} active={isActive(pathname, item.href)} index={offset + i} ripple={ripple} />
         ),
       )}
     </ul>
@@ -200,6 +195,7 @@ export function Sidebar({
   const [peek, setPeek] = useState<'closed' | 'open' | 'closing'>('closed');
   const closeTimer = useRef<number | undefined>(undefined);
   const panel = useRef<HTMLDivElement>(null);
+  const [ripple, setRipple] = useState(0);
   useEffect(() => () => window.clearTimeout(closeTimer.current), []);
   useEffect(() => {
     if (!rail) setPeek('closed');
@@ -208,6 +204,7 @@ export function Sidebar({
   function open() {
     if (!rail) return;
     window.clearTimeout(closeTimer.current);
+    if (peek === 'closed') setRipple((n) => n + 1);
     setPeek('open');
   }
   function close() {
@@ -297,7 +294,7 @@ export function Sidebar({
 
           {/* Negative margin plus padding: focus outlines are not clipped by the scroll box. */}
           <nav aria-label="Main" className="-mx-2 mt-4 min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-2 py-1">
-            <NavList items={gate(nav.main, permissions)} pathname={pathname} />
+            <NavList items={gate(nav.main, permissions)} pathname={pathname} ripple={ripple} />
             {/* Same height in the rail and open (heading faded, divider drawn), so no row moves. */}
             <div className="relative mb-1 mt-5">
               <p id={groupId} className={cn('m-0 overflow-hidden whitespace-nowrap px-3 text-meta text-text-3', LABEL)}>
@@ -308,7 +305,7 @@ export function Sidebar({
                 className={cn('absolute left-3 top-1/2 h-px w-[1.125rem] bg-border-input opacity-50', RAIL.only)}
               />
             </div>
-            <NavList items={gate(nav.workspace, permissions)} pathname={pathname} labelledBy={groupId} offset={nav.main.length} />
+            <NavList items={gate(nav.workspace, permissions)} pathname={pathname} labelledBy={groupId} offset={nav.main.length} ripple={ripple} />
           </nav>
 
           <div className="mt-3 flex shrink-0 flex-col gap-2">

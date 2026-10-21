@@ -1,13 +1,17 @@
 /**
  * Acme Hiring against a real HR Voice stack (started by `pnpm test:clients`):
  * API, worker, apps/voice test line, local Postgres. Acme talks to HR Voice
- * only through @hrvoice/sdk; check 11 drives apps/mcp over stdio. The checks
+ * only through @hrvoice/sdk; check 11 drives apps/mcp over stdio and check 12
+ * runs the Zapier app (integrations/zapier) through Zapier's own local app tester. The checks
  * run in order and share one setup; every call is a test call on the fake line
  * except check 7, which is refused before anything could dial.
  */
 
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
+import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
 import { HRVoice, HRVoiceError } from '@hrvoice/sdk';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -345,5 +349,84 @@ describe('Acme Hiring on HR Voice /v1', () => {
     } finally {
       await mcp.close();
     }
+  });
+  it('12. the Zapier app: job, consented candidate, search, signed call hook, sample data and a ticket', async () => {
+    const zapRequire = createRequire(resolve(import.meta.dirname, '../../../integrations/zapier/index.js'));
+    process.env['HRVOICE_API_URL'] = API;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const App: any = zapRequire('./index.js');
+    const appTester = zapRequire('zapier-platform-core').createAppTester(App) as (
+      fn: unknown, bundle: Record<string, unknown>) => Promise<any>; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const { key } = await org.mintKey('test', [...ALL_SCOPES, 'support']);
+    const authData = { apiKey: key };
+    const zap = (fn: unknown, bundle: Record<string, unknown> = {}) => appTester(fn, { authData, ...bundle });
+
+    // What Zapier's hook URL would receive: the raw signed request.
+    const raw: { headers: Record<string, string>; content: string }[] = [];
+    const hooks = createServer((req, res) => {
+      let content = '';
+      req.on('data', (c: Buffer) => (content += c.toString()));
+      req.on('end', () => {
+        raw.push({ headers: { 'Http-Hrvoice-Signature': String(req.headers['hrvoice-signature']) }, content });
+        res.end('ok');
+      });
+    });
+    await new Promise<void>((r) => hooks.listen(0, '127.0.0.1', r));
+    const targetUrl = `http://localhost:${(hooks.address() as AddressInfo).port}/hook`;
+    const subs: Record<string, { id: string; secret: string }> = {};
+    try {
+      expect((await zap(App.authentication.test)).apiKey.mode).toBe('test');
+      const j = await zap(App.creates.create_job.operation.perform, { inputData: { title: 'Picker (Zapier)', mustAskQuestions: QUESTIONS } });
+      await expect(zap(App.creates.add_candidate.operation.perform, {
+        inputData: { jobId: j.id, fullName: 'No Consent', phone: '9000000198', consent: 'false' },
+      })).rejects.toThrow(/agree/);
+      const externalId = `zap-${randomUUID()}`;
+      const cand = await zap(App.creates.add_candidate.operation.perform, {
+        inputData: { jobId: j.id, fullName: 'Kavya Menon', phone: '9000000107', externalId, consent: 'true' },
+      });
+      expect(cand.created).toBe(true);
+      const found = await zap(App.searches.find_candidate.operation.perform, { inputData: { jobId: j.id, externalId } });
+      expect(found.map((c: { id: string }) => c.id)).toEqual([cand.id]);
+      const jobs = await zap(App.triggers.job.operation.perform);
+      expect(jobs.map((x: { id: string }) => x.id)).toContain(j.id);
+
+      for (const t of ['call_completed', 'call_failed']) {
+        subs[t] = await zap(App.triggers[t].operation.performSubscribe, { targetUrl });
+      }
+      const call = await zap(App.creates.start_call.operation.perform, { inputData: { jobId: j.id, candidateId: cand.id } });
+      expect(call.status).toMatch(/queued|placed|placing/);
+
+      const hit = await until('the signed call event at the Zapier hook', () =>
+        raw.find((r) => JSON.parse(r.content).data?.callId === call.id));
+      const type = JSON.parse(hit.content).type as string;
+      const trigger = type === 'call.completed' ? 'call_completed' : 'call_failed';
+      const [event] = await zap(App.triggers[trigger].operation.perform, { subscribeData: subs[trigger], rawRequest: hit });
+      expect(event.data).toMatchObject({ callId: call.id, candidateId: cand.id, externalId, isTest: true });
+      // A request not signed by HRVoice is dropped.
+      expect(await zap(App.triggers[trigger].operation.perform, {
+        subscribeData: subs[trigger], rawRequest: { ...hit, content: hit.content.replace(call.id, randomUUID()) },
+      })).toEqual([]);
+      // Sample data for the Zap editor comes from /v1/events, in the same shape.
+      const samples = await zap(App.triggers[trigger].operation.performList);
+      expect(samples.map((e: { data: { callId: string } }) => e.data.callId)).toContain(call.id);
+
+      for (const out of [event, samples, cand, found]) {
+        expect(JSON.stringify(out)).not.toMatch(/fitPercent/i);
+        expect(keysOf(out).filter((k) => SCORE_KEYS.test(k))).toEqual([]);
+      }
+
+      const ticket = await zap(App.creates.raise_ticket.operation.perform, {
+        inputData: { subject: 'Zapier check', body: `Call ${call.id} from the Zapier app.`, jobId: j.id },
+      });
+      expect(ticket.ref).toBeTruthy();
+      expect(psql(`select channel from support_tickets where id = '${ticket.id}'`)).toBe('api');
+    } finally {
+      for (const [t, sub] of Object.entries(subs)) {
+        await zap(App.triggers[t].operation.performUnsubscribe, { subscribeData: sub });
+      }
+      await new Promise((r) => hooks.close(r));
+    }
+    const left = await hv.listWebhookEndpoints();
+    expect(left.map((e) => e.url)).not.toContain(targetUrl);
   });
 });

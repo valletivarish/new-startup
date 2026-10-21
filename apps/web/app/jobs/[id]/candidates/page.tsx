@@ -39,6 +39,8 @@ import {
   type StageTotals,
 } from '@/components/candidates/decisions';
 import { PersonStateTag } from '@/components/candidates/person-state';
+import { FIT_LANES, isFitLane, LANE_LABEL, laneCount, requirementLines } from '@/components/candidates/fit';
+import { FitChips } from '@/components/candidates/fit-chips';
 import { JobHeader } from '@/components/shared/job-header';
 import { UserInitials } from '@/components/shared/user-initials';
 import { Button } from '@/components/ui/button';
@@ -78,6 +80,8 @@ import {
   updateCandidate,
   type CandidateStage,
   type CandidateStageHistoryEvent,
+  type FitLane,
+  type FitTotals,
   type Job,
   type JobCandidateAssignment,
   type Me,
@@ -196,6 +200,8 @@ function JobCandidatesPageInner() {
   const [peoplePageCursors, setPeoplePageCursors] = useState<(string | undefined)[]>([undefined]);
   const [nextPeopleCursor, setNextPeopleCursor] = useState<string | null>(null);
   const [pipelineTotals, setPipelineTotals] = useState<StageTotals>({ all: 0, new: 0, screening: 0, reviewed: 0 });
+  // null: the backend sent no fit counts, so none are shown.
+  const [fitTotals, setFitTotals] = useState<FitTotals | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [pendingBulkStatus, setPendingBulkStatus] = useState<CandidateStage | null>(null);
   const [bulkConfirmText, setBulkConfirmText] = useState('');
@@ -209,6 +215,8 @@ function JobCandidatesPageInner() {
   const [callFilter, setCallFilter] = useState<CallFilter>('all');
   const stageParam = searchParams.get('stage');
   const pipelineFilter: StageFilter = isStage(stageParam) ? stageParam : 'all';
+  const fitParam = searchParams.get('fit');
+  const fitFilter: FitLane | 'all' = isFitLane(fitParam) ? fitParam : 'all';
   const tabParam = searchParams.get('tab');
   // null: the tab follows the candidate (results once called, else calling).
   const [sheetTab, setSheetTab] = useState<CandidateSheetTab | null>(
@@ -230,14 +238,22 @@ function JobCandidatesPageInner() {
   }, [queryClient]);
 
   function setPipelineFilter(key: StageFilter) {
+    setUrlFilter('stage', key);
+  }
+
+  function setFitFilter(key: FitLane | 'all') {
+    setUrlFilter('fit', key);
+  }
+
+  function setUrlFilter(param: 'stage' | 'fit', key: string) {
     setPeoplePage(0);
     setPeoplePageCursors([undefined]);
     setNextPeopleCursor(null);
     setListCursor(0);
     setSelectedIds(new Set());
     const q = new URLSearchParams(searchParams.toString());
-    if (key === 'all') q.delete('stage');
-    else q.set('stage', key);
+    if (key === 'all') q.delete(param);
+    else q.set(param, key);
     const qs = q.toString();
     router.replace(`/jobs/${jobPublicId}/candidates${qs ? `?${qs}` : ''}`, { scroll: false });
   }
@@ -442,14 +458,16 @@ function JobCandidatesPageInner() {
         limit: PEOPLE_PAGE_SIZE,
         cursor,
         status: pipelineFilter === 'all' ? undefined : pipelineFilter,
+        fit: fitFilter === 'all' ? undefined : fitFilter,
         q: peopleQuery.trim() || undefined,
       });
       if (seq !== listSeq.current) return;
       setAssignments(res.candidates);
       setPipelineTotals(res.totals);
+      setFitTotals(res.fitTotals ?? null);
       setNextPeopleCursor(res.nextCursor);
     },
-    [jobId, pipelineFilter, peopleQuery],
+    [jobId, pipelineFilter, fitFilter, peopleQuery],
   );
 
   const loadList = useCallback(
@@ -877,7 +895,19 @@ function JobCandidatesPageInner() {
 
   const canCreate = can('candidates.create');
   const pii = can('candidates.read_pii');
-  const filtered = Boolean(peopleQuery.trim()) || callFilter !== 'all' || pipelineFilter !== 'all';
+  const filtered =
+    Boolean(peopleQuery.trim()) || callFilter !== 'all' || pipelineFilter !== 'all' || fitFilter !== 'all';
+  const hasRequirements = requirementLines(job.requirements).length > 0;
+  // Phones and tablets: the call status and the fit lanes share one select, so no extra row.
+  const callOrFit = fitFilter !== 'all' ? `fit:${fitFilter}` : callFilter;
+  const fitOptions = [
+    { value: 'all' as const, label: 'Any fit', count: listError ? null : laneCount(fitTotals, 'all') },
+    ...FIT_LANES.map((lane) => ({
+      value: lane,
+      label: LANE_LABEL[lane],
+      count: listError ? null : laneCount(fitTotals, lane),
+    })),
+  ];
   const nobodyYet = pipelineTotals.all === 0 && !filtered;
   const stageTotal = pipelineFilter === 'all' ? pipelineTotals.all : (pipelineTotals[pipelineFilter] ?? 0);
   const checkedHere = pagedAssignments.filter((a) => selectedIds.has(a.candidateId)).length;
@@ -912,7 +942,13 @@ function JobCandidatesPageInner() {
     setPeopleQueryDraft('');
     setPeopleQuery('');
     setCallFilter('all');
-    if (pipelineFilter !== 'all') setPipelineFilter('all');
+    if (pipelineFilter !== 'all' || fitFilter !== 'all') {
+      const q = new URLSearchParams(searchParams.toString());
+      q.delete('stage');
+      q.delete('fit');
+      const qs = q.toString();
+      router.replace(`/jobs/${jobPublicId}/candidates${qs ? `?${qs}` : ''}`, { scroll: false });
+    }
   }
 
   return (
@@ -989,7 +1025,7 @@ function JobCandidatesPageInner() {
                   value={callFilter}
                   onChange={(e) => setCallFilter(e.target.value as CallFilter)}
                   aria-label="Filter by call"
-                  className="sm:w-44"
+                  className={cn('sm:w-44', hasRequirements && 'max-lg:hidden')}
                 >
                   {CALL_FILTERS.map((f) => (
                     <option key={f.value} value={f.value}>
@@ -997,8 +1033,51 @@ function JobCandidatesPageInner() {
                     </option>
                   ))}
                 </Select>
+                {hasRequirements ? (
+                  <Select
+                    value={callOrFit}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      if (v.startsWith('fit:')) {
+                        setCallFilter('all');
+                        setFitFilter(v.slice(4) as FitLane);
+                      } else {
+                        setCallFilter(v as CallFilter);
+                        if (fitFilter !== 'all') setFitFilter('all');
+                      }
+                    }}
+                    aria-label="Filter by call or fit"
+                    className="sm:w-48 lg:hidden"
+                  >
+                    {CALL_FILTERS.map((f) => (
+                      <option key={f.value} value={f.value}>
+                        {f.label}
+                      </option>
+                    ))}
+                    <optgroup label="Fit with requirements">
+                      {fitOptions.slice(1).map((o) => (
+                        <option key={o.value} value={`fit:${o.value}`}>
+                          {o.count != null ? `${o.label} · ${o.count}` : o.label}
+                        </option>
+                      ))}
+                    </optgroup>
+                  </Select>
+                ) : null}
               </div>
             </div>
+
+            {hasRequirements ? (
+              <div className="max-lg:hidden">
+                <Segmented label="Filter by fit with requirements" value={fitFilter} onValueChange={setFitFilter} options={fitOptions} />
+              </div>
+            ) : (
+              <p className="m-0 text-meta text-text-3">
+                <Link href={`/jobs/${jobPublicId}#requirements`} className={INLINE_LINK}>
+                  Add requirements to sort candidates
+                </Link>{' '}
+                into Meets all, Check and Doesn’t meet after each call.
+              </p>
+            )}
 
             {listError ? (
               <div className="rounded-card border border-border bg-canvas">
@@ -1030,9 +1109,11 @@ function JobCandidatesPageInner() {
                       ? `No one matches “${peopleQuery.trim()}”`
                       : callFilter !== 'all'
                         ? 'No one matches this call status'
-                        : pipelineFilter !== 'all'
-                          ? NOBODY[pipelineFilter]
-                          : `No ${contactMany} here`
+                        : fitFilter !== 'all'
+                          ? `No one in ${LANE_LABEL[fitFilter]}`
+                          : pipelineFilter !== 'all'
+                            ? NOBODY[pipelineFilter]
+                            : `No ${contactMany} here`
                   }
                   description={
                     peopleQuery.trim()
@@ -1057,7 +1138,7 @@ function JobCandidatesPageInner() {
                 <ListRows
                   aria-label={`${labels.contact.many} on ${job.title}`}
                   aria-busy={listBusy || undefined}
-                  columns={pii ? 'auto minmax(0,1fr) auto auto' : 'auto minmax(0,1fr) auto'}
+                  columns={`auto minmax(0,1fr)${hasRequirements ? ' auto' : ''}${pii ? ' auto' : ''} auto`}
                   header={
                     <>
                       <span className="flex items-center">
@@ -1073,6 +1154,7 @@ function JobCandidatesPageInner() {
                         />
                       </span>
                       <span>Name</span>
+                      {hasRequirements ? <span>Fit</span> : null}
                       {pii ? <span>Mobile</span> : null}
                       <span>Status</span>
                     </>
@@ -1096,6 +1178,15 @@ function JobCandidatesPageInner() {
                         meta={sourceLabel(row.candidate.source)}
                         onOpen={() => openCandidate(row.candidateId)}
                       />
+                      {hasRequirements ? (
+                        <ListCell>
+                          {row.fit ? (
+                            <FitChips fit={row.fit} />
+                          ) : (
+                            <span className="text-meta text-text-3">{LANE_LABEL.not_screened}</span>
+                          )}
+                        </ListCell>
+                      ) : null}
                       {pii ? (
                         <ListCell className="tabular-nums max-md:hidden">
                           {row.candidate.phone?.trim() ? (

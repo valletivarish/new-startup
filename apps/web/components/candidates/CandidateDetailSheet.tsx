@@ -35,6 +35,7 @@ import { useUseCase } from '@/lib/use-cases';
 import { MENU } from '@/components/layout/app-shell/parts';
 import { decisionLabel, noConnectReason } from './decisions';
 import { ReviewPanel } from './ReviewPanel';
+import { autoAdvanceNote } from './fit';
 
 export type CandidateSheetTab = 'overview' | 'screen' | 'results';
 
@@ -277,6 +278,14 @@ export function CandidateDetailSheet({
 
           <SheetBody>
             <TabsContent value="results" className="pt-0">
+              {(() => {
+                const note = row.status === 'reviewed' ? autoAdvanceNote(stageHistory, row.fit) : null;
+                return note ? (
+                  <Alert kind="success" className="mb-4">
+                    {note}. You can change the decision any time.
+                  </Alert>
+                ) : null;
+              })()}
               <ReviewPanel
                 key={row.candidateId}
                 jobId={jobId}
@@ -474,7 +483,7 @@ export function CandidateDetailSheet({
                         return (
                           <li key={ev.id} className="grid gap-0.5 py-3">
                             <p className="m-0 text-body text-text">
-                              {ev.actorName ? `${ev.actorName} changed it` : 'Changed'} from{' '}
+                              {ev.automatic ? 'Moved automatically' : ev.actorName ? `${ev.actorName} changed it` : 'Changed'} from{' '}
                               {decisionLabel(ev.previous, stages)} to{' '}
                               <span className="font-medium">{decisionLabel(ev.status, stages)}</span>
                             </p>

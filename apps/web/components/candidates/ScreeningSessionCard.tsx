@@ -10,6 +10,7 @@ import { TranscriptCard, toTranscriptTurns } from '@/components/shared/transcrip
 import { voiceSessionRecordingUrl, type CandidateScreeningResults } from '@/lib/api';
 import { callStateKey } from '@/lib/status-labels';
 import { answerItems } from './answers';
+import { FitBlock } from './fit-chips';
 
 export function sessionHasResults(session: CandidateScreeningResults): boolean {
   return Boolean(session.summary?.trim() || session.transcript?.length || session.structuredAnswers);
@@ -75,8 +76,18 @@ export function ScreeningSessionCard({
       ? 'The summary and answers appear here once the call is written up.'
       : null;
 
+  // A time pill jumps the recording there, and the transcript follows (with or without a recording).
+  const seek = (at: number) => {
+    setTime(at);
+    player.current?.seek(at);
+  };
+
   return (
     <div className="grid gap-5">
+      {session.fit && session.fit.items.length > 0 ? (
+        <FitBlock fit={session.fit} onSeek={turns.length > 0 || recording ? seek : undefined} />
+      ) : null}
+
       {session.summary?.trim() ? (
         <section className="rounded-card-sm bg-subtle p-4">
           <h3 className="m-0 text-label font-semibold text-text">Summary</h3>

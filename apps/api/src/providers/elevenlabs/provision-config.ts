@@ -8,6 +8,27 @@
  */
 
 import { toE164Phone } from './phone-e164.js';
+import { requirementsPromptBlock, type JobRequirements } from '../../hiring/requirements.js';
+
+/** Never asked, and steered away from if the candidate raises them. */
+export const OFF_LIMITS_TOPICS = ['age', 'religion', 'caste', 'marital status', 'family plans', 'health'] as const;
+
+/** How a recruiter screens beyond the must-ask list (spec 2026-10-21, goal 2). */
+function recruiterRules(requirements: JobRequirements | null, hasCriteria: boolean): string[] {
+  const days = requirements?.replyWithinWorkingDays ?? 3;
+  const block = requirementsPromptBlock(requirements);
+  return [
+    ...(block ? [block, ''] : []),
+    `${hasCriteria ? 'Along with the questions above, also' : 'Also'} cover these standard screening topics, one at a time, unless the candidate already answered them: why they are looking for a change; their notice period and whether it is negotiable; their current and expected CTC; any offers in hand or other interviews; whether the work mode and location suit them.`,
+    'Follow-ups: ask at most one follow-up per topic, then move on.',
+    '- If the expected CTC is more than about 30% above the current CTC, or above the budget for this role, ask what is behind the number and whether there is flexibility (for example: "That\'s a good jump from thirteen. What\'s behind the eighteen?").',
+    '- If an answer falls outside what the role needs, state the requirement gently and ask about flexibility (for example: "The range for this role is around 5 lakh. Is there flexibility?"). Do not argue or negotiate.',
+    '- If an answer is vague, ask once more in other words. If they say they don\'t know, accept it and move on.',
+    `Never ask about ${OFF_LIMITS_TOPICS.join(', ')}. If the candidate brings any of these up, do not ask more about it, say politely that it is not needed for this screen, and steer back to the role.`,
+    'If something the role clearly needs does not fit, finish the essential questions briefly and close politely. Never tell the candidate they are rejected, not selected, or do not meet the requirements, and never hint at the outcome.',
+    `Close with clear next steps: thank them and say the hiring team will review and get back to them within ${days} working day${days === 1 ? '' : 's'}.`,
+  ];
+}
 
 export interface EvaluationCriterion {
   readonly id: string;
@@ -101,6 +122,8 @@ export function buildVoiceProvisionConfig(input: {
    * system prompt on every screen. Not job-specific questions.
    */
   companyFacts?: string;
+  /** What HR says the role needs (jobs.requirements); null = none set. */
+  requirements?: JobRequirements | null;
 }): VoiceProvisionConfig {
   const purpose = input.agentPurpose.trim();
   const criteria = (input.criteria ?? []).filter((c) => c.label.trim().length > 0);
@@ -148,8 +171,13 @@ export function buildVoiceProvisionConfig(input: {
       lines.push(`${i + 1}. ${c.label.trim()}`);
     });
     lines.push(
-      'After the last answer, thank them briefly and end the call. Do not invent extra questions.',
+      'Do not invent questions beyond this list and the standard screening topics below.',
     );
+  }
+
+  if (isHiring) {
+    lines.push('');
+    lines.push(...recruiterRules(input.requirements ?? null, criteria.length > 0));
   }
 
   const companyFacts = (input.companyFacts ?? '').trim();
@@ -168,7 +196,7 @@ export function buildVoiceProvisionConfig(input: {
   if (isHiring) {
     lines.push('');
     lines.push(
-      'Collect the candidate\'s answers only. Do not recommend hire or reject, and do not score or rank the candidate.',
+      'Collect the candidate\'s answers only. Do not recommend hire or reject, and do not score or rank the candidate. The hiring team decides.',
     );
   }
 

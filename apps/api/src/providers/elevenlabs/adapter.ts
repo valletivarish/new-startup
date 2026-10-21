@@ -23,6 +23,7 @@ import pino from 'pino';
 import type { Env } from '../../config.js';
 import { getElevenLabsClient } from './client.js';
 import { publicOutboundDialMessage } from './outbound-dial-message.js';
+import type { JobRequirements } from '../../hiring/requirements.js';
 import {
   buildVoiceProvisionConfig,
   type EvaluationCriterion,
@@ -93,6 +94,7 @@ export interface VoiceSessionAdapter {
     greeting?: string;
     primaryLanguage?: string;
     companyFacts?: string;
+    requirements?: JobRequirements | null;
   }): Promise<{ externalAgentId: string; externalKbDocId: string | null; llmModel: string }>;
 
   /**
@@ -198,6 +200,7 @@ export function createVoiceSessionAdapter(env: Env): VoiceSessionAdapter {
       greeting,
       primaryLanguage,
       companyFacts,
+      requirements,
     }) {
       const cl = client();
       const { verified, model } = await this.verifyLlmAvailable();
@@ -213,6 +216,7 @@ export function createVoiceSessionAdapter(env: Env): VoiceSessionAdapter {
         greeting,
         primaryLanguage,
         companyFacts,
+        requirements,
       });
 
       // Upload knowledge snapshot if provided (Strategy A).

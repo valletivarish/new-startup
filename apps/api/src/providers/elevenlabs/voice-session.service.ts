@@ -47,6 +47,7 @@ import type { CostService } from '../../costs/costs.service.js';
 import type { ExotelClient } from '../exotel/exotel.js';
 import type { VoiceEngine } from '../../costs/pricing.js';
 import { SCREENING_LANGUAGES, type ScreeningLanguage } from '../../hiring/jobs.service.js';
+import { parseStoredRequirements, type JobRequirements } from '../../hiring/requirements.js';
 import { localizeGreeting, sttProviderFor } from '../own-loop/call-language.js';
 
 /** Google Chirp 3 HD voice id for a call: `<code>-IN-Chirp3-HD-<Kore|Iapetus>`. */
@@ -588,6 +589,7 @@ export function createVoiceSessionService(
       ];
       let usedJobScreening = false;
       let savedJobDescription = '';
+      let requirements: JobRequirements | null = null;
 
       // Job owns JD + must-ask. Call/provision auto-resolves from jobId —
       // never ask HR to pick JD again at call time.
@@ -601,8 +603,9 @@ export function createVoiceSessionService(
               screening_questions: unknown;
               screening_language: string;
               description: string | null;
+              requirements: unknown;
             }>(sql`
-              select screening_questions, screening_language, description
+              select screening_questions, screening_language, description, requirements
               from jobs
               where id = ${jobId} and organization_id = ${actor.organizationId}
             `);
@@ -640,6 +643,7 @@ export function createVoiceSessionService(
               questions,
               language: job.screening_language,
               description: (job.description ?? '').trim(),
+              requirements: parseStoredRequirements(job.requirements),
               knowledgeSourceIds: jobKnowledge.map((r) => r.source_id),
             };
           },
@@ -649,6 +653,7 @@ export function createVoiceSessionService(
           const hasJobQuestions = jobCtx.questions.length > 0;
           const hasJobKnowledge = jobCtx.knowledgeSourceIds.length > 0;
           savedJobDescription = jobCtx.description;
+          requirements = jobCtx.requirements;
           const hasSavedDescription = savedJobDescription.length >= 20;
           if (hasJobQuestions || hasJobKnowledge || hasSavedDescription) {
             usedJobScreening = true;
@@ -732,6 +737,7 @@ export function createVoiceSessionService(
         greeting,
         primaryLanguage,
         companyFacts,
+        requirements,
       });
       const screeningLanguage = screeningLanguageOf(primaryLanguage);
       return {
@@ -751,6 +757,7 @@ export function createVoiceSessionService(
         usedJobScreening,
         provisionFields,
         screeningLanguage,
+        requirements,
       };
   }
 
@@ -812,6 +819,7 @@ export function createVoiceSessionService(
         usedJobScreening,
         provisionFields,
         screeningLanguage,
+        requirements,
       } = await resolveScreeningPlan(actor, agentId, options);
 
       // Check for an existing deployment.
@@ -847,6 +855,7 @@ export function createVoiceSessionService(
           greeting,
           primaryLanguage,
           companyFacts,
+          requirements,
         });
 
       // Upsert the deployment row.
@@ -888,6 +897,7 @@ export function createVoiceSessionService(
         agentPrompt: provisionFields.agentPrompt,
         firstMessage: provisionFields.firstMessage,
         transferPhones: snapshotTransferPhones,
+        requirements,
         voiceId,
       });
 
@@ -1217,6 +1227,7 @@ export function createVoiceSessionService(
           ...(firstMessageLocalized ? { firstMessageLocalized } : {}),
           sttProvider: sttProviderFor(plan.screeningLanguage),
           transferPhones: [],
+          requirements: plan.requirements,
           voiceId,
           ...(engine === 'own_loop_google_voice' ? { ttsModel: engineRows[0]?.tts_model ?? 'gemini_flash' } : {}),
         });

@@ -10,6 +10,7 @@ import { createHash } from 'node:crypto';
 
 import type { EvaluationCriterion } from './provision-config.js';
 import type { KnowledgeSnapshot } from './types.js';
+import type { JobRequirements } from '../../hiring/requirements.js';
 
 export const PROVISION_SNAPSHOT_VERSION = 1 as const;
 
@@ -51,6 +52,8 @@ export interface VoiceProvisionSnapshot {
   readonly voiceId: string | null;
   /** Own loop, Google voice: chirp3_hd | gemini_flash (absent = chirp3_hd). */
   readonly ttsModel?: string;
+  /** The job's requirements at call start; the fit is scored against these (absent = pre-0035). */
+  readonly requirements?: JobRequirements | null;
 }
 
 export function fingerprintKnowledgeContent(content: string): string {
@@ -73,6 +76,7 @@ export function buildVoiceProvisionSnapshot(input: {
   transferPhones: readonly string[];
   voiceId?: string | null;
   ttsModel?: string;
+  requirements?: JobRequirements | null;
   frozenAt?: string;
 }): VoiceProvisionSnapshot {
   const jobId = input.jobId ?? null;
@@ -110,6 +114,7 @@ export function buildVoiceProvisionSnapshot(input: {
     transferPhones: [...input.transferPhones],
     voiceId: input.voiceId ?? null,
     ...(input.ttsModel ? { ttsModel: input.ttsModel } : {}),
+    ...(input.requirements !== undefined ? { requirements: input.requirements } : {}),
   };
 }
 

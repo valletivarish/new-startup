@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import time
 
 from fastapi import WebSocket
 from google.genai import types as genai_types
@@ -46,7 +47,7 @@ PHONE_RULES = {
         "You are on a live phone call with a job candidate. Speak naturally and briefly: "
         "one or two short sentences per turn, one question at a time. Never use lists, "
         "markdown or emojis. When every question is covered, or the candidate wants to stop, "
-        "thank them, say goodbye in one sentence, then call end_call. If you reach a "
+        "thank them, tell them the next step, say goodbye in one sentence, then call end_call. If you reach a "
         "voicemail or answering machine, call end_call with reason 'voicemail' at once."
     ),
     "hi": (
@@ -54,7 +55,8 @@ PHONE_RULES = {
         "Hindi; English words people normally use (notice period, CTC, Java) are fine. Write "
         "Hindi in Devanagari script. One or two short sentences per turn, one question at a "
         "time. Never use lists, markdown or emojis. When every question is covered, or the "
-        "candidate wants to stop, thank them, say goodbye in one sentence, then call end_call. "
+        "candidate wants to stop, thank them, tell them the next step, say goodbye in one sentence, "
+        "then call end_call. "
         "If you reach a voicemail or answering machine, call end_call with reason 'voicemail' at once."
     ),
 }
@@ -67,6 +69,12 @@ NAMES_RULE = (
     "Keep person and company names in English letters; never transliterate them into another script. "
     "Never call end_call before every question has been asked, unless the candidate wants to stop "
     "or it is a voicemail."
+)
+# Belt and braces with Nest's prompt: these hold even if the job's prompt is missing.
+SAFETY_RULE = (
+    "Never ask about age, religion, caste, marital status, family plans or health; if the candidate "
+    "raises them, steer back to the role. Never tell the candidate they are rejected or not selected: "
+    "the hiring team decides."
 )
 # Deepgram nova-3: Hindi callers code-mix, so `multi` (en+hi). Malayalam has no nova-3 model:
 # Nest's plan sends those calls to Google (sttProvider = google).
@@ -181,7 +189,7 @@ def phone_rules(lang: str) -> str:
             f" The opening greeting may have been in English; reply only in {LANGUAGE_NAMES[lang]} "
             "from your first reply on, even if the candidate mixes in English words."
         )
-    return f"{rules} {NAMES_RULE}"
+    return f"{rules} {NAMES_RULE} {SAFETY_RULE}"
 
 
 STILL_THERE = {"en": "Are you still there?", "hi": "क्या आप लाइन पर हैं?"}
@@ -291,7 +299,14 @@ def build_llm(system_prompt: str) -> GoogleLLMService:
     )
 
 
-def transcript_of(context: LLMContext) -> list[dict]:
+def transcript_of(context: LLMContext, user_starts: list[float] | None = None) -> list[dict]:
+    """The call's turns; user turns carry timeInCallSecs when their start was seen.
+
+    ponytail: the i-th candidate turn gets the i-th turn-start event; a barge-in merged into
+    one message can shift later times by a turn. Good enough for a play-from-second chip.
+    """
+    starts = list(user_starts or [])
+    users = 0
     turns = []
     for message in context.get_messages():
         if not isinstance(message, dict):
@@ -304,7 +319,12 @@ def transcript_of(context: LLMContext) -> list[dict]:
             content = " ".join(p.get("text", "") for p in content if isinstance(p, dict))
         text = str(content or "").strip()
         if text:
-            turns.append({"role": "user" if role == "user" else "agent", "message": text[:5000]})
+            turn = {"role": "user" if role == "user" else "agent", "message": text[:5000]}
+            if role == "user":
+                if users < len(starts):
+                    turn["timeInCallSecs"] = starts[users]
+                users += 1
+            turns.append(turn)
     return turns
 
 
@@ -394,12 +414,18 @@ async def run_call(websocket: WebSocket, call_id: str, stream_id: str, plan: dic
             outcome["reason"] = "silence"
             await worker.queue_frames([TTSSpeakFrame(GOODBYE_SILENT.get(lang, GOODBYE_SILENT["en"])), EndFrame()])
 
+    call_start = {"t": None}
+    user_starts: list[float] = []
+
     @aggregators.user().event_handler("on_user_turn_started")
     async def on_user_spoke(*_args):
         silent_prompts["count"] = 0
+        if call_start["t"] is not None:
+            user_starts.append(round(time.monotonic() - call_start["t"], 1))
 
     @transport.event_handler("on_client_connected")
     async def on_connected(_transport, _client):
+        call_start["t"] = time.monotonic()
         first = plan.get("firstMessage") or ""
         if first:
             await worker.queue_frame(TTSSpeakFrame(first))
@@ -425,7 +451,7 @@ async def run_call(websocket: WebSocket, call_id: str, stream_id: str, plan: dic
     await deliver_result(
         call_id,
         {
-            "transcript": transcript_of(context),
+            "transcript": transcript_of(context, user_starts),
             "durationSeconds": round(meter.duration_seconds(), 1),
             "endedReason": outcome["reason"],
             "usage": meter.usage(),

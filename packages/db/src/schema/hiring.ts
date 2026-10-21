@@ -39,10 +39,14 @@ export const jobs = pgTable(
       .$type<JobScreeningQuestion[]>()
       .notNull()
       .default([]),
-    /** V1: en | hi — drives call language when job screening is set. */
+    /** en | hi | bn | mr | te | ta | gu | ur | kn | ml | pa (migration 0033) — drives call language when job screening is set. */
     screeningLanguage: text('screening_language').notNull().default('en'),
     /** Voice engine arm for this job's calls (migration 0031). */
-    voiceEngine: text('voice_engine').notNull().default('elevenlabs_agent'),
+    voiceEngine: text('voice_engine').notNull().default('own_loop_google_voice'),
+    /** Google Chirp 3 HD voice: kore (female) | iapetus (male) (migration 0033). */
+    voicePersona: text('voice_persona').notNull().default('kore'),
+    /** Google voice model: chirp3_hd | gemini_flash (migration 0033). */
+    ttsModel: text('tts_model').notNull().default('chirp3_hd'),
     createdByUserId: uuid('created_by_user_id').references(() => users.id, {
       onDelete: 'set null',
     }),
@@ -62,8 +66,10 @@ export const jobs = pgTable(
     ),
     check(
       'jobs_screening_language_check',
-      sql`${t.screeningLanguage} in ('en', 'hi')`,
+      sql`${t.screeningLanguage} in ('en', 'hi', 'bn', 'mr', 'te', 'ta', 'gu', 'ur', 'kn', 'ml', 'pa')`,
     ),
+    check('jobs_voice_persona_check', sql`${t.voicePersona} in ('kore', 'iapetus')`),
+    check('jobs_tts_model_check', sql`${t.ttsModel} in ('chirp3_hd', 'gemini_flash')`),
     index('jobs_org_status_idx').on(t.organizationId, t.status),
     index('jobs_org_created_idx').on(t.organizationId, t.createdAt),
   ],

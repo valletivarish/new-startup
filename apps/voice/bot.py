@@ -63,7 +63,9 @@ LANGUAGE_NAMES = {
     "gu": "Gujarati", "ur": "Urdu", "kn": "Kannada", "ml": "Malayalam", "pa": "Punjabi",
 }
 NAMES_RULE = (
-    "Keep person and company names in English letters; never transliterate them into another script."
+    "Keep person and company names in English letters; never transliterate them into another script. "
+    "Never call end_call before every question has been asked, unless the candidate wants to stop "
+    "or it is a voicemail."
 )
 # Deepgram nova-3: Hindi callers code-mix, so `multi` (en+hi). Malayalam has no nova-3 model:
 # ponytail: `multi` only hears its English words; switch STT provider for ml if it launches.
@@ -82,6 +84,12 @@ def phone_rules(lang: str) -> str:
         rules = (
             f"{PHONE_RULES['en']} Speak natural, polite {name} throughout, written in {name} script; "
             "English words people normally use (notice period, CTC, Java) are fine."
+        )
+    if lang != "en":
+        # The opening line is the job's greeting, usually English: don't let it set the language.
+        rules += (
+            f" The opening greeting may have been in English; reply only in {LANGUAGE_NAMES[lang]} "
+            "from your first reply on, even if the candidate mixes in English words."
         )
     return f"{rules} {NAMES_RULE}"
 

@@ -47,6 +47,7 @@ import type { CostService } from '../../costs/costs.service.js';
 import type { ExotelClient } from '../exotel/exotel.js';
 import type { VoiceEngine } from '../../costs/pricing.js';
 import { SCREENING_LANGUAGES, type ScreeningLanguage } from '../../hiring/jobs.service.js';
+import { localizeGreeting, sttProviderFor } from '../own-loop/call-language.js';
 
 /** Google Chirp 3 HD voice id for a call: `<code>-IN-Chirp3-HD-<Kore|Iapetus>`. */
 export function googleVoiceId(language: string, persona: string): string {
@@ -753,6 +754,44 @@ export function createVoiceSessionService(
       };
   }
 
+  /**
+   * The job's opening line in the call language: reused from this job's last call
+   * with the same English line and language (frozen in its snapshot), else
+   * translated once by Gemini. Null (speak the English line) if that fails.
+   */
+  async function localizedFirstMessage(
+    actor: Actor,
+    jobId: string | null,
+    language: string,
+    english: string,
+    voice: { voiceId: string | null; speaker?: 'woman' | 'man' },
+  ): Promise<string | null> {
+    if (jobId) {
+      const rows = await withTenantContext(
+        database.db,
+        { organizationId: actor.organizationId, userId: actor.userId },
+        async (tx) =>
+          tx.execute<{ text: string }>(sql`
+            select provision_snapshot->>'firstMessageLocalized' as text
+            from voice_sessions
+            where organization_id = ${actor.organizationId} and job_id = ${jobId}
+              and provision_snapshot->>'screeningLanguage' = ${language}
+              and provision_snapshot->>'firstMessage' = ${english}
+              and provision_snapshot->>'voiceId' is not distinct from ${voice.voiceId}
+              and provision_snapshot->>'firstMessageLocalized' is not null
+            order by created_at desc
+            limit 1
+          `),
+      );
+      if (rows[0]?.text) return rows[0].text;
+    }
+    return localizeGreeting(english, language, {
+      apiKey: env.GEMINI_API_KEY,
+      baseUrl: env.GEMINI_BASE_URL,
+      model: env.GEMINI_MODEL,
+    }, voice.speaker);
+  }
+
   const service: VoiceSessionService = {
     async provisionDeployment(actor, agentId, options = {}) {
       guardEnabled();
@@ -1145,12 +1184,22 @@ export function createVoiceSessionService(
       if (ownLoop) {
         // Same script as the baseline, no provider agent: apps/voice runs it.
         const plan = await resolveScreeningPlan(actor, agentId, { jobId });
+        const persona = engineRows[0]?.voice_persona ?? 'kore';
         const voiceId =
           engine === 'own_loop_google_voice'
-            ? googleVoiceId(plan.screeningLanguage, engineRows[0]?.voice_persona ?? 'kore')
+            ? googleVoiceId(plan.screeningLanguage, persona)
             : engine === 'own_loop_sarvam_voice'
               ? env.OWN_LOOP_SARVAM_VOICE
               : env.OWN_LOOP_ELEVENLABS_VOICE_ID.trim() || env.ELEVENLABS_DEFAULT_VOICE_ID?.trim() || null;
+        const firstMessage = plan.provisionFields.firstMessage;
+        const firstMessageLocalized =
+          plan.screeningLanguage === 'en'
+            ? null
+            : await localizedFirstMessage(actor, plan.jobId ?? null, plan.screeningLanguage, firstMessage, {
+                voiceId,
+                // Hindi and others gender the speaker's verbs: match the Google persona.
+                speaker: engine === 'own_loop_google_voice' ? (persona === 'iapetus' ? 'man' : 'woman') : undefined,
+              });
         provisionSnapshot = buildVoiceProvisionSnapshot({
           jobId: plan.jobId ?? null,
           agentId,
@@ -1164,7 +1213,9 @@ export function createVoiceSessionService(
           agentPrompt: plan.knowledgeSnapshot
             ? `${plan.provisionFields.agentPrompt}\n\n## Reference documents\n${plan.knowledgeSnapshot.content.slice(0, 20_000)}`
             : plan.provisionFields.agentPrompt,
-          firstMessage: plan.provisionFields.firstMessage,
+          firstMessage,
+          ...(firstMessageLocalized ? { firstMessageLocalized } : {}),
+          sttProvider: sttProviderFor(plan.screeningLanguage),
           transferPhones: [],
           voiceId,
           ...(engine === 'own_loop_google_voice' ? { ttsModel: engineRows[0]?.tts_model ?? 'gemini_flash' } : {}),

@@ -37,7 +37,9 @@ afterAll(async () => {
 });
 
 /** An org with a job and a live own-loop session carrying a frozen plan. */
-async function ownLoopCall(opts: { ageMinutes?: number; provider?: string } = {}) {
+async function ownLoopCall(
+  opts: { ageMinutes?: number; provider?: string; snapshot?: Record<string, unknown> } = {},
+) {
   const owner = await registerUser(api, 'loop');
   const orgId = await createOrganization(api, owner, `loop-org-${Math.floor(Math.random() * 1e6)}`);
   const agentRes = await api.request({
@@ -68,6 +70,7 @@ async function ownLoopCall(opts: { ageMinutes?: number; provider?: string } = {}
     firstMessage: 'Namaste, main Asha bol rahi hoon.',
     voiceId: 'shubh',
     evaluationCriteria: [{ id: 'notice_period', label: 'What is your notice period?' }],
+    ...opts.snapshot,
   };
   const superDb = superDatabase();
   if (vsId) {
@@ -110,12 +113,39 @@ describe('internal voice routes', () => {
       language: 'hi',
       firstMessage: 'Namaste, main Asha bol rahi hoon.',
       voiceId: 'shubh',
+      sttProvider: 'deepgram',
       questions: [{ id: 'notice_period', label: 'What is your notice period?' }],
     });
     const superDb = superDatabase();
     const rows = await superDb.db.execute<{ status: string }>(sql`select status from voice_sessions where id = ${vsId}`);
     await superDb.close();
     expect(rows[0]!.status).toBe('active');
+  });
+
+  it('speak the localized greeting and name the STT a Malayalam call listens with', async () => {
+    const { callId } = await ownLoopCall({
+      snapshot: { screeningLanguage: 'ml', firstMessageLocalized: 'നമസ്കാരം, Voice Test Co.', sttProvider: 'google' },
+    });
+    const res = await api.request({ method: 'GET', url: `/internal/voice/calls/${callId}`, headers: { 'x-voice-token': TOKEN } });
+    expect(JSON.parse(res.body)).toMatchObject({ language: 'ml', firstMessage: 'നമസ്കാരം, Voice Test Co.', sttProvider: 'google' });
+  });
+
+  it('price a Google STT call on google_stt and record which STT listened', async () => {
+    const { callId, vsId } = await ownLoopCall({ snapshot: { screeningLanguage: 'ml', sttProvider: 'google' } });
+    const res = await api.request({
+      method: 'POST',
+      url: `/internal/voice/calls/${callId}/result`,
+      headers: { 'x-voice-token': TOKEN },
+      payload: { transcript: [], durationSeconds: 60, endedReason: 'completed', usage: { sttSeconds: 120 } },
+    });
+    expect(res.statusCode).toBe(201);
+    const superDb = superDatabase();
+    const rows = await superDb.db.execute<{ stt_cost: string; stt_provider: string }>(
+      sql`select stt_cost::text, stt_provider from call_cost_ledger where voice_session_id = ${vsId}`,
+    );
+    await superDb.close();
+    expect(rows[0]!.stt_provider).toBe('google');
+    expect(Number(rows[0]!.stt_cost)).toBeCloseTo(2.82); // 2 min × 1.41
   });
 
   it('are 404 for unknown, stale, or baseline-provider call ids', async () => {

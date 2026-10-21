@@ -43,6 +43,10 @@ export interface VoiceProvisionSnapshot {
   } | null;
   readonly agentPrompt: string;
   readonly firstMessage: string;
+  /** Own loop: firstMessage in the call language, spoken instead of it (absent = English line). */
+  readonly firstMessageLocalized?: string;
+  /** Own loop: which STT listens, deepgram | google (absent = deepgram). */
+  readonly sttProvider?: string;
   readonly transferPhones: readonly string[];
   readonly voiceId: string | null;
   /** Own loop, Google voice: chirp3_hd | gemini_flash (absent = chirp3_hd). */
@@ -64,6 +68,8 @@ export function buildVoiceProvisionSnapshot(input: {
   knowledgeSnapshot?: KnowledgeSnapshot | null;
   agentPrompt: string;
   firstMessage: string;
+  firstMessageLocalized?: string;
+  sttProvider?: string;
   transferPhones: readonly string[];
   voiceId?: string | null;
   ttsModel?: string;
@@ -99,6 +105,8 @@ export function buildVoiceProvisionSnapshot(input: {
     knowledge,
     agentPrompt: input.agentPrompt,
     firstMessage: input.firstMessage,
+    ...(input.firstMessageLocalized ? { firstMessageLocalized: input.firstMessageLocalized } : {}),
+    ...(input.sttProvider ? { sttProvider: input.sttProvider } : {}),
     transferPhones: [...input.transferPhones],
     voiceId: input.voiceId ?? null,
     ...(input.ttsModel ? { ttsModel: input.ttsModel } : {}),

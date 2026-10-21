@@ -42,6 +42,8 @@ const VENDOR_ADAPTER_DIRS = [
   'apps/api/src/providers/elevenlabs',
   'apps/api/src/providers/exotel',
   'apps/api/src/providers/gemini',
+  // Own voice loop: the plan names which STT apps/voice listens with (deepgram | google).
+  'apps/api/src/providers/own-loop',
   'apps/web/src/integrations/elevenlabs',
   // Platform-owner cost registry and dashboard: naming the vendors we pay is
   // their whole purpose, and customers never reach them (PLATFORM_ADMIN_EMAILS).

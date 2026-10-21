@@ -56,6 +56,8 @@ export interface CallPlan {
   voiceId: string | null;
   /** Google voice model: chirp3_hd | gemini_flash (other engines: chirp3_hd, unused). */
   ttsModel: string;
+  /** Who listens: deepgram (Nova-3) | google (Speech-to-Text, languages Nova-3 lacks). */
+  sttProvider: 'deepgram' | 'google';
   questions: { id: string; label: string }[];
   maxCallSeconds: number;
 }
@@ -165,9 +167,10 @@ export function createOwnLoopService(
         engine: row.engine,
         language: String(snap['screeningLanguage'] ?? 'en'),
         prompt: String(snap['agentPrompt'] ?? ''),
-        firstMessage: String(snap['firstMessage'] ?? ''),
+        firstMessage: String(snap['firstMessageLocalized'] ?? snap['firstMessage'] ?? ''),
         voiceId: typeof snap['voiceId'] === 'string' ? snap['voiceId'] : null,
         ttsModel: snap['ttsModel'] === 'gemini_flash' ? 'gemini_flash' : 'chirp3_hd',
+        sttProvider: snap['sttProvider'] === 'google' ? 'google' : 'deepgram',
         questions: criteria
           .filter((c): c is Record<string, unknown> => Boolean(c) && typeof c === 'object')
           .map((c) => ({ id: String(c['id'] ?? ''), label: String(c['label'] ?? '') }))

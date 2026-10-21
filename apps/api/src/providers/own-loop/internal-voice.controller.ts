@@ -24,7 +24,14 @@ const count = z.number().int().min(0).max(1e9).nullable().optional();
 const ResultBody = z
   .object({
     transcript: z
-      .array(z.object({ role: z.enum(['agent', 'user']), message: z.string().max(5000) }))
+      .array(
+        z.object({
+          role: z.enum(['agent', 'user']),
+          message: z.string().max(5000),
+          /** Second in the call the turn started (play-from-second on the fit evidence). */
+          timeInCallSecs: z.number().min(0).max(7200).optional(),
+        }),
+      )
       .max(500),
     durationSeconds: z.number().min(0).max(7200),
     endedReason: z.enum([

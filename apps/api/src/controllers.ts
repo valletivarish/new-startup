@@ -14,6 +14,7 @@ import {
   Inject,
   Param,
   Patch,
+  Put,
   Post,
   Query,
   Req,
@@ -311,6 +312,25 @@ export class OrganizationController {
       ...(input.name !== undefined ? { name: input.name } : {}),
     });
     return { updated: true };
+  }
+
+  @RequirePermission('organization.read')
+  @Get('settings')
+  async getSettings(@Req() req: RequestWithAuth) {
+    return this.orgs.getSettings(actorOf(req).organizationId);
+  }
+
+  /** Owner / Administrator: workspace switches such as auto-advance. */
+  @RequirePermission('organization.update')
+  @Put('settings')
+  async putSettings(@Req() req: RequestWithAuth, @Body() body: unknown) {
+    const actor = actorOf(req);
+    const input = parse(z.object({ autoAdvanceMeetsAll: z.boolean() }).strict(), body);
+    return this.orgs.updateSettings({
+      organizationId: actor.organizationId,
+      actorUserId: actor.userId,
+      autoAdvanceMeetsAll: input.autoAdvanceMeetsAll,
+    });
   }
 
   @RequirePermission('organization.delete')

@@ -6,6 +6,7 @@ import { AgentConfiguration } from '../agents/configuration.js';
 import { computeFitPercent } from './fit-percent.js';
 import { decodeCursor, encodeCursor } from '../pagination.js';
 import { criteriaFromProvisionSnapshot } from '../providers/elevenlabs/provision-snapshot.js';
+import { parseStoredFit, parseStoredRequirements, type CallFit, type JobRequirements } from './requirements.js';
 
 export interface Actor {
   readonly organizationId: string;
@@ -42,6 +43,8 @@ export interface JobRow {
   readonly updatedAt: string;
   /** True when knowledge docs are attached (file or saved JD text). */
   readonly hasJdDocs: boolean;
+  /** What HR says the role needs; null = none set (calls get no fit). */
+  readonly requirements: JobRequirements | null;
 }
 
 export interface JobKnowledgeSourceRow {
@@ -66,7 +69,13 @@ export interface JobCandidateRow {
   readonly callStatus: 'not_called' | 'calling' | 'completed' | 'failed';
   /** True only when a phone screen ended successfully (candidate was reached). */
   readonly callReceived: boolean;
+  /** Fit of the latest scored call against the job's requirements; null = not screened. */
+  readonly fit: CallFit | null;
 }
+
+/** Board lanes: the latest scored call's overall, or not_screened. */
+export const FIT_LANES = ['meets_all', 'check', 'doesnt_meet', 'not_screened'] as const;
+export type FitLane = (typeof FIT_LANES)[number];
 
 export interface CandidateScreeningResults {
   readonly voiceSessionId: string | null;
@@ -82,6 +91,8 @@ export interface CandidateScreeningResults {
    * answers have not landed yet — never invent a market-standard score.
    */
   readonly fitPercent: number | null;
+  /** Fit against the job's requirements; null when none were set or not scored yet. */
+  readonly fit: CallFit | null;
   readonly startedAt: string | null;
   readonly durationSeconds: number | null;
 }
@@ -140,6 +151,7 @@ export interface JobsService {
       cursor?: string;
       status?: string;
       q?: string;
+      fit?: FitLane;
     },
   ): Promise<{
     candidates: readonly JobCandidateRow[];
@@ -151,7 +163,12 @@ export interface JobsService {
       reviewed: number;
       declined: number;
     };
+    /** Lane counts under the same search (not the stage or lane filter). */
+    fitTotals: Record<FitLane, number>;
   }>;
+  getRequirements(actor: Actor, jobId: string): Promise<JobRequirements | null>;
+  /** null clears them (calls stop getting a fit). */
+  setRequirements(actor: Actor, jobId: string, requirements: JobRequirements | null): Promise<void>;
   /** One row of listCandidates; 404 when the candidate is not on this job. */
   getJobCandidate(
     actor: Actor,
@@ -181,6 +198,8 @@ export interface JobsService {
       previous: string | null;
       status: string | null;
       reason: string | null;
+      /** True when the system made the change (auto-advance), not a person. */
+      automatic: boolean;
       actorUserId: string | null;
       actorName: string | null;
       createdAt: string;
@@ -207,6 +226,7 @@ type JobRecord = {
   created_at: string;
   updated_at: string;
   has_jd_docs?: boolean | string | number | null;
+  requirements?: unknown;
 };
 
 const JOB_STATUSES = ['draft', 'open', 'closed'] as const;
@@ -217,6 +237,20 @@ export const CANDIDATE_STAGES = ['new', 'screening', 'reviewed', 'declined'] as 
 const ASSIGNMENT_STATUSES = CANDIDATE_STAGES;
 type AssignmentStatus = (typeof ASSIGNMENT_STATUSES)[number];
 
+/** The latest scored call's fit for candidate `c` (alias vf). */
+const LATEST_FIT = sql`
+  left join lateral (
+    select v.fit
+    from voice_sessions v
+    where v.organization_id = c.organization_id
+      and v.job_id = c.job_id
+      and v.candidate_id = c.id
+      and v.fit is not null
+    order by v.started_at desc nulls last, v.created_at desc
+    limit 1
+  ) vf on true`;
+const FIT_LANE = sql`coalesce(vf.fit->>'overall', 'not_screened')`;
+
 
 type JobCandidateRecord = {
   id: string;
@@ -226,6 +260,7 @@ type JobCandidateRecord = {
   source: string;
   phone: string | null;
   phone_call_status: string | null;
+  fit: unknown;
   created_at: string;
 };
 
@@ -256,6 +291,7 @@ function toJobCandidate(r: JobCandidateRecord): JobCandidateRow {
     phone: r.phone,
     callStatus: flags.callStatus,
     callReceived: flags.callReceived,
+    fit: parseStoredFit(r.fit),
   };
 }
 
@@ -309,6 +345,7 @@ function toJob(r: JobRecord): JobRow {
     createdAt: r.created_at,
     updatedAt: r.updated_at,
     hasJdDocs,
+    requirements: parseStoredRequirements(r.requirements),
   };
 }
 
@@ -431,7 +468,7 @@ export function createJobsService(database: Database): JobsService {
     const rows = await tx.execute<JobRecord>(sql`
       select id, title, description, status, agent_id,
              screening_questions, screening_language, voice_engine, voice_persona, tts_model,
-             created_at::text, updated_at::text,
+             requirements, created_at::text, updated_at::text,
              exists (
                select 1
                from job_knowledge_sources jks
@@ -499,7 +536,7 @@ export function createJobsService(database: Database): JobsService {
           tx.execute<JobRecord>(sql`
             select id, title, description, status, agent_id,
                    screening_questions, screening_language, voice_engine, voice_persona, tts_model,
-                   created_at::text, updated_at::text,
+                   requirements, created_at::text, updated_at::text,
                    exists (
                      select 1
                      from job_knowledge_sources jks
@@ -718,6 +755,8 @@ export function createJobsService(database: Database): JobsService {
         (ASSIGNMENT_STATUSES as readonly string[]).includes(opts.status)
           ? opts.status
           : null;
+      const fitFilter =
+        opts?.fit && (FIT_LANES as readonly string[]).includes(opts.fit) ? opts.fit : null;
       const after = opts?.cursor ? decodeCursor(opts.cursor) : null;
       const qRaw = opts?.q?.trim() ?? '';
       const q =
@@ -766,10 +805,31 @@ export function createJobsService(database: Database): JobsService {
             else if (row.status === 'declined') totals.declined = n;
           }
 
+          const laneRows = await tx.execute<{ lane: string; n: string }>(sql`
+            select ${FIT_LANE} as lane, count(*)::text as n
+            from candidates c
+            ${LATEST_FIT}
+            where c.job_id = ${jobId}
+              and c.organization_id = ${actor.organizationId}
+              ${
+                qLike
+                  ? sql`and (
+                      c.full_name ilike ${qLike}
+                      or coalesce(c.phone, '') ilike ${qLike}
+                    )`
+                  : sql``
+              }
+            group by 1
+          `);
+          const fitTotals: Record<FitLane, number> = { meets_all: 0, check: 0, doesnt_meet: 0, not_screened: 0 };
+          for (const row of laneRows) {
+            if ((FIT_LANES as readonly string[]).includes(row.lane)) fitTotals[row.lane as FitLane] = Number(row.n) || 0;
+          }
+
           const rows = await tx.execute<JobCandidateRecord>(sql`
             select c.id, c.id as candidate_id, c.screening_status as status,
                    c.full_name, c.source, c.phone, c.created_at::text,
-                   vs.status as phone_call_status
+                   vs.status as phone_call_status, vf.fit
             from candidates c
             left join lateral (
               select v.status
@@ -782,6 +842,7 @@ export function createJobsService(database: Database): JobsService {
               order by v.started_at desc nulls last, v.created_at desc
               limit 1
             ) vs on true
+            ${LATEST_FIT}
             where c.job_id = ${jobId}
               and c.organization_id = ${actor.organizationId}
               ${
@@ -789,6 +850,7 @@ export function createJobsService(database: Database): JobsService {
                   ? sql`and c.screening_status = ${statusFilter}`
                   : sql``
               }
+              ${fitFilter ? sql`and ${FIT_LANE} = ${fitFilter}` : sql``}
               ${
                 qLike
                   ? sql`and (
@@ -825,6 +887,7 @@ export function createJobsService(database: Database): JobsService {
             candidates: pageRows.map(toJobCandidate),
             nextCursor,
             totals,
+            fitTotals,
           };
         },
       );
@@ -839,7 +902,7 @@ export function createJobsService(database: Database): JobsService {
           const rows = await tx.execute<JobCandidateRecord>(sql`
             select c.id, c.id as candidate_id, c.screening_status as status,
                    c.full_name, c.source, c.phone, c.created_at::text,
-                   vs.status as phone_call_status
+                   vs.status as phone_call_status, vf.fit
             from candidates c
             left join lateral (
               select v.status
@@ -852,6 +915,7 @@ export function createJobsService(database: Database): JobsService {
               order by v.started_at desc nulls last, v.created_at desc
               limit 1
             ) vs on true
+            ${LATEST_FIT}
             where c.id = ${candidateId}
               and c.job_id = ${jobId}
               and c.organization_id = ${actor.organizationId}
@@ -911,11 +975,37 @@ export function createJobsService(database: Database): JobsService {
               previous: typeof meta.from === 'string' ? meta.from : null,
               status: typeof meta.to === 'string' ? meta.to : null,
               reason: typeof meta.reason === 'string' ? meta.reason : null,
+              automatic: meta.automatic === true,
               actorUserId: r.actor_user_id,
               actorName: r.actor_name,
               createdAt: r.created_at,
             };
           });
+        },
+      );
+    },
+
+    async getRequirements(actor, jobId) {
+      const job = await withTenantContext(
+        database.db,
+        { organizationId: actor.organizationId, userId: actor.userId },
+        async (tx) => loadJob(tx, actor, jobId),
+      );
+      return parseStoredRequirements(job.requirements);
+    },
+
+    async setRequirements(actor, jobId, requirements) {
+      await withTenantContext(
+        database.db,
+        { organizationId: actor.organizationId, userId: actor.userId },
+        async (tx) => {
+          await loadJob(tx, actor, jobId, true);
+          await tx.execute(sql`
+            update jobs set
+              requirements = ${requirements ? JSON.stringify(requirements) : null}::jsonb,
+              updated_at = now()
+            where id = ${jobId} and organization_id = ${actor.organizationId}
+          `);
         },
       );
     },
@@ -930,6 +1020,7 @@ export function createJobsService(database: Database): JobsService {
         costCredits: null,
         recordingAvailable: false,
         fitPercent: null,
+        fit: null,
         startedAt: null,
         durationSeconds: null,
       };
@@ -952,10 +1043,11 @@ export function createJobsService(database: Database): JobsService {
             started_at: string;
             duration_seconds: number | null;
             provision_snapshot: unknown;
+            fit: unknown;
           }>(sql`
             select vs.id, vs.status, vs.transcript, vs.summary, vs.structured_answers,
                    vs.cost_credits::text, vs.external_conversation_id,
-                   vs.started_at::text, vs.duration_seconds, vs.provision_snapshot
+                   vs.started_at::text, vs.duration_seconds, vs.provision_snapshot, vs.fit
             from voice_sessions vs
             join agent_sessions s on s.id = vs.session_id
             where vs.organization_id = ${actor.organizationId}
@@ -998,6 +1090,7 @@ export function createJobsService(database: Database): JobsService {
                 Boolean(row.external_conversation_id) &&
                 (row.status === 'ended' || row.status === 'active'),
               fitPercent: computeFitPercent(criteria, structuredAnswers),
+              fit: parseStoredFit(row.fit),
               startedAt: row.started_at,
               durationSeconds: row.duration_seconds,
             };

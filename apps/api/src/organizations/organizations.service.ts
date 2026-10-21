@@ -28,6 +28,11 @@ export interface OrganizationSummary {
   readonly roleKey: string;
 }
 
+export interface OrganizationSettings {
+  /** Move candidates who meet all of a job's requirements forward automatically. */
+  readonly autoAdvanceMeetsAll: boolean;
+}
+
 export interface OrganizationsService {
   /** Organizations the user belongs to, with their role in each (ADR-005). */
   listForUser(userId: string): Promise<readonly OrganizationSummary[]>;
@@ -65,6 +70,14 @@ export interface OrganizationsService {
     readonly actorUserId: string;
     readonly name?: string;
   }): Promise<void>;
+
+  /** Workspace settings (migration 0035). */
+  getSettings(organizationId: string): Promise<OrganizationSettings>;
+  updateSettings(params: {
+    readonly organizationId: string;
+    readonly actorUserId: string;
+    readonly autoAdvanceMeetsAll: boolean;
+  }): Promise<OrganizationSettings>;
 
   /** Owner-only hard delete. Memberships and tenant rows cascade. */
   remove(organizationId: string, actorUserId: string): Promise<void>;
@@ -206,6 +219,34 @@ export function createOrganizationsService(
           metadata: { name },
         });
       }
+    },
+
+    async getSettings(organizationId) {
+      const rows = await withoutTenantContext(database.db, async (tx) =>
+        tx.execute<{ auto_advance_meets_all: boolean }>(sql`
+          select auto_advance_meets_all from organizations where id = ${organizationId}
+        `),
+      );
+      if (!rows[0]) throw ApiError.notFound('Company');
+      return { autoAdvanceMeetsAll: rows[0].auto_advance_meets_all };
+    },
+
+    async updateSettings({ organizationId, actorUserId, autoAdvanceMeetsAll }) {
+      await withoutTenantContext(database.db, async (tx) => {
+        await tx.execute(sql`
+          update organizations set auto_advance_meets_all = ${autoAdvanceMeetsAll}, updated_at = now()
+          where id = ${organizationId}
+        `);
+      });
+      await audit.record({
+        organizationId,
+        actorUserId,
+        eventType: 'organization.settings_updated',
+        resourceType: 'organization',
+        resourceId: organizationId,
+        metadata: { autoAdvanceMeetsAll },
+      });
+      return { autoAdvanceMeetsAll };
     },
 
     async remove(organizationId, actorUserId) {

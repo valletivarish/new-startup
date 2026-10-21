@@ -71,7 +71,7 @@ export type EndedReason =
   | 'engine_error';
 
 export interface CallResult {
-  transcript: { role: 'agent' | 'user'; message: string }[];
+  transcript: { role: 'agent' | 'user'; message: string; timeInCallSecs?: number }[];
   durationSeconds: number;
   endedReason: EndedReason;
   usage: LoopUsage;

@@ -112,6 +112,7 @@ import { CandidatesController } from './hiring/candidates.controller.js';
 import { createVoiceSessionAdapter, createStubVoiceSessionAdapter } from './providers/elevenlabs/adapter.js';
 import { createVoiceSessionService } from './providers/elevenlabs/voice-session.service.js';
 import { createJobsService } from './hiring/jobs.service.js';
+import { recordCallFit } from './hiring/call-fit.js';
 import { createCandidatesService } from './hiring/candidates.service.js';
 import { createApiKeysService } from './integrations/api-keys.service.js';
 import { ApiKeysController } from './integrations/api-keys.controller.js';
@@ -151,8 +152,17 @@ export interface AppDeps {
 @Module({})
 export class AppModule {
   static forRoot(deps: AppDeps): DynamicModule {
-    const onCallEnded = (organizationId: string, voiceSessionId: string) =>
-      emitCallEvent(deps.database, deps.jobs, organizationId, voiceSessionId, deps.logger, deps.env.API_URL);
+    const fitDeps = {
+      database: deps.database,
+      gemini: { apiKey: deps.env.GEMINI_API_KEY, baseUrl: deps.env.GEMINI_BASE_URL, model: deps.env.GEMINI_MODEL },
+      jobs: createJobsService(deps.database),
+      audit: createAuditService(deps.database, deps.logger),
+    };
+    // Both end paths (own loop, provider webhook/reconcile) land here once answers are saved.
+    const onCallEnded = async (organizationId: string, voiceSessionId: string) => {
+      await emitCallEvent(deps.database, deps.jobs, organizationId, voiceSessionId, deps.logger, deps.env.API_URL);
+      await recordCallFit(fitDeps, organizationId, voiceSessionId);
+    };
     return {
       module: AppModule,
       controllers: [

@@ -7,6 +7,7 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   Query,
   Req,
   Res,
@@ -31,6 +32,7 @@ import type { AuditService } from '../audit/audit.service.js';
 import type { KnowledgeService } from '../knowledge/knowledge.service.js';
 import {
   CANDIDATE_STAGES,
+  FIT_LANES,
   SCREENING_LANGUAGES,
   type CandidateScreeningResults,
   type JobsService,
@@ -38,6 +40,7 @@ import {
 import type { CandidatesService } from './candidates.service.js';
 import type { VoiceSessionService } from '../providers/elevenlabs/voice-session.service.js';
 import { assistJobDescription } from './jd-assist.js';
+import { JobRequirements, draftRequirements, redactFit } from './requirements.js';
 import {
   answerReviewQuestionWithLlm,
   scrubHireAdvice,
@@ -97,6 +100,8 @@ function redactScreeningResults(
     structuredAnswers: allowTranscript ? results.structuredAnswers : null,
     // Fit % is derived from answers — hide with transcript ACL.
     fitPercent: allowTranscript ? results.fitPercent : null,
+    // Verdicts stay (lanes need them); the candidate's quoted words need transcript access.
+    fit: redactFit(results.fit, allowTranscript),
     recordingAvailable: allowRecording ? results.recordingAvailable : false,
   };
 }
@@ -124,6 +129,10 @@ const UpdateJob = z
     mustAskQuestions: MustAskQuestions.optional(),
     screeningLanguage: z.enum(SCREENING_LANGUAGES).optional(),
   })
+  .strict();
+
+const PutRequirements = z
+  .object({ requirements: JobRequirements.nullable() })
   .strict();
 
 const AttachJobKnowledge = z
@@ -267,6 +276,50 @@ export class JobsController {
   ) {
     await this.jobs.update(actorOf(req), parse(Uuid, id), parse(UpdateJob, body));
     return { updated: true };
+  }
+
+  /** What HR says the role needs; null when none are set. */
+  @RequirePermission('jobs.read')
+  @Get(':id/requirements')
+  async getRequirements(@Req() req: RequestWithAuth, @Param('id') id: string) {
+    return { requirements: await this.jobs.getRequirements(actorOf(req), parse(Uuid, id)) };
+  }
+
+  /** Replace the requirements sheet; null clears it. Applies to calls placed after saving. */
+  @RequirePermission('jobs.update')
+  @Put(':id/requirements')
+  async putRequirements(
+    @Req() req: RequestWithAuth,
+    @Param('id') id: string,
+    @Body() body: unknown,
+  ) {
+    const actor = actorOf(req);
+    const jobId = parse(Uuid, id);
+    const { requirements } = parse(PutRequirements, body);
+    await this.jobs.setRequirements(actor, jobId, requirements);
+    await this.audit.record({
+      organizationId: actor.organizationId,
+      actorUserId: actor.userId,
+      eventType: 'hiring.job_requirements_updated',
+      resourceType: 'job',
+      resourceId: jobId,
+      metadata: { cleared: requirements === null },
+    });
+    return { requirements };
+  }
+
+  /** Draft requirements from the saved job description (Gemini). Not saved: HR reviews, then PUTs. */
+  @RequirePermission('jobs.update')
+  @Post(':id/requirements/draft')
+  @HttpCode(200)
+  async draftRequirements(@Req() req: RequestWithAuth, @Param('id') id: string) {
+    const job = await this.jobs.get(actorOf(req), parse(Uuid, id));
+    return {
+      requirements: await draftRequirements(
+        { title: job.title, description: job.description },
+        { apiKey: this.env.GEMINI_API_KEY, model: this.env.GEMINI_MODEL, baseUrl: this.env.GEMINI_BASE_URL },
+      ),
+    };
   }
 
   /** List JD / role docs attached to this job (call auto-resolves these — no picker). */
@@ -457,13 +510,16 @@ export class JobsController {
       cursor: z.string().max(500).optional(),
       status: z.enum(CANDIDATE_STAGES).optional(),
       q: z.string().trim().min(1).max(120).optional(),
+      fit: z.enum(FIT_LANES).optional(),
     });
     const q = parse(ListQuery, query ?? {});
+    const allowTranscript = canReadTranscript(req);
     const page = await this.jobs.listCandidates(actorOf(req), parse(Uuid, jobId), {
       limit: q.limit,
       cursor: q.cursor,
       status: q.status,
       q: q.q,
+      fit: q.fit,
     });
     return {
       candidates: page.candidates.map((row) => ({
@@ -472,6 +528,7 @@ export class JobsController {
         status: row.status,
         callStatus: row.callStatus,
         callReceived: row.callReceived,
+        fit: redactFit(row.fit, allowTranscript),
         candidate: {
           id: row.candidateId,
           fullName: row.fullName,
@@ -481,6 +538,7 @@ export class JobsController {
       })),
       nextCursor: page.nextCursor,
       totals: page.totals,
+      fitTotals: page.fitTotals,
     };
   }
 
@@ -511,6 +569,7 @@ export class JobsController {
       status: row.status,
       callStatus: row.callStatus,
       callReceived: row.callReceived,
+      fit: redactFit(row.fit, canReadTranscript(req)),
       candidate: {
         id: row.candidateId,
         fullName: row.fullName,

@@ -94,7 +94,7 @@ export class ApiKeysController {
     const actor = dashboardActor(req);
     const input = parse(V1WebhookEndpointCreate, body);
     // Call events carry the transcript, as on /v1.
-    if (!actor.permissions.has('calls.read_transcript')) {
+    if (input.events.some((e) => e.startsWith('call.')) && !actor.permissions.has('calls.read_transcript')) {
       throw ApiError.forbidden('Webhooks send transcripts, so only people who can read transcripts can add one.');
     }
     return this.webhooks.create(actor, input);

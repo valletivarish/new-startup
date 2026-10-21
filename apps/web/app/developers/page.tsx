@@ -69,6 +69,7 @@ const CONTENTS = [
   { href: '#test-mode', label: 'Test mode' },
   { href: '#sdks', label: 'SDKs' },
   { href: '#mcp', label: 'MCP' },
+  { href: '#no-code', label: 'No-code tools' },
   { href: '#errors', label: 'Errors' },
   { href: '#reference', label: 'API reference' },
 ] as const;
@@ -244,6 +245,17 @@ const MCP_TOOLS: [string, string][] = [
   ['get_results', 'The latest answers and summary, with the transcript on request.'],
   ['list_candidates', 'One page of a job’s candidates.'],
   ['get_usage', 'Calls placed and completed screens for a month.'],
+];
+
+const NO_CODE: [string, string, string][] = [
+  ['Zapier', 'Add a step, search for HRVoice and connect it with your API key.',
+    'Triggers: Call completed, Call failed. Actions: Add candidate, Start screening call, Raise support ticket, Create job. Search: Find candidate.'],
+  ['Make', 'Add the HRVoice app to a scenario and create a connection with your API key.',
+    'Watch call events (instant), Add a candidate, Start a screening call, Raise a support ticket, Create a job, Find a candidate.'],
+  ['n8n', 'In Settings → Community nodes, install n8n-nodes-hrvoice, then add an HRVoice API credential with your key.',
+    'HRVoice Trigger (call completed, call failed) and the HRVoice node: add candidate, start screening call, raise support ticket, create job, find candidate.'],
+  ['Power Automate', 'Add the HRVoice connector to a flow. When it asks for the API key, type Bearer, a space, then your key.',
+    'Trigger: When a screening call ends. Actions: Add candidate, Start screening call, Raise support ticket, Create job, Find candidates, Get call, Get results.'],
 ];
 
 /* ------------------------------------------------------------------------------------------ */
@@ -473,6 +485,33 @@ export default async function DevelopersPage() {
                   </div>
                 ))}
               </dl>
+            </Section>
+
+            <Section id="no-code" title="No-code tools">
+              <P>
+                Connect HRVoice to the tools your team already uses, without writing code. Each one works through this
+                same API: create a key in <Link href={KEYS_HREF} className={LINK}>Settings → Developers</Link> with the
+                jobs, candidates, calls, results, webhooks and support scopes, and paste it in when the tool asks.
+              </P>
+              <ul role="list" className="m-0 mt-6 grid list-none gap-3 p-0">
+                <Li>Adding a candidate has a yes/no field for the candidate’s consent. HRVoice refuses the candidate without it.</Li>
+                <Li>Calls started from these tools are placed between 9:00 and 20:00 India time. Outside those hours they wait until 9:00.</Li>
+                <Li>The call-ended trigger brings the answers, summary and transcript, never a score.</Li>
+              </ul>
+              <dl className="m-0 mt-8 grid gap-6">
+                {NO_CODE.map(([tool, connect, steps]) => (
+                  <div key={tool}>
+                    <dt className="text-[1.0625rem] text-white">{tool}</dt>
+                    <dd className="m-0 mt-1 max-w-[68ch] leading-relaxed text-site-fg-2">
+                      {connect} {steps}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+              <P>
+                If a tool does not list HRVoice in its app directory yet, ask us through Get help in your dashboard and we
+                will send an invite link or the connector file. Start with a test key: test calls are free.
+              </P>
             </Section>
 
             <Section id="errors" title="Errors">

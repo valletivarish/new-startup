@@ -18,6 +18,8 @@ export interface JobHeaderProps {
   title: string;
   /** Raw job status: draft, open or closed. */
   status: string | null | undefined;
+  /** The workspace has no calling number yet: an open job shows "Open · test calls only". */
+  testCallsOnly?: boolean;
   /** The page this header sits on. */
   current: JobTab;
   /** One line on whether the job is ready for calls, from saved data. */
@@ -40,6 +42,7 @@ export function JobHeader({
   jobId,
   title,
   status,
+  testCallsOnly = false,
   current,
   readiness,
   actions,
@@ -58,7 +61,7 @@ export function JobHeader({
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
             <h1 className="m-0 min-w-0 text-page text-text [overflow-wrap:anywhere]">{title}</h1>
-            <StatusTag domain="job" value={status} />
+            <StatusTag domain="job" value={testCallsOnly && status === 'open' ? 'open_test_only' : status} />
           </div>
           {readiness ? <div className="mt-1.5 text-body text-text-2">{readiness}</div> : null}
         </div>

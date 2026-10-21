@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { firstNameOf, greetingFor, namesLine } from './copy';
+import { callGate, firstNameOf, greetingFor, namesLine } from './copy';
 
 describe('greetingFor', () => {
   it('follows the local hour', () => {
@@ -27,5 +27,15 @@ describe('namesLine', () => {
     expect(namesLine(['Priya Sharma', 'Ravi Kumar', 'Asha Rao'], 31)).toBe('Priya Sharma, Ravi Kumar and 29 more');
     expect(namesLine(['Priya Sharma'], 3)).toBe('Priya Sharma and 2 more');
     expect(namesLine([], 4)).toBe('');
+  });
+});
+
+describe('callGate', () => {
+  it('blocks Home’s call buttons until the calling number is connected, not on permission alone', () => {
+    expect(callGate(false, { outboundPhone: true }, false)).toBe('hidden');
+    expect(callGate(true, undefined, false)).toBe('checking');
+    expect(callGate(true, { outboundPhone: false }, false)).toBe('no-line');
+    expect(callGate(true, { outboundPhone: true }, false)).toBe('ready');
+    expect(callGate(true, undefined, true)).toBe('ready');
   });
 });

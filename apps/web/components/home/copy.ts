@@ -22,3 +22,21 @@ export function namesLine(names: readonly string[], total: number): string {
   const more = total - shown.length;
   return more > 0 ? `${shown.join(', ')} and ${more} more` : shown.join(' and ');
 }
+
+/**
+ * Whether Home's Call now and Call again can place a phone call: hidden without the permission,
+ * waiting while the calling number is checked, blocked (with the reason) until it is connected.
+ * A check that failed leaves them on: the call itself then says what went wrong.
+ */
+export function callGate(
+  canCall: boolean,
+  telephony: { outboundPhone: boolean } | undefined,
+  failed: boolean,
+): 'hidden' | 'checking' | 'no-line' | 'ready' {
+  if (!canCall) return 'hidden';
+  if (failed) return 'ready';
+  if (!telephony) return 'checking';
+  return telephony.outboundPhone ? 'ready' : 'no-line';
+}
+
+export const NO_LINE_REASON = 'Phone calls start once your calling number is connected.';

@@ -111,6 +111,8 @@ export const STATE_MAP: Record<StateDomain, Record<string, StateMeta>> = {
   job: {
     draft: s('Draft', 'decided', 'PenLine'),
     open: s('Open for calls', 'live', 'Radio'),
+    // Open, but no calling number yet: only test calls in the browser can run.
+    open_test_only: s('Open · test calls only', 'queued', 'Unplug'),
     closed: s('Closed', 'decided', 'Archive'),
     archived: s('Archived', 'decided', 'Archive'),
   },

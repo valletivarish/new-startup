@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
+import { useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
   ArrowRight,
@@ -19,7 +20,7 @@ import {
 } from 'lucide-react';
 import { AppShell } from '@/components/AppShell';
 import { Agent } from '@/components/brand/agent';
-import { cleanQuestions, jobReadiness, readinessLine, sameQuestions } from '@/components/jobs/setup';
+import { cleanQuestions, jobReadiness, jobStatusLabel, lineState, readinessLine, sameQuestions } from '@/components/jobs/setup';
 import { JobHeader } from '@/components/shared/job-header';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/components/ui/cn';
@@ -39,6 +40,7 @@ import {
   formatApiError,
   getAgent,
   getJob,
+  getTelephonyStatus,
   isScreeningLanguage,
   JOB_SOURCE_DESCRIPTION,
   listAgents,
@@ -250,6 +252,10 @@ function JobSetup({ publicId }: { publicId: string }) {
   const agentLive =
     agentStatus === null || agentStatus === 'unknown' ? null : agentStatus === 'published';
   const otherAgents = agents?.filter((a) => a.id !== job?.agentId) ?? [];
+  // The same calling-number check as Settings and the candidates board.
+  const canCheckLine = permissions.includes('calls.initiate') || permissions.includes('agents.test');
+  const telephony = useQuery({ queryKey: ['telephony-status'], queryFn: getTelephonyStatus, enabled: canCheckLine });
+  const line = lineState(telephony.data?.outboundPhone, telephony.isError || (me.data != null && !canCheckLine));
   const showSkeleton = useHeldLoading(loading && !job);
 
   async function onLinkAgent() {
@@ -475,7 +481,7 @@ function JobSetup({ publicId }: { publicId: string }) {
     );
   }
 
-  const readiness = jobReadiness(job, jobKnowledge, agentLive);
+  const readiness = jobReadiness(job, jobKnowledge, agentLive, line);
   const contacts = labels.contact.many.toLowerCase();
 
   return (
@@ -488,6 +494,7 @@ function JobSetup({ publicId }: { publicId: string }) {
           jobId={toPublicId(jobId)}
           title={job.title}
           status={job.status}
+          testCallsOnly={jobStatusLabel(readiness) !== null}
           current="setup"
           readiness={readinessLine(readiness)}
           workItemLabel={labels.workItem.many}
@@ -831,7 +838,9 @@ function JobSetup({ publicId }: { publicId: string }) {
                         : agentLive === null
                           ? 'Checking the agent…'
                           : agentLive
-                            ? 'Live and ready to call.'
+                            ? line === 'connected'
+                              ? 'Live and ready to call.'
+                              : 'Live. Ready for test calls in your browser.'
                             : 'Not live yet. Publish it before calling.'}
                   </p>
                 </div>
@@ -1069,7 +1078,7 @@ function ReadyPanel({
   changingStatus: JobStatus | null;
   onStatus: (status: JobStatus) => void;
 }) {
-  const steps: { anchor: string; label: string; done: boolean; optional?: boolean; detail: string }[] = [
+  const steps: { anchor: string; href?: string; label: string; done: boolean; optional?: boolean; detail: string }[] = [
     {
       anchor: 'job-description',
       label: 'Job description',
@@ -1095,10 +1104,27 @@ function ReadyPanel({
       }[r.agent],
     },
     {
+      anchor: 'calling-number',
+      href: '/settings?section=workspace',
+      label: 'Calling number',
+      done: r.line === 'connected',
+      detail: {
+        connected: 'Connected',
+        'not-connected': 'Not connected yet. Test calls only',
+        checking: 'Checking…',
+        unknown: 'Not checked',
+      }[r.line],
+    },
+    {
       anchor: 'job-status',
       label: 'Open for calls',
       done: r.status === 'open',
-      detail: r.status === 'open' ? 'Open' : r.status === 'closed' ? 'Closed' : 'Still a draft',
+      detail:
+        r.status === 'open'
+          ? (jobStatusLabel(r) ?? 'Open')
+          : r.status === 'closed'
+            ? 'Closed'
+            : 'Still a draft',
     },
   ];
   const required = steps.filter((s) => !s.optional);
@@ -1122,8 +1148,8 @@ function ReadyPanel({
           const Icon = step.done ? CircleCheck : step.optional ? CircleDashed : Circle;
           return (
             <li key={step.anchor}>
-              <a
-                href={`#${step.anchor}`}
+              <Link
+                href={step.href ?? `#${step.anchor}`}
                 className="-mx-2 flex min-h-12 items-center gap-3 rounded-input px-2 py-1.5 text-text no-underline transition-colors duration-fast hover:bg-subtle"
               >
                 <Icon
@@ -1135,7 +1161,7 @@ function ReadyPanel({
                   <span className="block text-label font-medium">{step.label}</span>
                   <span className="block truncate text-meta text-text-3">{step.detail}</span>
                 </span>
-              </a>
+              </Link>
             </li>
           );
         })}
@@ -1161,7 +1187,7 @@ function ReadyPanel({
       <div id="job-status" className="mt-4 scroll-mt-6 border-t border-border pt-4">
         <div className="flex items-center justify-between gap-3">
           <h3 className="m-0 text-label font-medium text-text">Job status</h3>
-          <StatusTag domain="job" value={r.status} />
+          <StatusTag domain="job" value={jobStatusLabel(r) ? 'open_test_only' : r.status} />
         </div>
         {canEdit ? (
           <div className="mt-3 flex flex-wrap gap-2">

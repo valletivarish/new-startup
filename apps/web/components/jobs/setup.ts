@@ -30,15 +30,29 @@ export interface Readiness {
   questions: number;
   /** checking: the agent's status hasn't loaded yet. */
   agent: 'live' | 'not-live' | 'missing' | 'checking';
+  /** The workspace's calling number, as the telephony status reports it. unknown: it couldn't be read. */
+  line: 'connected' | 'not-connected' | 'checking' | 'unknown';
   status: string;
-  /** The description is in and the agent is live: calls can start. */
+  /** The description is in and the agent is live: test calls can start. */
   ready: boolean;
+  /** Ready, and the calling number is connected: phone calls can start too. */
+  phoneReady: boolean;
+}
+
+/**
+ * Whether the workspace can place phone calls: telephony status outboundPhone. null while loading.
+ * unknown when it couldn't be read, or this person may not check it: nothing then claims either way.
+ */
+export function lineState(outboundPhone: boolean | null | undefined, failed = false): Readiness['line'] {
+  if (failed) return 'unknown';
+  return outboundPhone == null ? 'checking' : outboundPhone ? 'connected' : 'not-connected';
 }
 
 export function jobReadiness(
   job: Pick<Job, 'description' | 'hasJdDocs' | 'agentId' | 'status' | 'screeningQuestions'>,
   sources: readonly Pick<JobKnowledgeSource, 'readyDocs' | 'pendingDocs'>[],
   agentLive: boolean | null,
+  line: Readiness['line'] = 'checking',
 ): Readiness {
   const description =
     hasJobDescription(job) || sources.some((s) => s.readyDocs > 0)
@@ -47,12 +61,15 @@ export function jobReadiness(
         ? 'preparing'
         : 'missing';
   const agent = !job.agentId ? 'missing' : agentLive === null ? 'checking' : agentLive ? 'live' : 'not-live';
+  const ready = description === 'saved' && agent === 'live';
   return {
     description,
     questions: job.screeningQuestions?.length ?? 0,
     agent,
+    line,
     status: job.status,
-    ready: description === 'saved' && agent === 'live',
+    ready,
+    phoneReady: ready && line === 'connected',
   };
 }
 
@@ -60,12 +77,24 @@ function joinAnd(parts: string[]): string {
   return parts.length < 2 ? (parts[0] ?? '') : `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)}`;
 }
 
-/** One line for the job's header. Null while the agent is still being checked, so it never flips. */
+/** The job's status in words: an open job without a calling number can only take test calls. */
+export function jobStatusLabel(r: Pick<Readiness, 'status' | 'line'>): string | null {
+  return r.status === 'open' && r.line !== 'connected' && r.line !== 'checking' ? 'Open · test calls only' : null;
+}
+
+/** One line for the job's header. Null while the agent or the line is still being checked, so it never flips. */
 export function readinessLine(r: Readiness): string | null {
-  if (r.agent === 'checking') return null;
+  if (r.agent === 'checking' || r.line === 'checking') return null;
   if (r.status === 'closed') return 'This job is closed.';
-  if (r.ready) {
+  if (r.phoneReady) {
     return r.status === 'open' ? 'Ready for calls.' : 'Set up for calls. Open the job when you start calling.';
+  }
+  if (r.ready) {
+    const why =
+      r.line === 'unknown'
+        ? 'Test calls in your browser work now. Phone calls need your calling number connected.'
+        : 'Phone calls start once your calling number is connected. Test calls in your browser work now.';
+    return r.status === 'open' ? why : `${why} Open the job when you start calling.`;
   }
   const todo: string[] = [];
   if (r.description === 'missing') todo.push('add the job description');

@@ -405,8 +405,7 @@ function JobCandidatesPageInner() {
       const p = await me();
       setProfile(p);
       const j = await getJob(jobId);
-      setJob(j);
-      void reloadJobKnowledge();
+      // The line first, so the job's status pill never flashes the wrong state.
       const perms = new Set(p.activeOrganization?.permissions ?? []);
       if (perms.has('agents.test') || perms.has('calls.initiate')) {
         try {
@@ -418,6 +417,8 @@ function JobCandidatesPageInner() {
           setTelephonyFailed(true);
         }
       }
+      setJob(j);
+      void reloadJobKnowledge();
     } catch (e) {
       if (e instanceof ApiClientError && e.status === 401) {
         router.push(loginPathForReturn());
@@ -921,6 +922,7 @@ function JobCandidatesPageInner() {
           jobId={jobPublicId}
           title={job.title}
           status={job.status}
+          testCallsOnly={canScreen && !telephonyFailed && !outboundPhone}
           current="candidates"
           readiness={readiness}
           // An empty job carries these in its empty state: one main action on screen.

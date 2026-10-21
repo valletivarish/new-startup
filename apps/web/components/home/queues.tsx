@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useRef, useState, type ReactNode, type Ref } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
   ArrowUpRight,
@@ -15,7 +15,7 @@ import {
   PhoneOutgoing,
   UsersRound,
 } from 'lucide-react';
-import { startOutboundCall, type HiringQueueItem } from '@/lib/api';
+import { getTelephonyStatus, startOutboundCall, type HiringQueueItem } from '@/lib/api';
 import { messageText, toUserMessage } from '@/lib/errors';
 import {
   groupQueueByJob,
@@ -37,7 +37,7 @@ import { EmptyState, IconTile } from '@/components/ui/empty-state';
 import { Alert } from '@/components/ui/notice';
 import { StatusTag } from '@/components/ui/state-tag';
 import { ListCell, ListRow, ListRowPrimary, RowLayoutContext } from '@/components/ui/strip';
-import { namesLine } from './copy';
+import { callGate, NO_LINE_REASON, namesLine } from './copy';
 
 /*
   Home in the D2 language: a sky-gradient hero for the queue that matters most (ready for
@@ -272,14 +272,31 @@ function ReviewHero({ queue, canSeeCalls }: { queue: HomeQueue; canSeeCalls: boo
 
 const VISIBLE_NOT_CONNECTED = 5;
 
+type CallGate = ReturnType<typeof callGate>;
+
+/** Why the call buttons are off, said once per card; each button points at it. */
+function NoLineNote({ id }: { id: string }) {
+  return (
+    <p id={id} className="m-0 px-5 pb-3 text-meta text-text-2">
+      {NO_LINE_REASON}{' '}
+      <Link
+        href="/settings?section=workspace"
+        className="font-medium text-text underline underline-offset-4 hover:decoration-2"
+      >
+        See your calling number
+      </Link>
+    </p>
+  );
+}
+
 function NotConnectedCard({
   queue,
-  canCall,
+  gate,
   canSeeCalls,
   onCall,
 }: {
   queue: HomeQueue;
-  canCall: boolean;
+  gate: CallGate;
   canSeeCalls: boolean;
   onCall: AskCall;
 }) {
@@ -302,6 +319,7 @@ function NotConnectedCard({
         <NoNames who="candidates" />
       ) : (
         <>
+          {gate === 'no-line' ? <NoLineNote id="home-not-connected-no-line" /> : null}
           <ul role="list" className="m-0 mt-2 list-none divide-y divide-border border-t border-border p-0">
             <RowLayoutContext.Provider value="rows">
               {shown.map((item) => (
@@ -316,9 +334,15 @@ function NotConnectedCard({
                     <ListCell kind="tag">
                       <StatusTag domain="call" value={item.callStatus} failureReason={item.failureReason} />
                     </ListCell>
-                    {canCall ? (
+                    {gate !== 'hidden' ? (
                       <ListCell kind="actions">
-                        <Button variant="secondary" size="sm" onClick={() => onCall(item, true, heading.current)}>
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          disabled={gate !== 'ready'}
+                          aria-describedby={gate === 'no-line' ? 'home-not-connected-no-line' : undefined}
+                          onClick={() => onCall(item, true, heading.current)}
+                        >
                           <PhoneOutgoing aria-hidden strokeWidth={1.5} />
                           Call again<span className="sr-only"> {item.fullName}</span>
                         </Button>
@@ -429,12 +453,12 @@ const TILE_OPENER =
 
 function NotCalledCard({
   queue,
-  canCall,
+  gate,
   canSeeCandidates,
   onCall,
 }: {
   queue: HomeQueue;
-  canCall: boolean;
+  gate: CallGate;
   canSeeCandidates: boolean;
   onCall: AskCall;
 }) {
@@ -457,6 +481,11 @@ function NotCalledCard({
         <NoNames who={contacts} />
       ) : (
         <div className="space-y-4 px-5 pb-5">
+          {gate === 'no-line' ? (
+            <div className="-mx-5">
+              <NoLineNote id="home-not-called-no-line" />
+            </div>
+          ) : null}
           {groups.map((group) => (
             <div key={group.jobId}>
               <h3 className="m-0">
@@ -478,11 +507,13 @@ function NotCalledCard({
                     <Link href={personHref(item)} className={TILE_OPENER}>
                       {item.fullName}
                     </Link>
-                    {canCall ? (
+                    {gate !== 'hidden' ? (
                       <Button
                         variant="secondary"
                         size="sm"
                         className="relative z-10"
+                        disabled={gate !== 'ready'}
+                        aria-describedby={gate === 'no-line' ? 'home-not-called-no-line' : undefined}
                         onClick={() => onCall(item, false, heading.current)}
                       >
                         <PhoneOutgoing aria-hidden strokeWidth={1.5} />
@@ -516,7 +547,10 @@ function NotCalledCard({
 export function Queues({ snapshot, can }: { snapshot: HomeSnapshot; can: (permission: string) => boolean }) {
   const call = useCallAction();
   const queues = snapshot.queues;
+  // The same calling-number check as Settings and the job pages: a permission alone can't place a call.
   const canCall = can('calls.initiate');
+  const telephony = useQuery({ queryKey: ['telephony-status'], queryFn: getTelephonyStatus, enabled: canCall });
+  const gate = callGate(canCall, telephony.data, telephony.isError);
   return (
     <div className="space-y-4">
       {queues ? (
@@ -524,7 +558,7 @@ export function Queues({ snapshot, can }: { snapshot: HomeSnapshot; can: (permis
           <ReviewHero queue={queues.readyForReview} canSeeCalls={can('agents.sessions.read')} />
           <NotConnectedCard
             queue={queues.notConnected}
-            canCall={canCall}
+            gate={gate}
             canSeeCalls={can('agents.sessions.read')}
             onCall={call.ask}
           />
@@ -538,7 +572,7 @@ export function Queues({ snapshot, can }: { snapshot: HomeSnapshot; can: (permis
       {queues ? (
         <NotCalledCard
           queue={queues.notCalled}
-          canCall={canCall}
+          gate={gate}
           canSeeCandidates={can('candidates.read')}
           onCall={call.ask}
         />

@@ -1,6 +1,8 @@
 packages:
   - "apps/*"
   - "packages/*"
+  # No-code connectors (Zapier, n8n); thin layers over /v1.
+  - "integrations/*"
   # Benchmark harness. Deliberately OUTSIDE apps/ and packages/ so that
   # provider-specific code cannot reach production by an ordinary import.
   - "benchmark"

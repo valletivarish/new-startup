@@ -1,0 +1,30 @@
+{
+  "name": "n8n-nodes-hrvoice",
+  "version": "0.1.0",
+  "description": "n8n nodes for HRVoice: add candidates, start phone screens, raise support tickets, and trigger on finished calls.",
+  "license": "MIT",
+  "homepage": "https://nexstopp.com/developers",
+  "keywords": ["n8n-community-node-package", "hrvoice", "recruiting", "phone screening"],
+  "files": ["dist"],
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json && cp src/nodes/HRVoice/hrvoice.svg dist/nodes/HRVoice/ && cp src/nodes/HRVoice/hrvoice.svg dist/nodes/HRVoiceTrigger/",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "prepublishOnly": "pnpm build"
+  },
+  "n8n": {
+    "n8nNodesApiVersion": 1,
+    "credentials": ["dist/credentials/HRVoiceApi.credentials.js"],
+    "nodes": ["dist/nodes/HRVoice/HRVoice.node.js", "dist/nodes/HRVoiceTrigger/HRVoiceTrigger.node.js"]
+  },
+  "peerDependencies": {
+    "n8n-workflow": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.4",
+    "n8n-workflow": "2.41.0",
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.5"
+  }
+}

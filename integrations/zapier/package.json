@@ -1,0 +1,19 @@
+{
+  "name": "@hrvoice/zapier",
+  "version": "1.0.0",
+  "description": "HRVoice for Zapier: phone-screen candidates and get their answers when the call ends.",
+  "private": true,
+  "main": "index.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "zapier-platform-core": "19.1.0"
+  },
+  "devDependencies": {
+    "vitest": "^3.0.5"
+  }
+}

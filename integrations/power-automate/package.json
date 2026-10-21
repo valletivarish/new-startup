@@ -1,0 +1,19 @@
+{
+  "name": "@hrvoice/power-automate",
+  "version": "1.0.0",
+  "private": true,
+  "description": "HRVoice custom connector for Power Automate and Power Apps (Swagger 2.0, generated from /v1/openapi.json).",
+  "type": "module",
+  "scripts": {
+    "generate": "tsx scripts/generate.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@apidevtools/swagger-parser": "12.1.0",
+    "@types/node": "^22.13.4",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.5"
+  }
+}

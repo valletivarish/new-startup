@@ -23,6 +23,15 @@ export default tseslint.config(
     languageOptions: { globals: { process: 'readonly', console: 'readonly' } },
   },
   {
+    // The Zapier app is CommonJS, the module format Zapier's platform loads.
+    files: ['integrations/zapier/**/*.js'],
+    languageOptions: {
+      sourceType: 'commonjs',
+      globals: { require: 'readonly', module: 'writable', process: 'readonly', Buffer: 'readonly' },
+    },
+    rules: { '@typescript-eslint/no-require-imports': 'off' },
+  },
+  {
     files: ['**/*.ts', '**/*.tsx'],
     rules: {
       // The permission layer depends on this: role names must never gate code.

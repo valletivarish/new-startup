@@ -5,8 +5,9 @@
 --                 the default for new jobs (existing rows keep their engine).
 -- jobs.voice_persona  which Chirp 3 HD voice speaks: kore (female, default) or
 --                 iapetus (male). Voice id = <lang>-IN-Chirp3-HD-<Persona>.
--- jobs.tts_model  chirp3_hd (default: fast, every language) or gemini_flash
---                 (Gemini 2.5 Flash TTS, same personas; no bn/ur, falls back to Chirp).
+-- jobs.tts_model  gemini_flash (default while testing: Gemini 2.5 Flash TTS, same
+--                 personas; bn/ur and any error fall back to Chirp) or chirp3_hd
+--                 (fast, every language).
 -- jobs.screening_language  the 11 India launch languages (was en | hi).
 -- cost_services   google_tts and gemini_flash_tts priced; ElevenLabs rows off (subscription ended).
 -- ---------------------------------------------------------------------------
@@ -30,7 +31,8 @@ ALTER TABLE "jobs"
     CONSTRAINT "jobs_voice_persona_check" CHECK ("voice_persona" IN ('kore', 'iapetus'));
 --> statement-breakpoint
 ALTER TABLE "jobs"
-  ADD COLUMN "tts_model" text NOT NULL DEFAULT 'chirp3_hd'
+  -- Gemini quota is 10 req/min on the trial; raise it before launch or switch the default to chirp3_hd.
+  ADD COLUMN "tts_model" text NOT NULL DEFAULT 'gemini_flash'
     CONSTRAINT "jobs_tts_model_check" CHECK ("tts_model" IN ('chirp3_hd', 'gemini_flash'));
 --> statement-breakpoint
 ALTER TABLE "jobs" DROP CONSTRAINT "jobs_screening_language_check";

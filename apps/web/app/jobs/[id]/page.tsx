@@ -942,7 +942,7 @@ function EngineCard({ job, onChange }: { job: Job; onChange: (job: Job) => void 
   const [saving, setSaving] = useState(false);
   const current = job.voiceEngine ?? GOOGLE_VOICE_ENGINE;
   const persona = job.voicePersona ?? 'kore';
-  const ttsModel = job.ttsModel ?? 'chirp3_hd';
+  const ttsModel = job.ttsModel ?? 'gemini_flash';
   async function pick(engine: VoiceEngine, voice: { persona?: VoicePersona; ttsModel?: TtsModel } = {}) {
     setSaving(true);
     try {

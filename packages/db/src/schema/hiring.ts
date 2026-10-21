@@ -46,7 +46,8 @@ export const jobs = pgTable(
     /** Google Chirp 3 HD voice: kore (female) | iapetus (male) (migration 0033). */
     voicePersona: text('voice_persona').notNull().default('kore'),
     /** Google voice model: chirp3_hd | gemini_flash (migration 0033). */
-    ttsModel: text('tts_model').notNull().default('chirp3_hd'),
+    // Gemini quota is 10 req/min on the trial; raise it before launch or switch the default to chirp3_hd.
+    ttsModel: text('tts_model').notNull().default('gemini_flash'),
     createdByUserId: uuid('created_by_user_id').references(() => users.id, {
       onDelete: 'set null',
     }),

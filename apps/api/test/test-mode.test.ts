@@ -223,7 +223,7 @@ describe('test mode', () => {
     // The fake line can fetch the plan, then posts a long, spoken result.
     const plan = await line.ownLoop.getCallPlan(callId);
     expect(plan.voiceSessionId).toBe(cr.voice_session_id);
-    expect(plan).toMatchObject({ engine: 'own_loop_google_voice', voiceId: 'hi-IN-Chirp3-HD-Kore', ttsModel: 'chirp3_hd' });
+    expect(plan).toMatchObject({ engine: 'own_loop_google_voice', voiceId: 'hi-IN-Chirp3-HD-Kore', ttsModel: 'gemini_flash' });
     await line.ownLoop.saveCallResult(callId, {
       transcript: [
         { role: 'agent', message: 'What is your notice period?' },
@@ -249,7 +249,7 @@ describe('test mode', () => {
     const org = await setupOrg('testmode-voice');
     const key = await org.key('test');
     const ta = await jobWithCandidates(key, 1, 'ta');
-    await superSql(sql`update jobs set voice_persona = 'iapetus', tts_model = 'gemini_flash' where id = ${ta.jobId}`);
+    await superSql(sql`update jobs set voice_persona = 'iapetus', tts_model = 'chirp3_hd' where id = ${ta.jobId}`);
     const sarvam = await jobWithCandidates(key, 1);
     await superSql(sql`update jobs set voice_engine = 'own_loop_sarvam_voice' where id = ${sarvam.jobId}`);
     const line = testLine();
@@ -263,7 +263,7 @@ describe('test mode', () => {
       engine: 'own_loop_google_voice',
       language: 'ta',
       voiceId: 'ta-IN-Chirp3-HD-Iapetus',
-      ttsModel: 'gemini_flash',
+      ttsModel: 'chirp3_hd',
     });
 
     const sarvamCall = await requestAndPlace(org, key, sarvam.jobId, sarvam.candidateIds[0]!, line.calls);

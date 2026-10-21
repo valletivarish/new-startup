@@ -222,19 +222,19 @@ describe('job voice engine', () => {
     expect(JSON.parse((await api.request({ method: 'GET', url: `/jobs/${jobId}`, cookie })).body)).toMatchObject({
       voiceEngine: 'own_loop_google_voice',
       voicePersona: 'kore',
-      ttsModel: 'chirp3_hd',
+      ttsModel: 'gemini_flash',
     });
 
     const voice = await api.request({
       method: 'POST',
       url: `/admin/costs/jobs/${jobId}/engine`,
       cookie,
-      payload: { engine: 'own_loop_google_voice', persona: 'iapetus', ttsModel: 'gemini_flash' },
+      payload: { engine: 'own_loop_google_voice', persona: 'iapetus', ttsModel: 'chirp3_hd' },
     });
     expect(voice.statusCode).toBe(201);
     expect(JSON.parse((await api.request({ method: 'GET', url: `/jobs/${jobId}`, cookie })).body)).toMatchObject({
       voicePersona: 'iapetus',
-      ttsModel: 'gemini_flash',
+      ttsModel: 'chirp3_hd',
     });
     const bad = await api.request({
       method: 'POST',

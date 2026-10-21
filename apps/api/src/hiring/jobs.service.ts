@@ -305,7 +305,7 @@ function toJob(r: JobRecord): JobRow {
     screeningLanguage: lang,
     voiceEngine: r.voice_engine ?? DEFAULT_VOICE_ENGINE,
     voicePersona: r.voice_persona ?? 'kore',
-    ttsModel: r.tts_model ?? 'chirp3_hd',
+    ttsModel: r.tts_model ?? 'gemini_flash',
     createdAt: r.created_at,
     updatedAt: r.updated_at,
     hasJdDocs,

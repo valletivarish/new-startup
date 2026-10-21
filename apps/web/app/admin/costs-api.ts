@@ -26,8 +26,8 @@ export const PERSONA_LABEL: Record<VoicePersona, string> = {
 };
 export type TtsModel = 'chirp3_hd' | 'gemini_flash';
 export const TTS_MODEL_LABEL: Record<TtsModel, string> = {
-  chirp3_hd: 'Chirp 3 HD (fast, all languages)',
   gemini_flash: 'Gemini 2.5 Flash (more expressive; en, hi, mr, te, ta, gu, kn, ml, pa)',
+  chirp3_hd: 'Chirp 3 HD (fast, all languages)',
 };
 export interface CostServiceRow {
   key: string;

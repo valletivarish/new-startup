@@ -1167,7 +1167,7 @@ export function createVoiceSessionService(
           firstMessage: plan.provisionFields.firstMessage,
           transferPhones: [],
           voiceId,
-          ...(engine === 'own_loop_google_voice' ? { ttsModel: engineRows[0]?.tts_model ?? 'chirp3_hd' } : {}),
+          ...(engine === 'own_loop_google_voice' ? { ttsModel: engineRows[0]?.tts_model ?? 'gemini_flash' } : {}),
         });
       } else {
         // Always re-sync so data_collection matches job (or agent) must-ask questions.

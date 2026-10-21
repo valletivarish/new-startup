@@ -46,7 +46,7 @@ export const SESSION_ENDED_MESSAGE = 'Your session ended. Sign in to continue.';
 /** Sign-in and public invite routes answer 401 as part of their job: never redirect for them. */
 const AUTH_ENDPOINT = /^\/(?:api\/auth\/|backend\/invitations\/|backend\/public\/|backend\/auth\/password-reset\/)/;
 /** Pages that work signed out (a 401 there must not bounce to sign-in). */
-const PUBLIC_PAGE = /^\/(?:$|login|reset-password|invitations|c)(?:[/?#]|$)/;
+const PUBLIC_PAGE = /^\/(?:$|login|reset-password|invitations|c|status)(?:[/?#]|$)/;
 
 let redirecting = false;
 

@@ -15,6 +15,7 @@ import { UserMenu } from '@/components/layout/app-shell/account';
 import { MobileTabBar, MobileTopBar } from '@/components/layout/app-shell/mobile';
 import { buildNav, isActive } from '@/components/layout/app-shell/nav';
 import { Sidebar } from '@/components/layout/app-shell/sidebar';
+import { HelpButton } from '@/components/support/help-panel';
 
 const noSubscribe = () => () => {};
 const isApple = () => /Mac|iPhone|iPad|iPod/.test(navigator.platform);
@@ -120,6 +121,7 @@ export function AppShell({ profile: pageProfile, children, title, breadcrumb, ac
                 {apple ? '⌘K' : 'Ctrl K'}
               </kbd>
             </button>
+            {permissions?.includes('support.use') ? <HelpButton /> : null}
             <UserMenu profile={profile} variant="avatar" />
           </header>
 

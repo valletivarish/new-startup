@@ -3,6 +3,7 @@ import {
   BookOpen,
   BriefcaseBusiness,
   IndianRupee,
+  Inbox,
   ChartColumn,
   House,
   Phone,
@@ -38,6 +39,7 @@ export function buildNav(labels: UseCaseDefinition['labels']): { main: NavItem[]
       { href: '/analytics', label: 'Analytics', icon: ChartColumn, permission: 'analytics.read' },
       { href: '/settings', label: 'Settings', icon: Settings },
       { href: '/admin/costs', label: 'Costs', icon: IndianRupee, permission: 'platform.admin' },
+      { href: '/admin/support', label: 'Support inbox', icon: Inbox, permission: 'platform.admin' },
     ],
   };
 }

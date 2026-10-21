@@ -7,12 +7,14 @@ describe('app shell nav', () => {
 
   it('names the hiring items from the use case', () => {
     expect(nav.main.map((i) => i.label)).toEqual(['Home', 'Jobs', 'Candidates', 'Calls']);
-    expect(nav.workspace.map((i) => i.label)).toEqual(['Agents', 'Knowledge', 'Tools', 'Analytics', 'Settings', 'Costs']);
+    expect(nav.workspace.map((i) => i.label)).toEqual(['Agents', 'Knowledge', 'Tools', 'Analytics', 'Settings', 'Costs', 'Support inbox']);
   });
 
   it('shows Costs only to the platform owner', () => {
     expect(gate(nav.workspace, ['agents.read']).map((i) => i.label)).not.toContain('Costs');
     expect(gate(nav.workspace, ['platform.admin']).map((i) => i.label)).toContain('Costs');
+    expect(gate(nav.workspace, ['agents.read']).map((i) => i.label)).not.toContain('Support inbox');
+    expect(gate(nav.workspace, ['platform.admin']).map((i) => i.label)).toContain('Support inbox');
   });
 
   it('marks an item active on its page and the pages under it only', () => {

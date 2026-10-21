@@ -9,6 +9,7 @@ import { BrandLink } from '@/components/brand/logo-mark';
 import { IconButton } from '@/components/ui/icon-button';
 import { Sheet, SheetBody, SheetClose, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { openCommandMenu } from '@/components/layout/CommandMenu';
+import { HelpButton } from '@/components/support/help-panel';
 import { UserMenu } from './account';
 import { gate, isActive, type NavItem } from './nav';
 import { PLACEHOLDER } from './parts';
@@ -25,6 +26,7 @@ export function MobileTopBar({ profile, actions }: { profile: Me | null; actions
       <IconButton label="Search" onClick={() => openCommandMenu()}>
         <Search strokeWidth={1.5} />
       </IconButton>
+      {profile?.activeOrganization?.permissions.includes('support.use') ? <HelpButton /> : null}
       <UserMenu profile={profile} variant="avatar" />
     </header>
   );

@@ -66,10 +66,12 @@ export class V1WebhooksController {
     if (callEvents && !ctx.organization.permissions.has('calls.read_transcript')) {
       throw ApiError.forbidden('Webhook endpoints need the results scope (calls.read_transcript).');
     }
-    return this.write(req, reply, async () => ({
-      status: 201,
-      body: await this.webhooks.create(actorOf(req), input),
-    }));
+    return this.write(req, reply, async () => {
+      const created = await this.webhooks.create(actorOf(req), input);
+      // Power Automate unsubscribes by calling DELETE on this header.
+      void reply.header('Location', `${this.env.API_URL.replace(/\/$/, '')}/v1/webhook-endpoints/${created.id}`);
+      return { status: 201, body: created };
+    });
   }
 
   @Get('webhook-endpoints')

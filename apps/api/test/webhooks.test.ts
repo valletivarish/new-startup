@@ -107,6 +107,8 @@ async function addEndpoint(org: Org, events = ['call.completed', 'call.failed'])
   expect(res.statusCode, res.body).toBe(201);
   const body = JSON.parse(res.body) as { id: string; secret: string };
   expect(body.secret).toMatch(/^whsec_[A-Za-z0-9]{32}$/);
+  // Power Automate unsubscribes with DELETE on Location.
+  expect(String(res.headers['location'])).toMatch(new RegExp(`/v1/webhook-endpoints/${body.id}$`));
   return body;
 }
 

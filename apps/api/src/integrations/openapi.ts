@@ -179,7 +179,9 @@ export function buildOpenApi(): object {
         get: op({ summary: 'List webhook endpoints.', tag: 'Webhooks',
           ok: ok('200', 'OK', obj({ endpoints: arrayOf('WebhookEndpoint') })) }),
         post: op({ summary: 'Create an endpoint. The secret is returned only here.', tag: 'Webhooks', write: true,
-          body: ref('WebhookEndpointCreate'), ok: ok('201', 'Created', ref('WebhookEndpointCreated')),
+          body: ref('WebhookEndpointCreate'),
+          ok: { '201': { description: 'Created. Location is the endpoint\'s URL (DELETE it to unsubscribe).',
+            headers: { Location: { schema: str } }, content: json(ref('WebhookEndpointCreated')) } },
           errors: ['409', '422'] }),
       },
       '/v1/webhook-endpoints/{id}': {

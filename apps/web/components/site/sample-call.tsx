@@ -1,25 +1,20 @@
 'use client';
 
-import { memo, useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
-import Link from 'next/link';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import Image from 'next/image';
+import { Pause, Play, RotateCcw } from 'lucide-react';
 import { cn } from '../ui/cn';
-import { CircleCheck, Pause, Play, RotateCcw } from 'lucide-react';
-import { StatusTag } from '../ui/state-tag';
-import { AnswersList, answerCoverage } from '../shared/answers-list';
-import { Transcript, type TranscriptTurn } from '../shared/transcript';
-import { UserInitials } from '../shared/user-initials';
+import { answerCoverage } from '../shared/answers-list';
 import { SAMPLE_CALL, SAMPLE_JOB } from './sample-data';
 import { clampTime, clock, DURATION, percentAt, playFrom, positionText, turnIndexAt } from './sample-call-timeline';
-import { CONTAINER, Italic, PhotoFrame, SAMPLE_NOTE, SECTION, SIGNUP_HREF, siteButton } from './kit';
+import { CONTAINER, Italic, SAMPLE_NOTE, SECTION, Tag } from './kit';
 import framePhoto from '../../public/images/site/sample-frame.jpg';
 
-/** The sample call's recording. Both voices are generated; the note under the player says so. */
+/** The sample call's recording. Labelled as a sample beside the player. */
 const AUDIO_SRC = '/audio/sample-call.mp3';
 
-const TURNS: readonly TranscriptTurn[] = SAMPLE_CALL.turns.map((turn) => ({
-  ...turn,
-  name: SAMPLE_CALL.candidate.split(' ')[0],
-}));
+const FIRST_NAME = SAMPLE_CALL.candidate.split(' ')[0] ?? SAMPLE_CALL.candidate;
+const TURNS = SAMPLE_CALL.turns;
 
 // Three moments worth jumping to. Found by their words, so the times follow the recording.
 // Each carries a short quote of the turn, cut at a word near 70 characters.
@@ -34,40 +29,25 @@ const MOMENTS = [
   moment('good jump from thirteen', 'It asks why eighteen lakh'),
 ] as const;
 
-// The header's one-line facts, from the data.
+// The turn each moment starts on, so a chip lights up while its turn is spoken.
+const MOMENT_TURNS = MOMENTS.map((m) => TURNS.findIndex((t) => t.at === m.at));
+
+// The job's own questions; what she raised herself is in the transcript.
+const ASKED = SAMPLE_CALL.answers.filter((a) => !('extra' in a && a.extra));
 const COVERAGE = answerCoverage(SAMPLE_CALL.answers);
-const FACTS = `${clock(DURATION)} call · ${COVERAGE.answered} of ${COVERAGE.total} answered · ${SAMPLE_CALL.language}`;
+const FACTS = `${SAMPLE_JOB.title}, ${SAMPLE_JOB.location} · ${clock(DURATION)} · ${COVERAGE.answered} of ${COVERAGE.total} answered`;
 
-// Collapsed, the card shows the first answers and fits a laptop screen.
-const ANSWERS_SHOWN = 3;
+/** Three plain facts under the card, true of every call. */
+const POINTS = ['Same questions, every call', 'Every answer links to its second', 'It never recommends hire or reject'] as const;
 
-const POINTS = [
-  'Summary first, transcript one click away',
-  'Every answer links to the second it was said',
-  'It never recommends hire or reject',
-] as const;
+// A picture of the recording's loudness for the scrubber: fixed, so server and client agree.
+const BARS = Array.from({ length: 72 }, (_, i) => {
+  const v = Math.abs(Math.sin(i * 1.71) * 0.6 + Math.sin(i * 0.43) * 0.4);
+  return Math.round(22 + v * 78);
+});
 
-// The clock ticks every frame; these two re-render only when the turn or a handler changes.
-const CallTranscript = memo(Transcript);
-const CallAnswers = memo(AnswersList);
-
-// The real player's pill (shared/recording-player.tsx), following the sample recording. The
-// native range stays the control; its track draws the played part up to --played.
-const RANGE =
-  'h-11 w-0 min-w-0 flex-1 cursor-pointer appearance-none bg-transparent focus-visible:outline-none focus-visible:shadow-none ' +
-  'forced-colors:appearance-auto forced-colors:focus-visible:[outline:2px_solid_Highlight] ' +
-  '[&::-webkit-slider-runnable-track]:h-1 [&::-webkit-slider-runnable-track]:rounded-full [&::-webkit-slider-runnable-track]:[background:linear-gradient(to_right,var(--accent)_var(--played),var(--border)_var(--played))] ' +
-  '[&::-webkit-slider-thumb]:-mt-1.5 [&::-webkit-slider-thumb]:size-4 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-canvas [&::-webkit-slider-thumb]:bg-accent [&::-webkit-slider-thumb]:[box-shadow:var(--shadow-xs)] ' +
-  '[&:focus-visible::-webkit-slider-thumb]:[box-shadow:0_0_0_2px_var(--canvas),0_0_0_4px_var(--focus-ring)] ' +
-  '[&::-moz-range-track]:h-1 [&::-moz-range-track]:rounded-full [&::-moz-range-track]:bg-border ' +
-  '[&::-moz-range-progress]:h-1 [&::-moz-range-progress]:rounded-full [&::-moz-range-progress]:bg-accent ' +
-  '[&::-moz-range-thumb]:size-4 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-2 [&::-moz-range-thumb]:border-canvas [&::-moz-range-thumb]:bg-accent ' +
-  '[&:focus-visible::-moz-range-thumb]:[box-shadow:0_0_0_2px_var(--canvas),0_0_0_4px_var(--focus-ring)]';
-
-const LABEL = 'm-0 text-label font-semibold text-text-2';
-
-// Play and Pause are drawn filled, as in the real player; the replay arrow stays a line.
-const GLYPH_FILL = { play: 'translate-x-px fill-current', pause: 'fill-current', again: undefined } as const;
+// Play and Pause are drawn filled; the replay arrow stays a line.
+const GLYPH_FILL = { play: 'translate-x-0.5 fill-current', pause: 'fill-current', again: undefined } as const;
 
 export interface SampleCallSectionProps {
   /** Classes for the section band: padding or a different background. */
@@ -75,18 +55,22 @@ export interface SampleCallSectionProps {
 }
 
 /**
- * Website section 3 (#sample-call): the pitch on the black, beside one finished sample call
- * shown as the app's own white card set in a photograph. Play plays the call's recording and
- * the transcript highlights the turn being spoken; time pills and transcript times jump to the
- * moment and play from there. It keeps playing when scrolled away, like any recording.
+ * Website section 2 (#sample-call), the page's signature moment, laid out after Halo's "Hear a
+ * real call": one wide glass card over a darkened photograph. Left, the moments to jump to, a
+ * large play button and a waveform scrubber, then the job's answers. Right, the transcript.
+ * Press play and the three light up together: the line being spoken gets a lime rule, the
+ * moment chip of that turn fills, and each answer brightens the second it is said. Every chip
+ * and answer jumps to its second and plays from there. It keeps playing when scrolled away,
+ * like any recording. Reduced motion: no transitions, the transcript jumps instead of gliding.
  */
 export function SampleCallSection({ className }: SampleCallSectionProps) {
   const audio = useRef<HTMLAudioElement>(null);
+  const lines = useRef<HTMLOListElement>(null);
   const [time, setTime] = useState(0);
   const [playing, setPlaying] = useState(false);
-  // No turn is highlighted until the visitor plays or jumps.
+  // Nothing is highlighted or dimmed until the visitor plays or jumps.
   const [started, setStarted] = useState(false);
-  const [allAnswers, setAllAnswers] = useState(false);
+  const [fullTranscript, setFullTranscript] = useState(false);
 
   // Moves the recording to `at`, or as soon as it knows its length if it doesn't yet.
   const seek = useCallback((at: number) => {
@@ -103,7 +87,7 @@ export function SampleCallSection({ className }: SampleCallSectionProps) {
     audio.current?.play().catch(() => setPlaying(false));
   }, []);
 
-  // A transcript time says "Play from 0:28": jump there and play.
+  // A moment or an answer: jump there and play.
   const playAt = useCallback(
     (at: number) => {
       seek(at);
@@ -135,6 +119,18 @@ export function SampleCallSection({ className }: SampleCallSectionProps) {
     return () => document.removeEventListener('click', onClick);
   }, [playAt]);
 
+  const current = started ? turnIndexAt(time) : -1;
+
+  // The transcript keeps the spoken line a third of the way down its own box. Only the box
+  // scrolls, never the page.
+  useEffect(() => {
+    const box = lines.current;
+    const line = box?.children[current] as HTMLElement | undefined;
+    if (!box || !line || box.scrollHeight <= box.clientHeight) return;
+    const smooth = !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    box.scrollTo({ top: line.offsetTop - box.clientHeight / 3, behavior: smooth ? 'smooth' : 'auto' });
+  }, [current]);
+
   function toggle() {
     if (playing) {
       audio.current?.pause();
@@ -146,174 +142,231 @@ export function SampleCallSection({ className }: SampleCallSectionProps) {
 
   const ended = time >= DURATION;
   const Glyph = playing ? Pause : ended ? RotateCcw : Play;
-  // The turn's own start, so the transcript re-renders once per turn, not once per frame.
-  const current = TURNS[turnIndexAt(time)];
-  const turnTime = current?.at ?? 0;
+  const played = percentAt(time);
 
   return (
-    <section id="sample-call" aria-labelledby="sample-call-title" className={cn(SECTION, 'pt-0 md:pt-0', className)}>
-      <div className={cn(CONTAINER, 'grid grid-cols-1 gap-12 lg:grid-cols-12 lg:gap-10 xl:gap-16')}>
-        <div data-reveal className="lg:sticky lg:top-24 lg:col-span-5 lg:self-start">
-          <h2 id="sample-call-title" className="site-h2 m-0 text-white">
-            {/* Never broken at its hyphen. */}
-            <span className="block">Review a call</span>
-            <Italic>without replaying it</Italic>
+    <section
+      id="sample-call"
+      aria-labelledby="sample-call-title"
+      className={cn(SECTION, 'relative isolate overflow-hidden pt-16 md:pt-24', className)}
+    >
+      {/* The photograph the glass sits on, darkened to black at both edges. */}
+      <div aria-hidden data-photo-frame className="absolute inset-0 -z-10">
+        <div data-photo-drift className="absolute inset-[-6%_0]">
+          <Image src={framePhoto} alt="" fill sizes="100vw" placeholder="blur" className="object-cover object-[50%_60%]" />
+        </div>
+        <div className="absolute inset-0 [background:linear-gradient(to_bottom,#050505_0%,rgb(5_5_5/0.55)_30%,rgb(5_5_5/0.5)_70%,#050505_100%)]" />
+      </div>
+
+      <div className={CONTAINER}>
+        <div data-reveal className="flex flex-col items-center text-center">
+          <Tag>Sample call</Tag>
+          <h2 id="sample-call-title" className="site-h2 m-0 mt-5 text-white">
+            Review a call <Italic>without&nbsp;replaying&nbsp;it</Italic>
           </h2>
-          <ul role="list" className="m-0 mt-8 grid list-none gap-4 p-0">
-            {POINTS.map((point) => (
-              <li key={point} className="flex gap-3 text-[1rem] leading-relaxed text-site-fg-2">
-                <CircleCheck aria-hidden strokeWidth={1.5} className="mt-0.5 size-5 shrink-0 text-site-lime" />
-                {point}
-              </li>
-            ))}
-          </ul>
-          <h3 className="m-0 mt-10 text-[0.9375rem] font-medium text-white">Moments to listen for</h3>
-          <ul role="list" className="m-0 mt-3 grid list-none gap-2 p-0">
-            {MOMENTS.map((moment) => (
-              <li key={moment.label}>
-                <button
-                  type="button"
-                  onClick={() => playAt(moment.at)}
-                  className="group flex w-full items-start gap-3 rounded-[10px] border border-site-line p-3 text-left transition-colors duration-200 hover:border-white/40"
-                >
-                  <span className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-[8px] border border-site-line px-2 text-[0.8125rem] tabular-nums text-white transition-colors duration-200 group-hover:border-white/40">
-                    <Play aria-hidden strokeWidth={1.5} className="size-3 fill-current" />
-                    {clock(moment.at)}
-                  </span>
-                  <span className="grid min-w-0 gap-1 pt-0.5">
-                    <span className="text-[0.9375rem] text-white">{moment.label}</span>
-                    <span className="text-[0.8125rem] leading-relaxed text-site-fg-3">{`“${moment.quote}”`}</span>
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
-          <Link href={SIGNUP_HREF} className={cn(siteButton('paper'), 'mt-8')}>
-            Start a pilot
-          </Link>
         </div>
 
-        <figure id="sample-call-card" data-reveal className="m-0 min-w-0 scroll-mt-6 lg:col-span-7">
-          <PhotoFrame photo={framePhoto} sizes="(min-width: 1024px) 60vw, 100vw" position="50% 60%" className="p-3 sm:p-5 md:p-8 lg:p-5">
-          <div className="rounded-card border border-border bg-canvas text-text shadow-float">
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-3 border-b border-border px-5 py-4 md:px-6">
-              <UserInitials name={SAMPLE_CALL.candidate} size="lg" />
-              <div className="min-w-0 flex-1 basis-48">
-                <p className="m-0 truncate text-title font-semibold text-text">{SAMPLE_CALL.candidate}</p>
-                <p className="m-0 truncate text-meta text-text-3">{`${SAMPLE_JOB.title}, ${SAMPLE_JOB.location}`}</p>
-                <p className="m-0 mt-1 text-meta tabular-nums text-text-2">{FACTS}</p>
+        <figure
+          id="sample-call-card"
+          data-reveal
+          className="site-smoke m-0 mt-10 grid scroll-mt-24 grid-cols-[minmax(0,1fr)] overflow-hidden rounded-[26px] md:mt-14 lg:grid-cols-[minmax(0,1.45fr)_minmax(0,1fr)]"
+        >
+          {/* The player: moments, play, the scrubber. */}
+          <div className="min-w-0 p-5 sm:p-7 lg:col-start-1 lg:row-start-1 lg:p-9 lg:pb-6">
+            <p className="m-0 text-[0.8125rem] text-site-fg-3" id="sample-call-moments">
+              Jump to a moment
+            </p>
+            <ul
+              role="list"
+              aria-labelledby="sample-call-moments"
+              className="-mx-5 m-0 mt-2.5 flex list-none snap-x scroll-px-5 gap-2 overflow-x-auto px-5 pb-1 [scrollbar-width:none] sm:-mx-7 sm:px-7 lg:mx-0 lg:flex-wrap lg:px-0"
+            >
+              {MOMENTS.map((m, i) => {
+                const on = current === MOMENT_TURNS[i];
+                return (
+                  <li key={m.label} className="shrink-0 snap-start">
+                    <button
+                      type="button"
+                      onClick={() => playAt(m.at)}
+                      aria-pressed={on}
+                      className={cn(
+                        'inline-flex h-11 items-center gap-2 whitespace-nowrap rounded-[10px] border px-3.5 text-[0.875rem] transition-colors duration-200',
+                        on
+                          ? 'border-white bg-white text-site-black'
+                          : 'border-white/20 bg-white/[0.06] text-white hover:border-white/45',
+                      )}
+                    >
+                      <span className={cn('tabular-nums', on ? 'text-site-black/70' : 'text-site-fg-3')}>{clock(m.at)}</span>
+                      {m.label}
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+
+            <div className="mt-7 flex items-center gap-4 sm:gap-5">
+              <button
+                type="button"
+                onClick={toggle}
+                aria-label={playing ? 'Pause the sample call' : ended ? 'Play the sample call again' : 'Play the sample call'}
+                className="grid size-16 shrink-0 place-items-center rounded-full bg-white text-site-black shadow-[0_0_0_8px_rgb(255_255_255/0.08)] transition-[background-color,scale] duration-200 hover:bg-[#e9ebee] focus-visible:outline-white motion-safe:active:[scale:0.96] sm:size-[4.5rem] [&_svg]:size-6"
+              >
+                <Glyph aria-hidden strokeWidth={1.5} className={GLYPH_FILL[playing ? 'pause' : ended ? 'again' : 'play']} />
+              </button>
+              <div className="min-w-0">
+                <h3 className="m-0 truncate text-[clamp(1.25rem,1rem+0.8vw,1.625rem)] font-normal tracking-[-0.025em] text-white">
+                  Screening {SAMPLE_CALL.candidate}
+                </h3>
+                <p className="m-0 mt-1 text-[0.875rem] tabular-nums text-site-fg-2">{FACTS}</p>
               </div>
-              <StatusTag domain="call" value="ready_for_review" />
             </div>
 
-            {/* minmax(0,1fr) tracks: the player and transcript shrink to a 320px phone. */}
-            <div className="grid grid-cols-[minmax(0,1fr)] gap-4 p-5 md:p-6">
-              <div>
-                <h3 className={LABEL}>Summary</h3>
-                <p className="m-0 mt-2 max-w-[68ch] text-md text-text">{SAMPLE_CALL.summary}</p>
-              </div>
-
-              <div className="grid gap-2">
-                <div
-                  role="group"
-                  aria-label="Sample call playback"
-                  className="flex h-14 min-w-0 items-center gap-3 rounded-pill border border-border bg-canvas pl-2 pr-4 text-caption font-medium tabular-nums text-text-2 shadow-xs"
-                >
-                  <button
-                    type="button"
-                    onClick={toggle}
-                    aria-label={playing ? 'Pause' : ended ? 'Play again' : 'Play'}
-                    className="relative grid size-11 shrink-0 place-items-center rounded-full border border-transparent bg-primary text-primary-foreground transition-[background-color,scale] duration-fast hover:bg-primary-hover motion-safe:active:[scale:0.97] [&_svg]:size-5"
-                  >
-                    <Glyph aria-hidden strokeWidth={1.5} className={GLYPH_FILL[playing ? 'pause' : ended ? 'again' : 'play']} />
-                  </button>
-                  {/* The slider speaks the position, so the times are read once, through it. */}
-                  <span aria-hidden className="min-w-9 text-right">
-                    {clock(time)}
-                  </span>
-                  <input
-                    type="range"
-                    min={0}
-                    max={DURATION}
-                    step={1}
-                    value={Math.floor(time)}
-                    aria-label="Position in the call"
-                    aria-valuetext={positionText(time)}
-                    onChange={(event) => seek(Number(event.currentTarget.value))}
-                    // How much has played, for the track's accent part.
-                    style={{ '--played': `${percentAt(time)}%` } as CSSProperties}
-                    className={RANGE}
-                  />
-                  <span aria-hidden className="min-w-9 text-text-3">
-                    {clock(DURATION)}
-                  </span>
+            {/* The waveform is a picture; the native range on top of it is the control. */}
+            <div className="mt-6">
+              <div className="relative h-12 rounded-[6px] has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-4 has-[:focus-visible]:outline-white">
+                <div aria-hidden className="flex h-full items-center gap-[3px]">
+                  {BARS.map((h, i) => (
+                    <span
+                      key={i}
+                      className={cn('min-w-0 flex-1 rounded-full', ((i + 0.5) / BARS.length) * 100 <= played ? 'bg-white' : 'bg-white/25')}
+                      style={{ height: `${h}%` }}
+                    />
+                  ))}
                 </div>
-                {/* Phones can't see the highlighted line below: the line being spoken, under the player.
-                    Hidden from assistive tech, which follows the transcript's aria-current. */}
-                {started && current ? (
-                  <p aria-hidden className="m-0 mt-1 line-clamp-2 min-h-[2.6em] text-label text-text">
-                    <span className="font-semibold">{current.speaker === 'agent' ? 'AI agent' : current.name}: </span>
-                    {current.text}
-                  </p>
+                {started ? (
+                  <span aria-hidden className="absolute inset-y-0 w-0.5 -translate-x-1/2 rounded-full bg-site-lime" style={{ left: `${played}%` }} />
                 ) : null}
-                <audio
-                  ref={audio}
-                  src={AUDIO_SRC}
-                  preload="metadata"
-                  onPlay={() => setPlaying(true)}
-                  onPause={() => setPlaying(false)}
-                  onEnded={() => {
-                    setPlaying(false);
-                    setTime(DURATION);
-                  }}
+                <input
+                  type="range"
+                  min={0}
+                  max={DURATION}
+                  step={1}
+                  value={Math.floor(time)}
+                  aria-label="Position in the sample call"
+                  aria-valuetext={positionText(time)}
+                  onChange={(event) => seek(Number(event.currentTarget.value))}
+                  className="absolute inset-0 size-full cursor-pointer appearance-none opacity-0"
                 />
               </div>
-
-              <div className="grid grid-cols-[minmax(0,1fr)] gap-6 xl:grid-cols-2">
-                <div className="flex min-w-0 flex-col">
-                  <h3 className={LABEL}>Transcript</h3>
-                  {/* Side by side, the transcript takes the answers' height and scrolls inside it. */}
-                  <div className="relative mt-3 xl:min-h-[16rem] xl:flex-1">
-                    <CallTranscript
-                      turns={TURNS}
-                      currentTime={started ? turnTime : undefined}
-                      onPlayFrom={playAt}
-                      label="Transcript of the sample call"
-                      agentLabel="AI hiring agent"
-                      className="max-h-[16rem] xl:absolute xl:inset-0 xl:max-h-none"
-                    />
-                  </div>
-                </div>
-                <div className="min-w-0 xl:border-l xl:border-border xl:pl-6">
-                  <div className="flex items-baseline justify-between gap-3">
-                    <h3 className={LABEL}>Answers</h3>
-                    {SAMPLE_CALL.answers.length > ANSWERS_SHOWN ? (
-                      // A 44px target without growing the heading row.
-                      <button
-                        type="button"
-                        aria-expanded={allAnswers}
-                        aria-controls="sample-call-answers"
-                        onClick={() => setAllAnswers((open) => !open)}
-                        className="relative rounded-xs text-label font-medium text-text underline decoration-border underline-offset-4 transition-colors duration-fast after:absolute after:-inset-x-2 after:-inset-y-3 hover:decoration-text"
-                      >
-                        {allAnswers ? 'Show fewer' : `Show all ${COVERAGE.total}`}
-                      </button>
-                    ) : null}
-                  </div>
-                  <CallAnswers
-                    id="sample-call-answers"
-                    items={SAMPLE_CALL.answers}
-                    onSeek={seek}
-                    limit={allAnswers ? undefined : ANSWERS_SHOWN}
-                    className="mt-3"
-                  />
-                </div>
+              <div aria-hidden className="mt-2 flex justify-between text-[0.8125rem] tabular-nums text-site-fg-3">
+                <span>{clock(time)}</span>
+                <span>{clock(DURATION)}</span>
               </div>
             </div>
+            <audio
+              ref={audio}
+              src={AUDIO_SRC}
+              preload="metadata"
+              onPlay={() => setPlaying(true)}
+              onPause={() => setPlaying(false)}
+              onEnded={() => {
+                setPlaying(false);
+                setTime(DURATION);
+              }}
+            />
           </div>
-          </PhotoFrame>
-          <figcaption className="mt-4 text-[0.8125rem] text-site-fg-3">{SAMPLE_NOTE}</figcaption>
+
+          {/* The transcript: the spoken line gets the lime rule, the lines before it dim. */}
+          <div className="relative flex min-w-0 flex-col border-t border-white/10 bg-black/25 p-5 sm:p-7 lg:col-start-2 lg:row-span-2 lg:row-start-1 lg:border-l lg:border-t-0 lg:p-8">
+            <h3 id="sample-call-transcript" className="m-0 text-[0.8125rem] font-medium uppercase tracking-[0.08em] text-site-fg-3">
+              Transcript
+            </h3>
+            <div className="relative mt-4 min-h-0 flex-1">
+              <ol
+                ref={lines}
+                id="sample-call-lines"
+                role="list"
+                tabIndex={0}
+                aria-labelledby="sample-call-transcript"
+                className={cn(
+                  'm-0 grid list-none content-start gap-4 overflow-y-auto overscroll-contain p-0 pr-2 focus-visible:outline-white lg:absolute lg:inset-0 lg:max-h-none',
+                  !fullTranscript && 'max-h-[12.5rem] [mask-image:linear-gradient(to_bottom,#000_75%,transparent)] lg:[mask-image:none]',
+                )}
+              >
+                {TURNS.map((turn, i) => {
+                  const now = i === current;
+                  return (
+                    <li
+                      key={turn.at}
+                      aria-current={now ? 'true' : undefined}
+                      className={cn(
+                        'border-l-2 pl-3.5 transition-[opacity,border-color] duration-300',
+                        now ? 'border-site-lime opacity-100' : 'border-transparent',
+                        !now && current >= 0 && (i < current ? 'opacity-50' : 'opacity-80'),
+                      )}
+                    >
+                      <p className="m-0 flex items-baseline gap-2 text-[0.75rem] text-site-fg-3">
+                        <span className="font-medium text-site-fg-2">{turn.speaker === 'agent' ? 'AI hiring agent' : FIRST_NAME}</span>
+                        <span className="tabular-nums">{clock(turn.at)}</span>
+                      </p>
+                      <p className="m-0 mt-1 text-[0.9375rem] leading-relaxed text-white">{turn.text}</p>
+                    </li>
+                  );
+                })}
+              </ol>
+            </div>
+            <button
+              type="button"
+              aria-expanded={fullTranscript}
+              aria-controls="sample-call-lines"
+              onClick={() => setFullTranscript((open) => !open)}
+              className="mt-2 inline-flex min-h-11 w-fit items-center text-[0.875rem] font-medium text-white underline decoration-white/40 underline-offset-[5px] hover:decoration-white lg:hidden"
+            >
+              {fullTranscript ? 'Shorter transcript' : 'Full transcript'}
+            </button>
+          </div>
+
+          {/* The job's answers, each lighting up the second it is said. */}
+          <div className="min-w-0 border-t border-white/10 p-5 sm:p-7 lg:col-start-1 lg:row-start-2 lg:p-9 lg:pt-7">
+            <div className="flex items-baseline justify-between gap-3">
+              <h3 className="m-0 text-[0.8125rem] font-medium uppercase tracking-[0.08em] text-site-fg-3">Answers</h3>
+              <p className="m-0 text-[0.75rem] text-site-fg-3">{SAMPLE_NOTE}</p>
+            </div>
+            <ul role="list" className="m-0 mt-4 grid list-none grid-cols-1 gap-2 p-0 sm:grid-cols-2">
+              {ASKED.map((item, i) => {
+                const heard = !started || (item.at !== null && time >= item.at);
+                return (
+                  // Phones show the first four, to keep the section near a screen and a half.
+                  <li key={item.question} className={i >= 4 ? 'max-sm:hidden' : undefined}>
+                    <button
+                      type="button"
+                      disabled={item.at === null}
+                      onClick={() => item.at !== null && playAt(item.at)}
+                      className={cn(
+                        'group flex size-full min-h-11 items-start gap-3 rounded-[12px] border px-3.5 py-3 text-left transition-[opacity,border-color,background-color] duration-300',
+                        heard ? 'border-white/15 bg-white/[0.05] hover:border-white/40' : 'border-white/10 opacity-45',
+                        started && heard && 'border-l-site-lime',
+                      )}
+                    >
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-[0.75rem] text-site-fg-3">{item.question}</span>
+                        <span className="mt-0.5 block text-[0.875rem] leading-snug text-white">
+                          {heard ? item.answer ?? 'Not answered' : 'Not asked yet'}
+                        </span>
+                      </span>
+                      {item.at !== null ? (
+                        <span className="inline-flex shrink-0 items-center gap-1 pt-0.5 text-[0.75rem] tabular-nums text-site-fg-2 group-hover:text-white">
+                          <Play aria-hidden strokeWidth={1.5} className="size-3 fill-current" />
+                          <span className="sr-only">Play from </span>
+                          {clock(item.at)}
+                        </span>
+                      ) : null}
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
         </figure>
+
+        <ul role="list" className="m-0 mt-8 flex list-none flex-wrap justify-center gap-x-8 gap-y-3 p-0">
+          {POINTS.map((point) => (
+            <li key={point} className="inline-flex items-center gap-2.5 text-[0.9375rem] text-site-fg-2">
+              <span aria-hidden className="size-1.5 rounded-full bg-site-lime" />
+              {point}
+            </li>
+          ))}
+        </ul>
       </div>
     </section>
   );

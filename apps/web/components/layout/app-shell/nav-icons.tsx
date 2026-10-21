@@ -30,14 +30,15 @@ const svgProps = {
 
 /** Each page's icon as moving parts. `v` builds the variants for one part from its play target. */
 const ICONS: Record<string, Parts> = {
-  // Home: the house hops and squashes; the door swings open and shut.
+  // Home: the house hops and squashes; the door lights up, as if someone is in.
   '/dashboard': (v) => (
     <motion.g variants={v({ y: [0, -2.5, 0.5, 0], scaleY: [1, 1.06, 0.94, 1], transition: { duration: 0.55, ease: EASE } })} style={{ originY: 1 }}>
       <path d="M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
       <motion.path
         d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"
-        variants={v({ scaleX: [1, 0.2, 0.2, 1], transition: { duration: 0.7, times: [0, 0.3, 0.6, 1], ease: EASE } })}
-        style={{ originX: 0 }}
+        fill="currentColor"
+        initial={{ fillOpacity: 0 }}
+        variants={v({ fillOpacity: [0, 0.85, 0.85, 0], transition: { duration: 0.9, times: [0, 0.25, 0.7, 1], ease: EASE } })}
       />
     </motion.g>
   ),
@@ -50,16 +51,16 @@ const ICONS: Record<string, Parts> = {
       <motion.path d="M12 12h.01" strokeWidth={2.5} variants={v({ scale: [1, 2.2, 1], transition: { duration: 0.5, delay: 0.15 } })} />
     </motion.g>
   ),
-  // Candidates: the front person nods; the one behind leans in.
+  // Candidates: someone new slides in to join; the first person nods hello.
   '/candidates': (v) => (
     <>
-      <motion.g variants={v({ y: [0, -1.8, 0], transition: { duration: 0.45, ease: EASE } })}>
+      <motion.g variants={v({ y: [0, -1.5, 0], transition: { duration: 0.4, delay: 0.25, ease: EASE } })}>
         <path d="M18 21a8 8 0 0 0-16 0" />
-        <motion.circle cx="10" cy="8" r="5" variants={v({ rotate: [0, -8, 0], transition: { duration: 0.45 } })} />
+        <circle cx="10" cy="8" r="5" />
       </motion.g>
       <motion.path
         d="M22 20c0-3.37-2-6.5-4-8a5 5 0 0 0-.45-8.3"
-        variants={v({ x: [0, 1.8, 0], opacity: [1, 0.55, 1], transition: { duration: 0.55, delay: 0.12, ease: EASE } })}
+        variants={v({ x: [0, 4, 0], opacity: [1, 0, 1], transition: { duration: 0.6, times: [0, 0.2, 1], ease: EASE } })}
       />
     </>
   ),
@@ -89,27 +90,25 @@ const ICONS: Record<string, Parts> = {
       ))}
     </>
   ),
-  // Knowledge: the book opens wide and a page turns across.
+  // Knowledge: an open book whose right page turns over the spine.
   '/knowledge': (v) => (
     <>
-      <motion.g variants={v({ scaleX: [1, 1.14, 0.97, 1], transition: { duration: 0.6, ease: EASE } })}>
-        <path d="M12 5v16" />
-        <path d="M20.001 19A2 2 0 0022 17V5a2 2 0 00-1.999-2L16 3.002A5 5 0 0012 5a5 5 0 00-4-2H4a2 2 0 00-2 2v12a2 2 0 001.999 2H8a5 5 0 014 2 5 5 0 014-2z" />
-      </motion.g>
+      <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" />
+      <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" />
       <motion.path
-        d="M12 6.5c1.2-1 2.8-1.6 5-1.5"
+        d="M12 7a4 4 0 0 1 4-4h6v15h-7a3 3 0 0 0-3 3"
         initial={{ opacity: 0 }}
-        variants={v({ opacity: [0, 1, 1, 0], scaleX: [1, 1, -1, -1], transition: { duration: 0.7, times: [0, 0.15, 0.75, 1], ease: EASE } })}
+        variants={v({ opacity: [0, 1, 1, 0], scaleX: [1, 1, -1, -1], transition: { duration: 0.75, times: [0, 0.05, 0.85, 1], ease: EASE } })}
         style={{ originX: 0 }}
       />
     </>
   ),
-  // Tools: the wrench gives a firm twist and settles.
+  // Tools: the wrench tightens a bolt, two quick turns in place.
   '/tools': (v) => (
     <motion.path
       d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.106-3.105c.32-.322.863-.22.983.218a6 6 0 0 1-8.259 7.057l-7.91 7.91a1 1 0 0 1-2.999-3l7.91-7.91a6 6 0 0 1 7.057-8.259c.438.12.54.662.219.984z"
-      variants={v({ rotate: [0, -40, 18, -6, 0], transition: { duration: 0.75, ease: EASE } })}
-      style={{ originX: 0.15, originY: 0.85 }}
+      variants={v({ rotate: [0, -22, 0, -22, 0], transition: { duration: 0.75, times: [0, 0.25, 0.5, 0.75, 1], ease: 'easeInOut' } })}
+      style={{ originX: 0.62, originY: 0.38 }}
     />
   ),
   // Analytics: the axis stays; each bar draws up from it, one after another.

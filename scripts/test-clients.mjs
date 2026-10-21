@@ -28,6 +28,8 @@ const root = resolve(import.meta.dirname, '..');
 const DB = 'platform_clients_test';
 const VOICE_CONTAINER = 'platform-voice-clients-test';
 const ADMIN_EMAIL = 'clients-admin@example.test';
+// CLIENTS_API_PORT moves the API off 3001 when a dev API is already running there.
+const API_PORT = process.env.CLIENTS_API_PORT ?? '3001';
 const PG = { app: 'app_local_dev', migrator: 'migrator_local_dev' };
 const appUrl = `postgresql://platform_app:${process.env.POSTGRES_APP_PASSWORD ?? PG.app}@localhost:5434/${DB}`;
 const migrationUrl = `postgresql://platform_migrator:${process.env.POSTGRES_MIGRATOR_PASSWORD ?? PG.migrator}@localhost:5434/${DB}`;
@@ -94,7 +96,7 @@ function tail(name, lines = 40) {
 }
 
 async function main() {
-  for (const port of [3001, 4100, 8765]) {
+  for (const port of [Number(API_PORT), 4100, 8765]) {
     if (!(await portFree(port))) throw new Error(`port ${port} is in use; stop whatever is on it first`);
   }
 
@@ -139,7 +141,7 @@ async function main() {
     [
       'run', '-d', '--name', VOICE_CONTAINER, '-p', '8765:8765',
       '--add-host', 'host.docker.internal:host-gateway',
-      '-e', 'NEST_INTERNAL_URL=http://host.docker.internal:3001',
+      '-e', `NEST_INTERNAL_URL=http://host.docker.internal:${API_PORT}`,
       // Name-only -e: values come from this process's env, so they never sit in argv.
       ...['VOICE_INTERNAL_TOKEN', ...Object.keys(providers)].flatMap((k) => ['-e', k]),
       'platform-voice:dev',
@@ -155,8 +157,8 @@ async function main() {
   const apiEnv = {
     ...base,
     NODE_ENV: 'development',
-    API_PORT: '3001',
-    API_URL: 'http://localhost:3001',
+    API_PORT,
+    API_URL: `http://localhost:${API_PORT}`,
     WEB_URL: 'http://localhost:3000',
     DATABASE_URL: appUrl,
     BETTER_AUTH_SECRET: randomBytes(32).toString('hex'),
@@ -179,7 +181,7 @@ async function main() {
   console.log(`· api + worker (logs: ${logDir})`);
   start('api', ['--filter', '@platform/api', 'exec', 'tsx', 'src/main.ts'], apiEnv);
   start('worker', ['--filter', '@platform/api', 'exec', 'tsx', 'src/jobs/worker.ts'], apiEnv);
-  await waitFor('http://localhost:3001/health', 'api');
+  await waitFor(`http://localhost:${API_PORT}/health`, 'api');
   await waitFor('http://localhost:8765/health', 'voice');
 
   console.log('· vitest apps/acme/test');
@@ -188,7 +190,7 @@ async function main() {
     stdio: 'inherit',
     env: {
       ...process.env,
-      HRVOICE_API_URL: 'http://localhost:3001',
+      HRVOICE_API_URL: `http://localhost:${API_PORT}`,
       ACME_PORT: '4100',
       CLIENTS_ADMIN_EMAIL: ADMIN_EMAIL,
       CLIENTS_TEST_DB: DB,

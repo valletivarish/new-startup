@@ -21,6 +21,8 @@ import {
 import { AppShell } from '@/components/AppShell';
 import { Agent } from '@/components/brand/agent';
 import { cleanQuestions, jobReadiness, jobStatusLabel, lineState, readinessLine, sameQuestions } from '@/components/jobs/setup';
+import { requirementsDirty, toForm, type RequirementsForm } from '@/components/jobs/requirements';
+import { RequirementsEditor, RequirementsSummary } from '@/components/jobs/requirements-form';
 import { JobHeader } from '@/components/shared/job-header';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/components/ui/cn';
@@ -111,6 +113,7 @@ function JobSetup({ publicId }: { publicId: string }) {
   const [docsPreparing, setDocsPreparing] = useState(false);
   const [jobKnowledge, setJobKnowledge] = useState<JobKnowledgeSource[]>([]);
   const [questions, setQuestions] = useState<string[]>([]);
+  const [requirementsForm, setRequirementsForm] = useState<RequirementsForm>(() => toForm(null));
   const [screeningLanguage, setScreeningLanguage] = useState<ScreeningLanguage>('en');
   const [savingScreening, setSavingScreening] = useState(false);
   const [jdFiles, setJdFiles] = useState<File[]>([]);
@@ -154,6 +157,7 @@ function JobSetup({ publicId }: { publicId: string }) {
         hydrated.current = true;
         setJdText((j.description ?? '').trim());
         setQuestions((j.screeningQuestions ?? []).map((q) => q.label));
+        setRequirementsForm(toForm(j.requirements));
         setScreeningLanguage(isScreeningLanguage(j.screeningLanguage) ? j.screeningLanguage : 'en');
       }
       void reloadJobKnowledge();
@@ -244,7 +248,8 @@ function JobSetup({ publicId }: { publicId: string }) {
   const jdDirty = job !== null && jdText.trim() !== savedDescription;
   const questionsDirty =
     job !== null && (!sameQuestions(questions, savedQuestions) || screeningLanguage !== savedLanguage);
-  useUnsavedChangesGuard(jdDirty || questionsDirty);
+  const reqDirty = job !== null && requirementsDirty(requirementsForm, job.requirements);
+  useUnsavedChangesGuard(jdDirty || questionsDirty || reqDirty);
 
   const permissions = me.data?.activeOrganization?.permissions ?? [];
   const canEdit = permissions.includes('jobs.update');
@@ -813,8 +818,41 @@ function JobSetup({ publicId }: { publicId: string }) {
             </SetupCard>
 
             <SetupCard
-              id="agent"
+              id="requirements"
               step={canEdit ? 3 : undefined}
+              title="Requirements"
+              description="What the role needs. After each call, the answers are checked against these, so candidates sort into Meets all, Check and Doesn’t meet. You decide who moves forward."
+              badge={
+                canEdit && reqDirty ? (
+                  <UnsavedBadge />
+                ) : readiness.requirements > 0 ? (
+                  <StatusBadge tone="success" icon={CircleCheck}>
+                    {readiness.requirements} set
+                  </StatusBadge>
+                ) : (
+                  <StatusBadge tone="neutral" icon={CircleDashed}>
+                    Optional
+                  </StatusBadge>
+                )
+              }
+            >
+              {canEdit ? (
+                <RequirementsEditor
+                  jobId={jobId}
+                  form={requirementsForm}
+                  setForm={setRequirementsForm}
+                  dirty={reqDirty}
+                  hasDescription={savedDescription.length >= 20}
+                  onSaved={(requirements) => setJob((j) => (j ? { ...j, requirements } : j))}
+                />
+              ) : (
+                <RequirementsSummary requirements={job.requirements} />
+              )}
+            </SetupCard>
+
+            <SetupCard
+              id="agent"
+              step={canEdit ? 4 : undefined}
               title="AI hiring agent"
               description="Makes the calls for this job, in its own voice."
               badge={
@@ -1096,6 +1134,13 @@ function ReadyPanel({
       done: r.questions > 0,
       optional: true,
       detail: r.questions > 0 ? `${r.questions} saved` : 'Optional',
+    },
+    {
+      anchor: 'requirements',
+      label: 'Requirements',
+      done: r.requirements > 0,
+      optional: true,
+      detail: r.requirements > 0 ? `${r.requirements} set` : 'Add requirements to sort candidates',
     },
     {
       anchor: 'agent',

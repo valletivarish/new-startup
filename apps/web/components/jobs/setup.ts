@@ -1,4 +1,5 @@
 import type { Job, JobKnowledgeSource } from '../../lib/api';
+import { requirementLines } from '../candidates/fit';
 
 /**
  * Whether a job is ready for calls, from saved data only: text typed but not saved never
@@ -28,6 +29,8 @@ export interface Readiness {
   /** preparing: only files, still being read. */
   description: 'saved' | 'preparing' | 'missing';
   questions: number;
+  /** How many requirements calls are checked against (optional). */
+  requirements: number;
   /** checking: the agent's status hasn't loaded yet. */
   agent: 'live' | 'not-live' | 'missing' | 'checking';
   /** The workspace's calling number, as the telephony status reports it. unknown: it couldn't be read. */
@@ -49,7 +52,7 @@ export function lineState(outboundPhone: boolean | null | undefined, failed = fa
 }
 
 export function jobReadiness(
-  job: Pick<Job, 'description' | 'hasJdDocs' | 'agentId' | 'status' | 'screeningQuestions'>,
+  job: Pick<Job, 'description' | 'hasJdDocs' | 'agentId' | 'status' | 'screeningQuestions' | 'requirements'>,
   sources: readonly Pick<JobKnowledgeSource, 'readyDocs' | 'pendingDocs'>[],
   agentLive: boolean | null,
   line: Readiness['line'] = 'checking',
@@ -65,6 +68,7 @@ export function jobReadiness(
   return {
     description,
     questions: job.screeningQuestions?.length ?? 0,
+    requirements: requirementLines(job.requirements).length,
     agent,
     line,
     status: job.status,

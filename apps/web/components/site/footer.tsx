@@ -56,11 +56,12 @@ export function SiteFooter() {
             <ul role="list" className="m-0 mt-2 grid list-none p-0">
               {SECTIONS.map(({ href, label }) => (
                 <li key={href}>
-                  <a href={href} className={LINK}>
+                  <a href={`/${href}`} className={LINK}>
                     {label}
                   </a>
                 </li>
               ))}
+              <li><Link href="/developers" className={LINK}>Developers</Link></li>
             </ul>
           </div>
           <div>

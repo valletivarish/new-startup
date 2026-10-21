@@ -353,5 +353,6 @@ export const ERROR_INFO: Record<string, { status: number; meaning: string }> = {
   call_limit_reached: { status: 429, meaning: 'Your daily, concurrent or monthly call limit is reached. details.resetsAt says when it lifts.' },
   test_call_limit_reached: { status: 429, meaning: 'The test line’s limit (100 a day, 3 at once) is reached. details.resetsAt says when it lifts.' },
   service_unavailable: { status: 503, meaning: 'The call couldn’t be queued just now. Retry shortly.' },
+  closed_in_ats: { status: 409, meaning: 'The candidate is rejected, hired or closed in your connected Zoho Recruit, so they can’t be called.' },
   internal: { status: 500, meaning: 'Something failed on our side. Quote request_id if you contact us.' },
 };

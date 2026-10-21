@@ -17,6 +17,7 @@ import { TeamSettings } from '@/components/TeamSettings';
 import { organizationsQueryKey } from '@/components/layout/app-shell/account';
 import { AccessLevels } from '@/components/settings/access-levels';
 import { ActivityLog } from '@/components/settings/activity';
+import { ConnectedSystemsSection, ZOHO_STATUS_KEY } from '@/components/settings/connected-systems';
 import { DevelopersSection } from '@/components/settings/developers';
 import { AccountSection, WorkspaceSection } from '@/components/settings/sections';
 import { Button } from '@/components/ui/button';
@@ -26,11 +27,12 @@ import { PageHeader, PageMain } from '@/components/ui/page-header';
 import { Skeleton, SkeletonCard, useHeldLoading } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { myOrganizations, type Me } from '@/lib/api';
+import { getZohoStatus } from '@/lib/connected-systems';
 import { toUserMessage } from '@/lib/errors';
 import { useMe } from '@/lib/use-me';
 import { useOnline } from '@/lib/use-online';
 
-type Section = 'workspace' | 'team' | 'access' | 'activity' | 'developers' | 'account';
+type Section = 'workspace' | 'team' | 'access' | 'activity' | 'connected' | 'developers' | 'account';
 
 export default function SettingsPage() {
   const me = useMe();
@@ -87,12 +89,21 @@ function SettingsTabs({ profile }: { profile: Me }) {
     staleTime: 5 * 60_000,
   });
   const workspaceName = orgs.data?.organizations.find((o) => o.id === org?.id)?.name.trim() || null;
+  // The tab exists only when a hiring system can be connected on this server.
+  const connected = useQuery({
+    queryKey: ZOHO_STATUS_KEY,
+    queryFn: getZohoStatus,
+    enabled: Boolean(org) && can('integrations.read'),
+  });
 
   const sections: { value: Section; label: string }[] = [
     ...(org ? [{ value: 'workspace' as const, label: 'Workspace' }] : []),
     ...(org && (can('users.read') || can('users.invite')) ? [{ value: 'team' as const, label: 'Team' }] : []),
     ...(org && can('roles.read') ? [{ value: 'access' as const, label: 'Access levels' }] : []),
     ...(org && can('audit.read') ? [{ value: 'activity' as const, label: 'Activity' }] : []),
+    ...(org && can('integrations.read') && connected.data?.available
+      ? [{ value: 'connected' as const, label: 'Connected systems' }]
+      : []),
     ...(org && can('integrations.read') ? [{ value: 'developers' as const, label: 'Developers' }] : []),
     { value: 'account', label: 'Your account' },
   ];
@@ -161,6 +172,9 @@ function SettingsTabs({ profile }: { profile: Me }) {
         </TabsContent>
         <TabsContent value="activity" className="pt-6">
           <ActivityLog />
+        </TabsContent>
+        <TabsContent value="connected" className="pt-6">
+          <ConnectedSystemsSection profile={profile} />
         </TabsContent>
         <TabsContent value="developers" className="pt-6">
           <DevelopersSection profile={profile} />

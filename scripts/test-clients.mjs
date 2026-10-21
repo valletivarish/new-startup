@@ -18,9 +18,9 @@
 
 import { spawn, spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { closeSync, mkdtempSync, openSync, readFileSync } from 'node:fs';
+import { closeSync, mkdtempSync, existsSync, openSync, readFileSync } from 'node:fs';
 import { createConnection } from 'node:net';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { parseEnv } from 'node:util';
 
@@ -109,6 +109,8 @@ async function main() {
     providers[k] = v;
   }
   const voiceToken = randomBytes(24).toString('hex');
+  const adc = join(homedir(), '.config/gcloud/application_default_credentials.json');
+  if (!existsSync(adc)) console.warn('· no gcloud application-default login: Google voices will fail');
 
   console.log('· postgres (local compose)');
   run('docker', ['compose', 'up', '-d', '--wait', 'postgres']);
@@ -141,6 +143,8 @@ async function main() {
     [
       'run', '-d', '--name', VOICE_CONTAINER, '-p', '8765:8765',
       '--add-host', 'host.docker.internal:host-gateway',
+      // Google voices sign in with this machine's gcloud login (gcloud auth application-default login).
+      ...(existsSync(adc) ? ['-v', `${adc}:/gcloud/adc.json:ro`, '-e', 'GOOGLE_APPLICATION_CREDENTIALS=/gcloud/adc.json', '-e', `GOOGLE_CLOUD_QUOTA_PROJECT=${process.env.GOOGLE_CLOUD_QUOTA_PROJECT || 'hrvoice-prod-10097299'}`] : []),
       '-e', `NEST_INTERNAL_URL=http://host.docker.internal:${API_PORT}`,
       // Name-only -e: values come from this process's env, so they never sit in argv.
       ...['VOICE_INTERNAL_TOKEN', ...Object.keys(providers)].flatMap((k) => ['-e', k]),

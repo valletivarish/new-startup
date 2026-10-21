@@ -15,6 +15,7 @@ import {
   type JobCandidateAssignment,
   type Me,
 } from '../lib/api';
+import { meetsAllFirst } from '../components/candidates/fit';
 
 export interface HiringPerson {
   candidateId: string;
@@ -212,7 +213,10 @@ export function homeSnapshotFromSummary(summary: SummaryWithJobs): HomeSnapshot 
     openJobs: summary.counts.openJobs,
     firstJobId: first?.jobId ?? null,
     candidates: summary.counts.candidates,
-    queues: summary.queues,
+    queues: {
+      ...summary.queues,
+      readyForReview: { ...summary.queues.readyForReview, items: meetsAllFirst(summary.queues.readyForReview.items) },
+    },
   };
 }
 
@@ -248,6 +252,7 @@ export function homeSnapshotFromLists(
         callStatus,
         failureReason: row.failureReason ?? null,
         lastCallAt: null,
+        fit: row.fit ?? null,
       });
     }
   }
@@ -260,7 +265,8 @@ export function homeSnapshotFromLists(
     ...base,
     candidates,
     queues: {
-      readyForReview: queue(queued.readyForReview),
+      // Candidates who meet every requirement HR set lead the review list.
+      readyForReview: queue(meetsAllFirst(queued.readyForReview)),
       notConnected: queue(queued.notConnected),
       notCalled: queue(queued.notCalled),
       onHold: queue(queued.onHold),

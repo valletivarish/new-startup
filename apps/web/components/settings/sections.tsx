@@ -8,8 +8,10 @@ import { CircleCheck, Hourglass, PhoneCall, RotateCw, Unplug } from 'lucide-reac
 import {
   ApiClientError,
   changePassword,
+  getOrganizationSettings,
   getTelephonyStatus,
   myOrganizations,
+  updateOrganizationSettings,
   updateOrganization,
   updateUser,
   type Me,
@@ -20,6 +22,7 @@ import { useUseCase } from '@/lib/use-cases';
 import { Agent } from '@/components/brand/agent';
 import { organizationsQueryKey } from '@/components/layout/app-shell/account';
 import { Button } from '@/components/ui/button';
+import { cn } from '@/components/ui/cn';
 import { Field, Input, PasswordInput } from '@/components/ui/input';
 import { Alert } from '@/components/ui/notice';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -126,7 +129,107 @@ export function WorkspaceSection({ profile }: { profile: Me }) {
     <div className="space-y-4">
       <WorkspaceName profile={profile} canRename={can('organization.update')} />
       <CallingNumber canTest={can('agents.read')} />
+      {can('organization.read') ? <AutoAdvance canEdit={can('organization.update')} /> : null}
     </div>
+  );
+}
+
+const AUTO_ADVANCE_HELP =
+  'When a call meets every requirement you set, the candidate moves forward on their own. Candidates who don’t meet them always wait for you.';
+
+function AutoAdvance({ canEdit }: { canEdit: boolean }) {
+  const queryClient = useQueryClient();
+  const settings = useQuery({ queryKey: ['organization-settings'], queryFn: getOrganizationSettings });
+  const [busy, setBusy] = useState(false);
+  const labelId = useId();
+  const on = settings.data?.autoAdvanceMeetsAll ?? false;
+
+  async function toggle() {
+    setBusy(true);
+    try {
+      const next = await updateOrganizationSettings({ autoAdvanceMeetsAll: !on });
+      queryClient.setQueryData(['organization-settings'], next);
+      toast.success(
+        next.autoAdvanceMeetsAll
+          ? 'Auto-advance is on. Candidates who meet all requirements move forward on their own.'
+          : 'Auto-advance is off. Every candidate waits for you.',
+      );
+    } catch (e) {
+      toast.error(messageText(toUserMessage(e, 'change auto-advance')));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  let body: ReactNode;
+  if (settings.isError) {
+    body = (
+      <Alert
+        kind="error"
+        title="Couldn’t load this setting"
+        action={
+          <Button variant="secondary" size="sm" loading={settings.isFetching} onClick={() => void settings.refetch()}>
+            <RotateCw aria-hidden strokeWidth={1.5} />
+            Retry
+          </Button>
+        }
+      >
+        {toUserMessage(settings.error).detail}
+      </Alert>
+    );
+  } else if (!settings.data) {
+    body = (
+      <div aria-busy="true">
+        <Skeleton className="h-11 w-full" />
+        <span className="sr-only">Loading</span>
+      </div>
+    );
+  } else {
+    body = (
+      <>
+        <div className="flex min-h-11 items-center justify-between gap-4">
+          <span id={labelId} className="text-label font-medium text-text">
+            Auto-advance candidates who meet all requirements
+          </span>
+          <span className="ml-auto text-label text-text-2" aria-hidden>
+            {on ? 'On' : 'Off'}
+          </span>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={on}
+            aria-labelledby={labelId}
+            disabled={!canEdit || busy}
+            onClick={() => void toggle()}
+            className="group relative inline-flex h-11 w-14 shrink-0 items-center justify-center disabled:cursor-not-allowed"
+          >
+            <span
+              aria-hidden
+              className={cn(
+                'relative h-7 w-12 rounded-pill border transition-colors duration-fast group-disabled:opacity-60',
+                on ? 'border-primary bg-primary' : 'border-input bg-muted',
+              )}
+            >
+              <span
+                className={cn(
+                  'absolute top-0.5 size-[1.375rem] rounded-pill bg-canvas shadow-xs transition-[left] duration-fast forced-colors:bg-[CanvasText]',
+                  on ? 'left-[1.375rem]' : 'left-0.5',
+                )}
+              />
+            </span>
+          </button>
+        </div>
+        {!canEdit ? (
+          <p className="m-0 text-meta text-text-3">Only people allowed to edit workspace settings can change this.</p>
+        ) : null}
+      </>
+    );
+  }
+
+  return (
+    <SettingsCard title="Auto-advance" description={AUTO_ADVANCE_HELP}>
+      {body}
+    </SettingsCard>
   );
 }
 

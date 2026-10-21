@@ -35,6 +35,7 @@ import { getStateMeta } from '@/lib/status-labels';
 import { useUseCase } from '@/lib/use-cases';
 import { Agent } from '@/components/brand/agent';
 import { answerItems } from '@/components/candidates/answers';
+import { FitChip } from '@/components/candidates/fit-chips';
 import { answerCoverage } from '@/components/shared/answers-list';
 import { UserInitials } from '@/components/shared/user-initials';
 import { Button } from '@/components/ui/button';
@@ -297,7 +298,8 @@ function ReviewCard({ queue, canSeeCalls }: { queue: HomeQueue; canSeeCalls: boo
                         <span className="font-medium text-text">{item.fullName}</span>
                         <span className="truncate text-meta text-text-3">{item.jobTitle}</span>
                       </span>
-                      <span className="mt-1 block text-meta text-text-2">
+                      <span className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-meta text-text-2">
+                        {item.fit ? <FitChip fit={item.fit} /> : null}
                         {detail.coverage ? <Coverage {...detail.coverage} /> : null}
                       </span>
                       <span className="mt-0.5 block text-meta text-text-2 max-sm:line-clamp-2 sm:truncate">

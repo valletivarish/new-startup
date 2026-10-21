@@ -28,6 +28,7 @@ import {
 } from '@platform/db';
 import type { Env } from '../../config.js';
 import { ApiError } from '../../errors.js';
+import { assertNotClosedInZoho } from '../../connectors/zoho/guard.js';
 import type { AuditService } from '../../audit/audit.service.js';
 import type { Actor } from '../../agents/agents.service.js';
 import { AgentConfiguration } from '../../agents/configuration.js';
@@ -1127,6 +1128,8 @@ export function createVoiceSessionService(
       const { jobId, candidateId, testCallId } = options;
       const isTest = testCallId !== undefined;
       const at = options.now ?? new Date();
+      // Before anything else: people closed in a connected hiring system are never dialled.
+      if (candidateId) await assertNotClosedInZoho(database, actor, candidateId);
       if (isTest) {
         // Test calls run only on the own loop (no ElevenLabs needed) and have their own caps.
         if (!env.VOICE_OWN_LOOP_ENABLED) {

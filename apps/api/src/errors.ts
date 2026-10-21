@@ -19,6 +19,8 @@ export type ApiErrorCode =
   | 'call_limit_reached'
   | 'test_call_limit_reached'
   | 'service_unavailable'
+  | 'closed_in_ats'
+  | 'zoho_not_connected'
   | 'internal';
 
 const STATUS: Record<ApiErrorCode, number> = {
@@ -37,6 +39,8 @@ const STATUS: Record<ApiErrorCode, number> = {
   call_limit_reached: 429,
   test_call_limit_reached: 429,
   service_unavailable: 503,
+  closed_in_ats: 409,
+  zoho_not_connected: 409,
   internal: 500,
 };
 

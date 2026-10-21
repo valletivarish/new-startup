@@ -208,6 +208,16 @@ const EnvSchema = z.object({
   /** HMAC secret for POST /webhooks/inbound-email. Empty = the route answers 404. */
   INBOUND_EMAIL_SECRET: z.string().default(''),
 
+  /**
+   * Zoho Recruit connector (a client registered in Zoho's API console). Both
+   * empty = the connector is off and Settings doesn't offer it. The redirect
+   * URI registered there is `${WEB_URL}/backend/integrations/zoho/callback`.
+   */
+  ZOHO_CLIENT_ID: z.string().default(''),
+  ZOHO_CLIENT_SECRET: z.string().default(''),
+  /** Outside production only: the fake Zoho (pnpm test:clients) instead of Zoho's hosts. */
+  ZOHO_TEST_BASE_URL: z.string().default(''),
+
   /** Own voice loop (apps/voice). Off = every job uses the ElevenLabs agent. */
   VOICE_OWN_LOOP_ENABLED: z
     .string()

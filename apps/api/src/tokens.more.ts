@@ -43,3 +43,6 @@ export const CANDIDATE_LINKS_SERVICE = Symbol('CANDIDATE_LINKS_SERVICE');
 
 /** Support tickets, chat and the founder's inbox. */
 export const SUPPORT_SERVICE = Symbol('SUPPORT_SERVICE');
+
+/** Zoho Recruit connector. */
+export const ZOHO_SERVICE = Symbol('ZOHO_SERVICE');

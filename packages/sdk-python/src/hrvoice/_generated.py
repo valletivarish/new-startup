@@ -7,7 +7,7 @@ LANGUAGES = ("en", "hi", "bn", "mr", "te", "ta", "gu", "ur", "kn", "ml", "pa")
 
 
 class ErrorBody(TypedDict):
-    code: Literal["unauthorized", "forbidden", "not_found", "conflict", "link_phone_conflict", "gone", "validation_failed", "consent_required", "agent_required", "idempotency_in_progress", "delivery_in_progress", "rate_limited", "call_limit_reached", "test_call_limit_reached", "service_unavailable", "internal"]
+    code: Literal["unauthorized", "forbidden", "not_found", "conflict", "link_phone_conflict", "gone", "validation_failed", "consent_required", "agent_required", "idempotency_in_progress", "delivery_in_progress", "rate_limited", "call_limit_reached", "test_call_limit_reached", "service_unavailable", "closed_in_ats", "internal"]
     message: str
     request_id: str
     errors: NotRequired[list[dict[str, Any]]]

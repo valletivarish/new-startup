@@ -73,6 +73,7 @@ import {
   WEBHOOKS_SERVICE,
   USAGE_SERVICE,
   SUPPORT_SERVICE,
+  ZOHO_SERVICE,
 } from './tokens.more.js';
 import {
   AuthController,
@@ -132,7 +133,21 @@ import { V1WebhooksController } from './integrations/v1-webhooks.controller.js';
 import { emitCallEvent } from './integrations/events.js';
 import { createWebhooksService } from './integrations/webhooks.service.js';
 import { createCallRequestsService } from './integrations/call-requests.service.js';
-import { CALL_QUEUE, SUPPORT_QUEUE, type CallJob, type SupportJob } from './jobs/queue.js';
+import {
+  CALL_QUEUE,
+  SUPPORT_QUEUE,
+  ZOHO_NOTE_QUEUE,
+  ZOHO_SYNC_QUEUE,
+  ZOHO_TICK_QUEUE,
+  type CallJob,
+  type SupportJob,
+  type ZohoNoteJob,
+  type ZohoSyncJob,
+} from './jobs/queue.js';
+import { createZohoClient } from './connectors/zoho/client.js';
+import { ZohoController } from './connectors/zoho/zoho.controller.js';
+import { createSealer } from './connectors/zoho/seal.js';
+import { createZohoService, type ZohoService } from './connectors/zoho/zoho.service.js';
 import { createSupportService } from './support/support.service.js';
 import {
   AdminSupportController,
@@ -168,9 +183,12 @@ export class AppModule {
       jobs: createJobsService(deps.database),
       audit: createAuditService(deps.database, deps.logger),
     };
+    // Set by the ZOHO_SERVICE factory; a call can only end after the app is up.
+    let zoho: ZohoService | null = null;
     // Both end paths (own loop, provider webhook/reconcile) land here once answers are saved.
     const onCallEnded = async (organizationId: string, voiceSessionId: string) => {
       await emitCallEvent(deps.database, deps.jobs, organizationId, voiceSessionId, deps.logger, deps.env.API_URL);
+      await zoho?.queueNote(organizationId, voiceSessionId);
       await recordCallFit(fitDeps, organizationId, voiceSessionId);
     };
     return {
@@ -214,6 +232,7 @@ export class AppModule {
         PublicSupportController,
         InboundEmailController,
         StatusController,
+        ZohoController,
       ],
       providers: [
         { provide: ENV, useValue: deps.env },
@@ -463,6 +482,55 @@ export class AppModule {
             await deps.jobs?.boss.work<SupportJob>(SUPPORT_QUEUE, async (batch) => {
               for (const job of batch) await service.checkUnanswered(job.data);
             });
+            return service;
+          },
+        },
+        {
+          // Zoho Recruit runs in the API process, next to the call worker it hands calls to.
+          provide: ZOHO_SERVICE,
+          inject: [JOBS_SERVICE, CANDIDATES_SERVICE, CALL_REQUESTS_SERVICE, AUDIT_SERVICE],
+          useFactory: async (
+            jobs: ReturnType<typeof createJobsService>,
+            candidates: ReturnType<typeof createCandidatesService>,
+            calls: ReturnType<typeof createCallRequestsService>,
+            audit: ReturnType<typeof createAuditService>,
+          ) => {
+            const env = deps.env;
+            const testBase = env.NODE_ENV !== 'production' && env.ZOHO_TEST_BASE_URL ? env.ZOHO_TEST_BASE_URL : undefined;
+            const configured = Boolean(env.ZOHO_CLIENT_ID && env.ZOHO_CLIENT_SECRET);
+            zoho = createZohoService({
+              database: deps.database,
+              client: configured
+                ? createZohoClient({
+                    clientId: env.ZOHO_CLIENT_ID,
+                    clientSecret: env.ZOHO_CLIENT_SECRET,
+                    authorizeBase: testBase ?? 'https://accounts.zoho.com',
+                  })
+                : null,
+              sealer: createSealer(env.BETTER_AUTH_SECRET),
+              redirectUri: `${env.WEB_URL.replace(/\/+$/, '')}/backend/integrations/zoho/callback`,
+              webUrl: env.WEB_URL,
+              ...(testBase ? { testBase } : {}),
+              candidates,
+              jobs,
+              calls,
+              queue: deps.jobs,
+              audit,
+              logger: deps.logger,
+            });
+            const service = zoho;
+            if (deps.jobs && configured) {
+              await deps.jobs.boss.work<ZohoSyncJob>(ZOHO_SYNC_QUEUE, async (batch) => {
+                for (const job of batch) await service.syncOrganization(job.data.organizationId);
+              });
+              // A throw makes pg-boss retry with backoff.
+              await deps.jobs.boss.work<ZohoNoteJob>(ZOHO_NOTE_QUEUE, async (batch) => {
+                for (const job of batch) await service.sendNote(job.data.organizationId, job.data.noteId);
+              });
+              await deps.jobs.boss.work(ZOHO_TICK_QUEUE, async () => service.tick());
+              // New applicants arrive within about 15 minutes.
+              await deps.jobs.boss.schedule(ZOHO_TICK_QUEUE, '*/15 * * * *');
+            }
             return service;
           },
         },

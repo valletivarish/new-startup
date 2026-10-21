@@ -12,6 +12,7 @@ import type { JobsService } from '../hiring/jobs.service.js';
 import type { CallJob, JobQueue } from '../jobs/queue.js';
 import { toE164Phone } from '../providers/elevenlabs/phone-e164.js';
 import type { VoiceSessionService } from '../providers/elevenlabs/voice-session.service.js';
+import { assertNotClosedInZoho } from '../connectors/zoho/guard.js';
 import { assertWithinLimits } from './call-limits.js';
 import { nextCallingTime } from './calling-hours.js';
 import { createNoopDndChecker, type DndChecker } from './dnd.js';
@@ -23,7 +24,7 @@ export interface CallActor {
   readonly userId: string;
 }
 
-export type CallSource = 'api' | 'dashboard' | 'link';
+export type CallSource = 'api' | 'dashboard' | 'link' | 'zoho';
 
 export interface V1CallRequest {
   id: string;
@@ -142,6 +143,8 @@ export function createCallRequestsService(deps: CallRequestsDeps): CallRequestsS
     async request(actor, input) {
       // Throws 404 for a job outside this org.
       await jobs.get(actor, input.jobId);
+      // Refuse at once (409 closed_in_ats) rather than queue a call that can never be placed.
+      await assertNotClosedInZoho(database, actor, input.candidateId);
       // Test calls are free and never counted, so only live calls are limited.
       if (!actor.isTest) await assertWithinLimits(database, actor.organizationId, now());
 

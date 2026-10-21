@@ -19,6 +19,19 @@ export const DOCUMENT_QUEUE = 'knowledge.document.process';
 export const CALL_QUEUE = 'calls.place';
 export const WEBHOOK_QUEUE = 'webhooks.deliver';
 export const SUPPORT_QUEUE = 'support.unanswered';
+/** Zoho Recruit: one connection's sync, the 15-minute schedule that fans out, and note delivery. */
+export const ZOHO_SYNC_QUEUE = 'connectors.zoho.sync';
+export const ZOHO_TICK_QUEUE = 'connectors.zoho.tick';
+export const ZOHO_NOTE_QUEUE = 'connectors.zoho.note';
+
+/** Ids only; tokens and applicant data stay in the RLS tables. */
+export interface ZohoSyncJob {
+  readonly organizationId: string;
+}
+export interface ZohoNoteJob {
+  readonly organizationId: string;
+  readonly noteId: string;
+}
 
 /** Check a chat message 5 minutes on: still unanswered → email the customer. Ids only. */
 export interface SupportJob {
@@ -80,6 +93,8 @@ export interface JobQueue {
   enqueueCall(job: CallJob, startAfter?: Date): Promise<void>;
   enqueueWebhook(job: WebhookJob): Promise<void>;
   enqueueSupportCheck(job: SupportJob, startAfter: Date): Promise<void>;
+  enqueueZohoSync(job: ZohoSyncJob): Promise<void>;
+  enqueueZohoNote(job: ZohoNoteJob): Promise<void>;
   readonly boss: PgBoss;
 }
 
@@ -144,8 +159,12 @@ export function createJobQueue(
         retentionSeconds: 86_400,
         deleteAfterSeconds: 3600,
       });
+      for (const name of [ZOHO_SYNC_QUEUE, ZOHO_TICK_QUEUE, ZOHO_NOTE_QUEUE]) {
+        // Ids only. Note retries stop at 24 h (handled on the row); 3 days covers the last one.
+        await boss.createQueue(name, { retentionSeconds: 3 * 86_400, deleteAfterSeconds: 3600 });
+      }
       logger.info(
-        { queues: [EMAIL_QUEUE, DOCUMENT_QUEUE, CALL_QUEUE, WEBHOOK_QUEUE, SUPPORT_QUEUE] },
+        { queues: [EMAIL_QUEUE, DOCUMENT_QUEUE, CALL_QUEUE, WEBHOOK_QUEUE, SUPPORT_QUEUE, ZOHO_SYNC_QUEUE, ZOHO_TICK_QUEUE, ZOHO_NOTE_QUEUE] },
         'jobs.queue_ready',
       );
     },
@@ -196,6 +215,22 @@ export function createJobQueue(
         startAfter,
         // One check per message, however often the enqueue is retried.
         singletonKey: job.messageId,
+      });
+    },
+
+    async enqueueZohoSync(job) {
+      // The connection row's lease makes a duplicate harmless; no retries, the next tick runs it again.
+      await boss.send(ZOHO_SYNC_QUEUE, job as unknown as object, { retryLimit: 0, expireInSeconds: 900 });
+    },
+
+    async enqueueZohoNote(job) {
+      // Same schedule as webhooks: 30 s doubling, at most 6 h apart; the row gives up at 24 h.
+      await boss.send(ZOHO_NOTE_QUEUE, job as unknown as object, {
+        retryLimit: 12,
+        retryDelay: 30,
+        retryBackoff: true,
+        retryDelayMax: 21_600,
+        expireInSeconds: 120,
       });
     },
 

@@ -1,0 +1,37 @@
+[
+  {
+    "name": "id",
+    "type": "text",
+    "label": "Candidate ID"
+  },
+  {
+    "name": "jobId",
+    "type": "text",
+    "label": "Job ID"
+  },
+  {
+    "name": "externalId",
+    "type": "text",
+    "label": "Your candidate ID"
+  },
+  {
+    "name": "fullName",
+    "type": "text",
+    "label": "Name"
+  },
+  {
+    "name": "phone",
+    "type": "text",
+    "label": "Phone"
+  },
+  {
+    "name": "email",
+    "type": "email",
+    "label": "Email"
+  },
+  {
+    "name": "status",
+    "type": "text",
+    "label": "Screening status"
+  }
+]

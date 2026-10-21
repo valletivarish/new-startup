@@ -1,0 +1,75 @@
+[
+  {
+    "name": "title",
+    "type": "text",
+    "label": "Job title",
+    "required": true
+  },
+  {
+    "name": "description",
+    "type": "text",
+    "label": "Job description",
+    "multiline": true
+  },
+  {
+    "name": "mustAskQuestions",
+    "type": "array",
+    "label": "Must-ask questions",
+    "spec": {
+      "type": "text",
+      "label": "Question"
+    }
+  },
+  {
+    "name": "language",
+    "type": "select",
+    "label": "Screening language",
+    "default": "en",
+    "options": [
+      {
+        "label": "English",
+        "value": "en"
+      },
+      {
+        "label": "Hindi",
+        "value": "hi"
+      },
+      {
+        "label": "Bengali",
+        "value": "bn"
+      },
+      {
+        "label": "Marathi",
+        "value": "mr"
+      },
+      {
+        "label": "Telugu",
+        "value": "te"
+      },
+      {
+        "label": "Tamil",
+        "value": "ta"
+      },
+      {
+        "label": "Gujarati",
+        "value": "gu"
+      },
+      {
+        "label": "Urdu",
+        "value": "ur"
+      },
+      {
+        "label": "Kannada",
+        "value": "kn"
+      },
+      {
+        "label": "Malayalam",
+        "value": "ml"
+      },
+      {
+        "label": "Punjabi",
+        "value": "pa"
+      }
+    ]
+  }
+]

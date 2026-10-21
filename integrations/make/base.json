@@ -1,0 +1,16 @@
+{
+  "baseUrl": "{{ifempty(connection.baseUrl, 'https://nexstopp.com/backend')}}",
+  "headers": {
+    "Authorization": "Bearer {{connection.apiKey}}"
+  },
+  "response": {
+    "error": {
+      "message": "[{{statusCode}}] {{body.message}}"
+    }
+  },
+  "log": {
+    "sanitize": [
+      "request.headers.authorization"
+    ]
+  }
+}

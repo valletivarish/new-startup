@@ -1,0 +1,13 @@
+{
+  "url": "/v1/jobs",
+  "method": "POST",
+  "body": {
+    "title": "{{parameters.title}}",
+    "description": "{{ifempty(parameters.description, undefined)}}",
+    "mustAskQuestions": "{{ifempty(parameters.mustAskQuestions, undefined)}}",
+    "language": "{{ifempty(parameters.language, 'en')}}"
+  },
+  "response": {
+    "output": "{{body}}"
+  }
+}

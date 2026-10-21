@@ -1,0 +1,25 @@
+[
+  {
+    "name": "subject",
+    "type": "text",
+    "label": "Subject"
+  },
+  {
+    "name": "body",
+    "type": "text",
+    "label": "Message",
+    "required": true,
+    "multiline": true
+  },
+  {
+    "name": "jobId",
+    "type": "select",
+    "label": "Related job",
+    "options": "rpc://listJobs"
+  },
+  {
+    "name": "callId",
+    "type": "text",
+    "label": "Related call ID"
+  }
+]

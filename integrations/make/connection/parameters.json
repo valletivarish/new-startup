@@ -1,0 +1,16 @@
+[
+  {
+    "name": "apiKey",
+    "type": "password",
+    "label": "API key",
+    "required": true,
+    "help": "In HRVoice open Settings → Developers and create a key with the jobs, candidates, calls, results, webhooks and support scopes. Keys starting `hrv_test_` place free calls on a test line."
+  },
+  {
+    "name": "baseUrl",
+    "type": "url",
+    "label": "API URL",
+    "advanced": true,
+    "default": "https://nexstopp.com/backend"
+  }
+]

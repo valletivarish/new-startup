@@ -1,0 +1,19 @@
+[
+  {
+    "name": "jobId",
+    "type": "select",
+    "label": "Job",
+    "options": "rpc://listJobs",
+    "required": true
+  },
+  {
+    "name": "externalId",
+    "type": "text",
+    "label": "Your candidate ID"
+  },
+  {
+    "name": "phone",
+    "type": "text",
+    "label": "Phone"
+  }
+]

@@ -1,0 +1,5 @@
+{
+  "type": "action",
+  "label": "Start a screening call",
+  "description": "Queues a screening call. Calls are placed between 9:00 and 20:00 India time; outside those hours the call waits until 9:00."
+}

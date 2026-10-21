@@ -1,0 +1,17 @@
+[
+  {
+    "name": "id",
+    "type": "text",
+    "label": "Ticket ID"
+  },
+  {
+    "name": "ref",
+    "type": "text",
+    "label": "Reference"
+  },
+  {
+    "name": "status",
+    "type": "text",
+    "label": "Status"
+  }
+]

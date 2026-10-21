@@ -1,0 +1,130 @@
+[
+  {
+    "name": "id",
+    "type": "text",
+    "label": "Event ID"
+  },
+  {
+    "name": "type",
+    "type": "text",
+    "label": "Event type"
+  },
+  {
+    "name": "createdAt",
+    "type": "date",
+    "label": "Event time"
+  },
+  {
+    "name": "data",
+    "type": "collection",
+    "label": "Call",
+    "spec": [
+      {
+        "name": "callId",
+        "type": "text",
+        "label": "Call ID"
+      },
+      {
+        "name": "jobId",
+        "type": "text",
+        "label": "Job ID"
+      },
+      {
+        "name": "candidateId",
+        "type": "text",
+        "label": "Candidate ID"
+      },
+      {
+        "name": "externalId",
+        "type": "text",
+        "label": "Your candidate ID"
+      },
+      {
+        "name": "isTest",
+        "type": "boolean",
+        "label": "Test call"
+      },
+      {
+        "name": "result",
+        "type": "collection",
+        "label": "Result",
+        "spec": [
+          {
+            "name": "status",
+            "type": "text",
+            "label": "Call status"
+          },
+          {
+            "name": "startedAt",
+            "type": "date",
+            "label": "Started"
+          },
+          {
+            "name": "endedAt",
+            "type": "date",
+            "label": "Ended"
+          },
+          {
+            "name": "durationSeconds",
+            "type": "number",
+            "label": "Duration (seconds)"
+          },
+          {
+            "name": "answers",
+            "type": "array",
+            "label": "Answers",
+            "spec": [
+              {
+                "name": "questionId",
+                "type": "text",
+                "label": "Question ID"
+              },
+              {
+                "name": "question",
+                "type": "text",
+                "label": "Question"
+              },
+              {
+                "name": "answer",
+                "type": "any",
+                "label": "Answer"
+              }
+            ]
+          },
+          {
+            "name": "summary",
+            "type": "text",
+            "label": "Summary"
+          },
+          {
+            "name": "transcript",
+            "type": "array",
+            "label": "Transcript",
+            "spec": [
+              {
+                "name": "role",
+                "type": "text",
+                "label": "Speaker"
+              },
+              {
+                "name": "message",
+                "type": "text",
+                "label": "Said"
+              }
+            ]
+          },
+          {
+            "name": "recordingUrl",
+            "type": "url",
+            "label": "Recording URL (needs the API key)"
+          },
+          {
+            "name": "failureReason",
+            "type": "text",
+            "label": "Why the call failed"
+          }
+        ]
+      }
+    ]
+  }
+]

@@ -1,0 +1,7 @@
+{
+  "url": "/v1/jobs/{{parameters.jobId}}/candidates/{{parameters.candidateId}}/calls",
+  "method": "POST",
+  "response": {
+    "output": "{{body}}"
+  }
+}

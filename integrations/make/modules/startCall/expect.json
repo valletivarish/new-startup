@@ -1,0 +1,15 @@
+[
+  {
+    "name": "jobId",
+    "type": "select",
+    "label": "Job",
+    "options": "rpc://listJobs",
+    "required": true
+  },
+  {
+    "name": "candidateId",
+    "type": "text",
+    "label": "Candidate ID",
+    "required": true
+  }
+]

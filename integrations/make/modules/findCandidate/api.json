@@ -1,0 +1,13 @@
+{
+  "url": "/v1/jobs/{{parameters.jobId}}/candidates",
+  "method": "GET",
+  "qs": {
+    "externalId": "{{ifempty(parameters.externalId, undefined)}}",
+    "phone": "{{ifempty(parameters.phone, undefined)}}",
+    "limit": 10
+  },
+  "response": {
+    "iterate": "{{body.candidates}}",
+    "output": "{{item}}"
+  }
+}

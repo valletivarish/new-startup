@@ -1,0 +1,14 @@
+{
+  "url": "/v1/tickets",
+  "method": "POST",
+  "body": {
+    "subject": "{{ifempty(parameters.subject, undefined)}}",
+    "body": "{{parameters.body}}",
+    "jobId": "{{ifempty(parameters.jobId, undefined)}}",
+    "callId": "{{ifempty(parameters.callId, undefined)}}",
+    "channel": "api"
+  },
+  "response": {
+    "output": "{{body}}"
+  }
+}

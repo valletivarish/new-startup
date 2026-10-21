@@ -1,0 +1,17 @@
+[
+  {
+    "name": "id",
+    "type": "text",
+    "label": "Job ID"
+  },
+  {
+    "name": "title",
+    "type": "text",
+    "label": "Title"
+  },
+  {
+    "name": "status",
+    "type": "text",
+    "label": "Status"
+  }
+]

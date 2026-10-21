@@ -1,0 +1,5 @@
+{
+  "type": "action",
+  "label": "Add a candidate",
+  "description": "Adds a candidate to a job. The same \"Your candidate ID\" updates the existing candidate."
+}

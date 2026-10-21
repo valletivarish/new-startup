@@ -1,0 +1,11 @@
+{
+  "url": "/v1/jobs",
+  "method": "GET",
+  "response": {
+    "iterate": "{{body.jobs}}",
+    "output": {
+      "label": "{{item.title}}",
+      "value": "{{item.id}}"
+    }
+  }
+}

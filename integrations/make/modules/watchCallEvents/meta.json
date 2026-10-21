@@ -1,0 +1,6 @@
+{
+  "type": "instant_trigger",
+  "label": "Watch call events",
+  "webhook": "call-events",
+  "description": "Triggers when a screening call completes or fails."
+}

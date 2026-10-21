@@ -1,0 +1,51 @@
+[
+  {
+    "name": "jobId",
+    "type": "select",
+    "label": "Job",
+    "options": "rpc://listJobs",
+    "required": true
+  },
+  {
+    "name": "fullName",
+    "type": "text",
+    "label": "Full name",
+    "required": true
+  },
+  {
+    "name": "phone",
+    "type": "text",
+    "label": "Phone",
+    "help": "Mobile number. Leave empty if it is in the CV text."
+  },
+  {
+    "name": "countryCode",
+    "type": "text",
+    "label": "Country code",
+    "default": "+91"
+  },
+  {
+    "name": "email",
+    "type": "email",
+    "label": "Email"
+  },
+  {
+    "name": "externalId",
+    "type": "text",
+    "label": "Your candidate ID"
+  },
+  {
+    "name": "resumeText",
+    "type": "text",
+    "label": "CV text",
+    "multiline": true
+  },
+  {
+    "name": "consent",
+    "type": "boolean",
+    "label": "The candidate agreed to a screening call",
+    "required": true,
+    "default": false,
+    "help": "Required. Set to Yes only when the candidate has agreed to be called. Without it HRVoice refuses the candidate."
+  }
+]

@@ -1,0 +1,5 @@
+{
+  "type": "search",
+  "label": "Find a candidate",
+  "description": "Finds a candidate on a job by your candidate ID or by phone (last 10 digits)."
+}

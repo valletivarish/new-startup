@@ -1,0 +1,16 @@
+{
+  "url": "/v1/jobs/{{parameters.jobId}}/candidates",
+  "method": "POST",
+  "body": {
+    "fullName": "{{parameters.fullName}}",
+    "phone": "{{ifempty(parameters.phone, undefined)}}",
+    "countryCode": "{{ifempty(parameters.countryCode, '+91')}}",
+    "email": "{{ifempty(parameters.email, undefined)}}",
+    "externalId": "{{ifempty(parameters.externalId, undefined)}}",
+    "resumeText": "{{ifempty(parameters.resumeText, undefined)}}",
+    "consent": "{{parameters.consent}}"
+  },
+  "response": {
+    "output": "{{body}}"
+  }
+}

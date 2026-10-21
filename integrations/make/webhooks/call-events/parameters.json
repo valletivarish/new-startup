@@ -1,0 +1,22 @@
+[
+  {
+    "name": "events",
+    "type": "select",
+    "label": "Events",
+    "multiple": true,
+    "required": true,
+    "default": [
+      "call.completed"
+    ],
+    "options": [
+      {
+        "label": "Call completed",
+        "value": "call.completed"
+      },
+      {
+        "label": "Call failed",
+        "value": "call.failed"
+      }
+    ]
+  }
+]

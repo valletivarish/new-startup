@@ -1,0 +1,22 @@
+[
+  {
+    "name": "id",
+    "type": "text",
+    "label": "Call ID"
+  },
+  {
+    "name": "status",
+    "type": "text",
+    "label": "Status"
+  },
+  {
+    "name": "notBefore",
+    "type": "date",
+    "label": "Scheduled for"
+  },
+  {
+    "name": "reason",
+    "type": "text",
+    "label": "Reason"
+  }
+]

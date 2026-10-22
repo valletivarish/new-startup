@@ -13,6 +13,8 @@ export default tseslint.config(
       '**/next-env.d.ts',
       '.remember/**',
       'BRD\'s/**',
+      // Built from apps/web/embed/embed.ts by scripts/build-embed.mjs (gitignored); the source is linted.
+      'apps/web/public/embed.js',
     ],
   },
   js.configs.recommended,
@@ -20,7 +22,23 @@ export default tseslint.config(
   {
     // Node-executed config files use Node globals.
     files: ['**/*.mjs', '**/*.config.ts'],
-    languageOptions: { globals: { process: 'readonly', console: 'readonly' } },
+    languageOptions: {
+      globals: {
+        process: 'readonly',
+        console: 'readonly',
+        fetch: 'readonly',
+        AbortSignal: 'readonly',
+        Buffer: 'readonly',
+      },
+    },
+  },
+  {
+    // CommonJS config files (PostCSS/Tailwind) load through require semantics.
+    files: ['**/*.config.js'],
+    languageOptions: {
+      sourceType: 'commonjs',
+      globals: { module: 'writable', require: 'readonly', process: 'readonly' },
+    },
   },
   {
     // The Zapier app is CommonJS, the module format Zapier's platform loads.

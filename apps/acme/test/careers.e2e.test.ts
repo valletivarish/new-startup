@@ -44,7 +44,7 @@ async function http(method: string, path: string, opts: { cookie?: string; body?
     .map((c) => c.split(';')[0]!)
     .filter((c) => c.includes('session_token'))
     .join('; ');
-  return { status: res.status, body: text ? JSON.parse(text) : null, cookie }; // eslint-disable-line @typescript-eslint/no-unsafe-assignment
+  return { status: res.status, body: text ? JSON.parse(text) : null, cookie };
 }
 
 async function until<T>(what: string, fn: () => T | undefined | Promise<T | undefined>, ms = 240_000): Promise<T> {

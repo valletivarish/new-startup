@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* global fetch, setTimeout */
+/* global setTimeout */
 /**
  * pnpm test:clients — the client-integration e2e against a real stack:
  * local compose Postgres (a dedicated `platform_clients_test` database, so

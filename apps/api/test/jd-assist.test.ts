@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { ApiError } from '../src/errors.js';
+import type { ApiError } from '../src/errors.js';
 import { assistJobDescription, cleanJdText } from '../src/hiring/jd-assist.js';
 
 const NOTES =

@@ -25,7 +25,7 @@ function registeredRoutes(): [string, string][] {
   const out: [string, string][] = [];
   const stack: string[] = [];
   for (const line of fastify.printRoutes({ commonPrefix: false }).split('\n')) {
-    const m = /^((?:[│ ]   )*)[├└]── (\S*) \(([A-Z, ]+)\)/.exec(line);
+    const m = /^((?:[│ ] {3})*)[├└]── (\S*) \(([A-Z, ]+)\)/.exec(line);
     if (!m) continue;
     const depth = m[1]!.length / 4;
     stack.length = depth;

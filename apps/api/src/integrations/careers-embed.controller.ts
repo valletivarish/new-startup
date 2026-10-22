@@ -78,7 +78,7 @@ export class CareersPageController {
   @Get()
   @RequirePermission('integrations.read')
   async get(@Req() req: RequestWithAuth, @Param('jobId') jobId: string) {
-    return { key: await this.embed.get(dashboardActor(req), parse(Id, jobId)) };
+    return this.embed.get(dashboardActor(req), parse(Id, jobId));
   }
 
   @Post()

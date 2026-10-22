@@ -44,7 +44,8 @@ export interface EmbedForm {
 }
 
 export interface CareersEmbedService {
-  get(actor: Actor, jobId: string): Promise<CareersKey | null>;
+  /** The job's active key (or null), and the company name the form shows. */
+  get(actor: Actor, jobId: string): Promise<{ key: CareersKey | null; companyName: string }>;
   /** Makes the job's key, revoking any earlier one (so this is also "make a new key"). */
   create(actor: Actor, jobId: string, origins: readonly string[]): Promise<CareersKey>;
   setOrigins(actor: Actor, jobId: string, origins: readonly string[]): Promise<CareersKey>;
@@ -185,14 +186,17 @@ export function createCareersEmbedService(deps: {
 
   return {
     async get(actor, jobId) {
-      const rows = await tenant(actor, (tx) =>
-        tx.execute<Parameters<typeof toKey>[0]>(sql`
+      return tenant(actor, async (tx) => {
+        const rows = await tx.execute<Parameters<typeof toKey>[0]>(sql`
           select ${KEY_COLUMNS} from api_keys
           where organization_id = ${actor.organizationId} and job_id = ${jobId}
             and kind = 'publishable' and revoked_at is null
-          order by created_at desc limit 1`),
-      );
-      return rows[0] ? toKey(rows[0]) : null;
+          order by created_at desc limit 1`);
+        const org = await tx.execute<{ name: string }>(
+          sql`select name from organizations where id = ${actor.organizationId}`,
+        );
+        return { key: rows[0] ? toKey(rows[0]) : null, companyName: org[0]?.name ?? '' };
+      });
     },
 
     async create(actor, jobId, rawOrigins) {

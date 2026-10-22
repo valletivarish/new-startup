@@ -318,7 +318,7 @@ describe('careers-page form: limits and revocation', () => {
     expect((await panel('DELETE', jobId, owner.cookie)).statusCode).toBe(204);
     expect((await describeForm(fresh.publicKey)).statusCode).toBe(404);
     expect((await apply(fresh.publicKey, { ...priya, phone: '9000000105' })).statusCode).toBe(404);
-    expect(JSON.parse((await panel('GET', jobId, owner.cookie)).body)).toEqual({ key: null });
+    expect(JSON.parse((await panel('GET', jobId, owner.cookie)).body)).toEqual({ key: null, companyName: 'Acme Embed Co' });
     expect((await panel('DELETE', jobId, owner.cookie)).statusCode).toBe(404);
   });
 
@@ -339,7 +339,7 @@ describe('careers-page form: tenant isolation', () => {
     const key = await makeKey(jobId);
     const other = await registerUser(api, 'embed-b');
     await createOrganization(api, other, 'Other Co');
-    expect(JSON.parse((await panel('GET', jobId, other.cookie)).body)).toEqual({ key: null });
+    expect(JSON.parse((await panel('GET', jobId, other.cookie)).body)).toEqual({ key: null, companyName: 'Other Co' });
     expect((await panel('POST', jobId, other.cookie, { allowedOrigins: ['https://other.test'] })).statusCode).toBe(404);
     expect((await panel('PATCH', jobId, other.cookie, { allowedOrigins: ['https://other.test'] })).statusCode).toBe(404);
     expect((await panel('DELETE', jobId, other.cookie)).statusCode).toBe(404);

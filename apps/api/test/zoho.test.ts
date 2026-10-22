@@ -169,7 +169,7 @@ describe('Zoho Recruit connector', () => {
     expect(start.statusCode).toBe(422);
 
     const location = await connect(orgA);
-    expect(location).toBe('/settings?section=connected&zoho=connected');
+    expect(location).toBe('/settings/sources?zoho=connected');
     const s = await status(orgA);
     expect(s.connection.status).toBe('connected');
 

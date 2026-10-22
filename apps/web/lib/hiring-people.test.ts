@@ -16,7 +16,6 @@ import {
   fetchHiringPeople,
   fetchHomeSnapshot,
   filterPeopleByJob,
-  formatJobNextStep,
   formatJobPeopleSummary,
   groupQueueByJob,
   homeQueueOf,
@@ -103,23 +102,9 @@ describe('filterPeopleByJob', () => {
   });
 });
 
-describe('formatJobNextStep', () => {
-  it('names the next step in Home’s order, in the candidate words, never "screen"', () => {
-    expect(formatJobNextStep(false, empty)).toBe('Add a job description');
-    expect(formatJobNextStep(true, empty)).toBe('Add candidates');
-    expect(formatJobNextStep(true, { ...empty, total: 3, toReview: 1, notCalled: 2 })).toBe('Review 1 candidate');
-    expect(formatJobNextStep(true, { ...empty, total: 5, notCalled: 5 })).toBe('Call 5 candidates');
-    expect(formatJobNextStep(true, { ...empty, total: 1, notCalled: 1 })).toBe('Call 1 candidate');
-    expect(formatJobNextStep(true, { ...empty, total: 2, onHold: 1 })).toBe('Review 1 candidate on hold');
-    expect(formatJobNextStep(true, { ...empty, total: 2, movedForward: 2 })).toBe('Open candidates');
-  });
-});
-
 describe('unknown funnels (audit H6)', () => {
   it('claims nothing about a job whose people did not load', () => {
     expect(formatJobPeopleSummary(undefined)).toBe('');
-    expect(formatJobNextStep(true, undefined)).toBe('');
-    expect(formatJobNextStep(false, undefined)).toBe('Add a job description');
   });
 });
 

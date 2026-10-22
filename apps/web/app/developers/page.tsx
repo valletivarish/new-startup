@@ -23,7 +23,7 @@ const SITE = process.env.NEXT_PUBLIC_SITE_URL || 'https://nexstopp.com';
 /** The public API origin as a client sees it: the website proxies /backend to the API. */
 const API_BASE = `${SITE.replace(/\/$/, '')}/backend`;
 const OPENAPI_URL = `${API_BASE}/v1/openapi.json`;
-const KEYS_HREF = '/settings?section=developers';
+const KEYS_HREF = '/settings/advanced';
 
 const TITLE = `Developers | ${WORDMARK}`;
 const DESCRIPTION =

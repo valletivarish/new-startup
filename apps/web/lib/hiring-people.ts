@@ -82,20 +82,6 @@ export function formatJobPeopleSummary(funnel: JobFunnel | undefined, noun: Noun
   return parts.length ? `${counted(funnel.total, noun)}: ${parts.join(', ')}` : counted(funnel.total, noun);
 }
 
-/** The job's next step, in Home's order. '' when it depends on people we couldn't see. */
-export function formatJobNextStep(
-  hasJdDocs: boolean,
-  funnel: JobFunnel | undefined,
-  noun: Noun = CANDIDATE,
-): string {
-  if (!hasJdDocs) return 'Add a job description';
-  if (!funnel) return '';
-  if (funnel.total === 0) return `Add ${noun.many}`;
-  if (funnel.toReview > 0) return `Review ${counted(funnel.toReview, noun)}`;
-  if (funnel.notCalled > 0) return `Call ${counted(funnel.notCalled, noun)}`;
-  if (funnel.onHold > 0) return `Review ${counted(funnel.onHold, noun)} on hold`;
-  return `Open ${noun.many}`;
-}
 
 export interface HiringPeopleSnapshot {
   jobs: Job[];

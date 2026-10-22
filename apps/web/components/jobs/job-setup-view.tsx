@@ -1160,7 +1160,7 @@ function ReadyPanel({
     },
     {
       anchor: 'calling-number',
-      href: '/settings?section=workspace',
+      href: '/settings/calling',
       label: 'Calling number',
       done: r.line === 'connected',
       detail: {

@@ -81,7 +81,7 @@ export class ZohoController {
   async callback(@Req() req: RequestWithAuth, @Query() query: unknown, @Res() reply: FastifyReply) {
     this.live();
     const result = await this.zoho.finishConnect(actorOf(req), parse(CallbackQuery, query));
-    return reply.redirect(`/settings?section=connected&zoho=${result}`, 302);
+    return reply.redirect(`/settings/sources?zoho=${result}`, 302);
   }
 
   @Get('job-openings')

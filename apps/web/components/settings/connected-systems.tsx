@@ -52,7 +52,7 @@ export function ConnectedSystemsSection({ profile }: { profile: Me }) {
   const status = useQuery({ queryKey: ZOHO_STATUS_KEY, queryFn: getZohoStatus, refetchInterval: 30_000 });
   const [result, setResult] = useState<ReturnType<typeof connectResultMessage>>(null);
 
-  // The Zoho sign-in comes back to /settings?section=connected&zoho=<code>: say how it went, once.
+  // The Zoho sign-in comes back to /settings/sources?zoho=<code>: say how it went, once.
   useEffect(() => {
     const url = new URL(window.location.href);
     const code = url.searchParams.get('zoho');

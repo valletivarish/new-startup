@@ -59,7 +59,8 @@ const CARD = 'rounded-card border border-border bg-canvas';
 
 /** A person's page on their job's board; `results` opens their answers. */
 function personHref(item: HiringQueueItem, results = false): string {
-  const href = `/jobs/${toPublicId(item.jobId)}/people?c=${encodeURIComponent(toPublicId(item.candidateId))}`;
+  // Answers are read on Review; everyone else is found on People.
+  const href = `/jobs/${toPublicId(item.jobId)}/${results ? 'review' : 'people'}?c=${encodeURIComponent(toPublicId(item.candidateId))}`;
   return results ? `${href}&tab=results` : href;
 }
 

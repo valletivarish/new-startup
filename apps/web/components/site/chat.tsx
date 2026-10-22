@@ -322,9 +322,11 @@ const ENTRIES: readonly Entry[] = [
       'zoho',
       'workday',
       'greenhouse',
+      'careers',
+      'embed',
     ],
     answer:
-      'Not yet. Add candidates from a spreadsheet saved as CSV or from their resumes. Your team reviews each call and moves candidates forward in HRVoice.',
+      'Not directly yet. Add candidates from a spreadsheet saved as CSV or from their resumes, or paste one line into your careers page so applicants can ask for their screening call there. Your team reviews each call and moves candidates forward in HRVoice.',
   },
   {
     id: 'other',

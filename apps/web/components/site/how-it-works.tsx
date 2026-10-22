@@ -127,7 +127,7 @@ const STEPS: readonly { title: string; body: string; preview: ReactNode }[] = [
   },
   {
     title: 'Add candidates',
-    body: 'Type them in one at a time, upload a spreadsheet saved as CSV, or upload their resumes. We pick up each phone number from the resume. There is no applicant tracking system link yet.',
+    body: 'Type them in one at a time, upload a spreadsheet saved as CSV, or upload their resumes. We pick up each phone number from the resume. Or paste one line into your careers page, and applicants ask for their call there. There is no applicant tracking system link yet.',
     preview: <CandidatesPreview />,
   },
   {

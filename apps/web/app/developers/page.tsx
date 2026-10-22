@@ -69,6 +69,7 @@ const CONTENTS = [
   { href: '#test-mode', label: 'Test mode' },
   { href: '#sdks', label: 'SDKs' },
   { href: '#mcp', label: 'MCP' },
+  { href: '#careers-page', label: 'Careers page form' },
   { href: '#no-code', label: 'No-code tools' },
   { href: '#errors', label: 'Errors' },
   { href: '#reference', label: 'API reference' },
@@ -246,6 +247,9 @@ const MCP_TOOLS: [string, string][] = [
   ['list_candidates', 'One page of a job’s candidates.'],
   ['get_usage', 'Calls placed and completed screens for a month.'],
 ];
+
+const EMBED_SNIPPET = `<script src="${SITE.replace(/\/$/, '')}/embed.js" data-key="hrv_pub_..." async></script>
+<div data-hrvoice-apply></div>`;
 
 const NO_CODE: [string, string, string][] = [
   ['Zapier', 'Add a step, search for HRVoice and connect it with your API key.',
@@ -485,6 +489,41 @@ export default async function DevelopersPage() {
                   </div>
                 ))}
               </dl>
+            </Section>
+
+            <Section id="careers-page" title="Careers page form">
+              <P>
+                No developer needed. Open a job in HRVoice, find <em>Put this job on your careers page</em>, type the
+                website your careers page is on, and paste the line it gives you into the page. Applicants see an
+                “Apply with a quick call” form: name, Indian mobile number, optional email, and a consent box for an
+                automated screening call. Each one becomes a candidate on that job, and the call follows.
+              </P>
+              <CodeBlock label="HTML" code={EMBED_SNIPPET} />
+              <ul role="list" className="m-0 mt-6 grid list-none gap-3 p-0">
+                <Li>
+                  The <Code>hrv_pub_</Code> key is safe to publish. It belongs to one job and can only add an applicant to
+                  that job and ask for their call. It can’t read candidates, results or anything else, and it isn’t an API key.
+                </Li>
+                <Li>
+                  It works only on the websites you list (exact addresses, such as <Code>https://acme.in</Code> and{' '}
+                  <Code>https://www.acme.in</Code>). Turning the form off on the job page stops it at once.
+                </Li>
+                <Li>
+                  Calls are placed between 9:00 and 20:00 India time; anyone applying later is told the call comes after
+                  9 am. Numbers on the do-not-disturb list are skipped, and your company’s call limits apply.
+                </Li>
+                <Li>The page never shows answers, scores or results. Those stay in your dashboard and webhooks.</Li>
+                <Li>
+                  The form sits in its own shadow DOM, so your site’s styles can’t break it. Add{' '}
+                  <Code>data-accent=&quot;#0B6E4F&quot;</Code> to the script tag to colour the button. Put the{' '}
+                  <Code>div</Code> where the form should appear; leave it out and the form appears after the script. For
+                  several jobs on one page, give each <Code>div</Code> its own <Code>data-key</Code>.
+                </Li>
+                <Li>
+                  Limits: 5 applications a minute from one visitor and 20 a minute per form. A test job’s form calls the
+                  simulated phone line, like a test key.
+                </Li>
+              </ul>
             </Section>
 
             <Section id="no-code" title="No-code tools">

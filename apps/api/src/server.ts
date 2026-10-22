@@ -12,6 +12,7 @@ import {
 import fastifyCookie from '@fastify/cookie';
 import fastifyHelmet from '@fastify/helmet';
 import fastifyRateLimit from '@fastify/rate-limit';
+import { rateLimitKey } from './rate-limit-key.js';
 import { randomUUID } from 'node:crypto';
 import { pino, type Logger } from 'pino';
 import { createDatabase, type Database } from '@platform/db';
@@ -145,7 +146,10 @@ export async function buildApp(
     contentSecurityPolicy: false,
   });
   await fastify.register(fastifyRateLimit, {
-    max: env.RATE_LIMIT_MAX,
+    // Signed-in sessions and API keys get their own (higher) budget; anonymous
+    // traffic shares one per IP. Route-level stricter limits keep keying by IP.
+    max: (_request, key) => (key.startsWith('ip:') ? env.RATE_LIMIT_MAX : env.RATE_LIMIT_USER_MAX),
+    keyGenerator: (request) => rateLimitKey(request, env.BETTER_AUTH_SECRET),
     timeWindow: env.RATE_LIMIT_WINDOW_MS,
     // Desk pages poll every few seconds; a shared office NAT needs headroom.
     // Never throttle liveness — compose/Caddy/ops-check hit /health often.
@@ -153,8 +157,6 @@ export async function buildApp(
       const path = (request.url ?? '').split('?')[0] ?? '';
       return path === '/health' || path === '/api/health';
     },
-    // Keyed per client ip; organization-level limits arrive with usage
-    // metering in Phase 7.
     errorResponseBuilder: (request, context) => ({
       // The plugin THROWS this object; statusCode is what routes it through
       // the exception filter's 4xx branch, which renders the standard

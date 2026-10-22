@@ -80,7 +80,8 @@ services:
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET}
       COOKIE_SECURE: ${COOKIE_SECURE:-true}
       TRUST_PROXY: "true"
-      RATE_LIMIT_MAX: ${RATE_LIMIT_MAX:-1200}
+      RATE_LIMIT_MAX: ${RATE_LIMIT_MAX:-600}
+      RATE_LIMIT_USER_MAX: ${RATE_LIMIT_USER_MAX:-1200}
       RATE_LIMIT_WINDOW_MS: ${RATE_LIMIT_WINDOW_MS:-60000}
       OTEL_ENABLED: ${OTEL_ENABLED:-false}
       # Shared with worker — document uploads must land on the same filesystem.

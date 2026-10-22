@@ -60,7 +60,7 @@ export function PricingSection() {
         <div className="mt-10 grid grid-cols-1 gap-4 md:mt-14 lg:grid-cols-12">
           <div data-reveal className="rounded-[26px] border border-site-line bg-site-raised p-6 sm:p-9 lg:col-span-7">
             <label htmlFor="pricing-candidates" className="block text-[0.9375rem] text-site-fg-2">
-              Candidates you call each month
+              Completed calls each month
             </label>
             <p aria-hidden className="m-0 mt-2 text-[clamp(2.5rem,2rem+1.6vw,3.5rem)] font-normal leading-none tracking-[-0.04em] tabular-nums text-white">
               {count(candidates)}

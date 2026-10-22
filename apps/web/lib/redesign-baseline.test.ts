@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { jobReadiness } from '../components/jobs/setup';
 import { meetsAllFirst } from '../components/candidates/fit';
-import { buildNav, gate } from '../components/layout/app-shell/nav';
+import { adminLinks, buildNav, gate } from '../components/layout/app-shell/nav';
 import { HIRING_USE_CASE } from './use-case-definitions';
 import type { CallFit } from './api';
 
@@ -59,7 +59,7 @@ describe('redesign baseline', () => {
   describe('bulk decisions', () => {
     // The page is a 'use client' file that imports through the Next-only `@/` alias, so vitest
     // cannot load it; pin the constant and its comparison in the source instead.
-    const src = readFileSync(new URL('../app/jobs/[id]/candidates/page.tsx', import.meta.url), 'utf8');
+    const src = readFileSync(new URL('../components/jobs/job-board-view.tsx', import.meta.url), 'utf8');
     const at = Number(/const BULK_CONFIRM_AT = (\d+);/.exec(src)?.[1]);
 
     it('asks for the typed confirmation at exactly 24 people and not at 23', () => {
@@ -71,24 +71,23 @@ describe('redesign baseline', () => {
   });
 
   describe('nav gate()', () => {
-    const { main, workspace } = buildNav(HIRING_USE_CASE.labels);
-    const all = [...main, ...workspace];
+    // The nav itself changed by design (slice 2); gating behaviour must not.
+    const all = [...buildNav(HIRING_USE_CASE.labels).main, ...adminLinks];
 
     it('hides items whose permission the person lacks and keeps ungated ones', () => {
       const hrefs = gate(all, ['jobs.read']).map((i) => i.href);
       expect(hrefs).toContain('/jobs');
-      expect(hrefs).toContain('/dashboard');
       expect(hrefs).toContain('/settings');
-      expect(hrefs).not.toContain('/candidates');
-      expect(hrefs).not.toContain('/analytics');
+      expect(hrefs).not.toContain('/people');
+      expect(hrefs).not.toContain('/reports');
       expect(hrefs).not.toContain('/admin/costs');
     });
 
     it('marks gated items pending while permissions are unknown, and hides them with no workspace', () => {
       const pending = gate(all, undefined);
-      expect(pending.find((i) => i.href === '/candidates')?.pending).toBe(true);
-      expect(pending.find((i) => i.href === '/dashboard')?.pending).toBe(false);
-      expect(gate(all, null).map((i) => i.href)).toEqual(['/dashboard', '/settings']);
+      expect(pending.find((i) => i.href === '/people')?.pending).toBe(true);
+      expect(pending.find((i) => i.href === '/settings')?.pending).toBe(false);
+      expect(gate(all, null).map((i) => i.href)).toEqual(['/jobs', '/settings']);
     });
   });
 });

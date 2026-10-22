@@ -114,7 +114,7 @@ describe('Zoho Recruit connector on HR Voice', () => {
     expect(back.pathname).toBe('/backend/integrations/zoho/callback');
     const cb = await http('GET', `/integrations/zoho/callback${back.search}`, { cookie });
     expect(cb.status).toBe(302);
-    expect(cb.location).toBe('/settings?section=connected&zoho=connected');
+    expect(cb.location).toBe('/settings/sources?zoho=connected');
     const replay = await http('GET', `/integrations/zoho/callback${back.search}`, { cookie });
     expect(replay.location).toContain('zoho=expired');
   });

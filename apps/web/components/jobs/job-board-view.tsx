@@ -630,7 +630,7 @@ function JobBoardInner({ mode }: { mode: BoardMode }) {
     if (!job?.agentId) {
       setCallNoticeByCandidate((prev) => ({
         ...prev,
-        [candidateId]: { kind: 'err', text: 'This job has no call setup yet. Add one in Setup, then call.' },
+        [candidateId]: { kind: 'err', text: 'This job has no call setup yet. Add one in Set up, then call.' },
       }));
       return;
     }
@@ -862,7 +862,7 @@ function JobBoardInner({ mode }: { mode: BoardMode }) {
   const asks =
     questions > 0
       ? `Every call asks your ${questions} must-ask ${questions === 1 ? 'question' : 'questions'}.`
-      : 'Add must-ask questions in Setup, so every call covers them.';
+      : 'Add must-ask questions in Set up, so every call covers them.';
 
   let readiness: ReactNode;
   if (job.agentId && agentPublished === null) {

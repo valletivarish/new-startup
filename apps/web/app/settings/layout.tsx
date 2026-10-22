@@ -97,7 +97,7 @@ export default function SettingsLayout({ children }: { children: ReactNode }) {
               </Button>
             }
           >
-            Open or create one from Jobs. Your own account is below.
+            Open or create one from Jobs. Your account settings are below.
           </Alert>
         ) : null}
         {profile ? (

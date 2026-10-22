@@ -108,8 +108,8 @@ const voice = {
   listening: s('Listening', 'live', 'Ear'),
   // The caller spoke over the agent, so the agent is listening again.
   interrupted: s('Listening', 'live', 'Ear'),
-  processing: s('Agent thinking', 'live', 'Hourglass'),
-  speaking: s('Agent speaking', 'live', 'LiveBars'),
+  processing: s('Thinking', 'live', 'Hourglass'),
+  speaking: s('Speaking', 'live', 'LiveBars'),
   reconnecting: s('Reconnecting', 'review', 'RefreshCw'),
   completed: callEnded,
   failed: callFailed,

@@ -78,7 +78,7 @@ export function AccessLevels() {
           <>
             <span>Access level</span>
             <span>Type</span>
-            <span>People</span>
+            <span>Members</span>
           </>
         }
       >

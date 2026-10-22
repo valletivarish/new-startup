@@ -52,7 +52,7 @@ export function JobHeader({
 }: JobHeaderProps) {
   const tabs: { key: JobTab; label: string }[] = [
     { key: 'candidates', label: contactLabel },
-    { key: 'setup', label: 'Setup' },
+    { key: 'setup', label: 'Set up' },
   ];
   return (
     <div className={cn('mb-6', className)}>

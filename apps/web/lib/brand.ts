@@ -3,7 +3,7 @@ import { HIRING_USE_CASE } from './use-case-definitions';
 // The one place the product name lives.
 export const BRAND = {
   name: 'HRVoice',
-  tagline: 'AI agents that make business phone calls. Made in India.',
+  tagline: 'AI phone screening for hiring teams. Made in India.',
 } as const;
 
 // The live module's name and state come from its use-case definition (spec §9); the rest are roadmap.

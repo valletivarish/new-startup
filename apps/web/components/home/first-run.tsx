@@ -76,7 +76,7 @@ export function GettingStarted({ snapshot, can }: { snapshot: HomeSnapshot; can:
   const steps: Step[] = [
     {
       title: 'Set up the call',
-      detail: 'Pick a voice and publish it, so it can place calls.',
+      detail: 'Pick a voice and publish the call setup, so HRVoice can place calls.',
       icon: <AudioLines />,
       done: snapshot.agents === null ? null : snapshot.agents > 0,
       action: 'Set up the call',
@@ -114,7 +114,7 @@ export function GettingStarted({ snapshot, can }: { snapshot: HomeSnapshot; can:
       // A check that failed or hasn't answered yet isn't shown as done or not done.
       done: telephony.data ? telephony.data.outboundPhone : null,
       action: 'See calling number',
-      href: '/settings/company',
+      href: '/settings/calling',
     });
   }
   const doneCount = steps.filter((step) => step.done).length;

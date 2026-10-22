@@ -319,7 +319,7 @@ export function KnowledgeDocuments() {
       <div className="rounded-card border border-border bg-canvas">
         <EmptyState
           icon={<Lock />}
-          title="You can’t see Knowledge in this workspace"
+          title="You can’t see Company info in this workspace"
           description="Ask a workspace admin for access."
         />
       </div>,

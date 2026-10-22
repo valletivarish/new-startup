@@ -216,7 +216,7 @@ function CreateJobDialog({ open, onOpenChange }: { open: boolean; onOpenChange: 
             <p className="m-0 text-meta text-text-2">
               {live ? (
                 <>
-                  Your published call setup will make the calls. You can change who calls in setup.
+                  HRVoice makes the calls with your published call setup. You can change it later in Set up.
                 </>
               ) : agents.data.agents.length > 0 ? (
                 `The call setup isn’t ready yet. You can create the ${job} now and publish it before calling.`

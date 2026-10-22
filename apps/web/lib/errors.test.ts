@@ -268,7 +268,7 @@ describe('toUserMessage', () => {
     const m = toUserMessage(new NotAvailableError(404, { code: 'not_found', message: 'Not found' }));
     expect(m).toEqual({
       title: 'This isn’t available yet',
-      detail: 'This part of the product isn’t switched on yet.',
+      detail: 'This feature isn’t turned on yet.',
       action: null,
     });
   });

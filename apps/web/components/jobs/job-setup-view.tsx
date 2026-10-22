@@ -272,8 +272,8 @@ function JobSetup({ publicId }: { publicId: string }) {
     setLinking(true);
     await run(
       () => updateJob(jobId, { agentId: linkAgentId }),
-      job?.agentId ? 'Caller changed for this job.' : 'Caller chosen for this job.',
-      'Couldn’t change who calls. Try again.',
+      job?.agentId ? 'Call setup changed for this job.' : 'Call setup chosen for this job.',
+      'Couldn’t change the call setup. Try again.',
     );
     setLinking(false);
   }
@@ -856,7 +856,7 @@ function JobSetup({ publicId }: { publicId: string }) {
               id="agent"
               step={canEdit ? 4 : undefined}
               title="The call"
-              description="Who calls, in which voice and language."
+              description="The voice and language HRVoice uses on this job’s calls."
               badge={
                 card.badge ? (
                   <StatusBadge tone={card.badge === 'Ready' ? 'success' : 'neutral'} icon={card.badge === 'Ready' ? undefined : Circle}>
@@ -869,13 +869,13 @@ function JobSetup({ publicId }: { publicId: string }) {
                 <Agent size={48} colour="glass" onLight />
                 <div className="min-w-0 flex-1 basis-40">
                   <p className="m-0 truncate font-medium text-text">
-                    {job.agentId ? callVoiceLine(job) : 'No caller chosen yet'}
+                    {job.agentId ? callVoiceLine(job) : 'No call setup chosen yet'}
                   </p>
                   <p className="m-0 mt-0.5 text-meta text-text-3">
                     {!job.agentId
                       ? agents === null || agents.length > 0
                         ? card.text
-                        : `Set one up once. It calls ${contacts} for every job you give it.`
+                        : `Set it up once. HRVoice uses it to call ${contacts} on every job.`
                       : agentStatus === 'unknown'
                         ? 'Couldn’t check the call setup. Reload the page to try again.'
                         : card.text}
@@ -893,7 +893,7 @@ function JobSetup({ publicId }: { publicId: string }) {
               </div>
               {canEdit && agents && (job.agentId ? otherAgents.length > 0 : agents.length > 0) ? (
                 <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-end">
-                  <Field label={job.agentId ? 'Change who calls' : 'Who calls for this job'} className="min-w-0 flex-1">
+                  <Field label={job.agentId ? 'Change the call setup' : 'Call setup for this job'} className="min-w-0 flex-1">
                     <Select value={linkAgentId} onChange={(e) => setLinkAgentId(e.target.value)}>
                       {agents.map((a, i) => (
                         <option key={a.id} value={a.id}>
@@ -1220,7 +1220,7 @@ function ReadyPanel({
         ) : null}
         <Button asChild variant={r.ready ? 'primary' : 'secondary'} className={cn('w-full', peopleTotal !== null && 'mt-3')}>
           <Link href={boardHref}>
-            {peopleTotal === 0 ? `Add ${contact.many.toLowerCase()}` : `Go to ${contact.many.toLowerCase()}`}
+            {peopleTotal === 0 ? 'Add people' : 'Go to People'}
             <ArrowRight aria-hidden strokeWidth={1.5} />
           </Link>
         </Button>

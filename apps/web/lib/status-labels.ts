@@ -3,6 +3,17 @@
  * never colour alone. Legacy label maps below are derived from it.
  */
 
+/** Shown on an Active job that has no calling number yet. A banner, not a state. */
+export const TEST_ONLY_BANNER = 'Browser test calls only until your calling number is set up';
+
+/** Buttons that change a job's status; the stored values stay open/draft/closed. */
+export const JOB_ACTION_LABEL = {
+  open: 'Make active',
+  reopen: 'Make active again',
+  draft: 'Move to draft',
+  close: 'Close job',
+} as const;
+
 export type StateFamily = 'queued' | 'live' | 'review' | 'decided' | 'failed';
 export type StateDomain = 'candidate' | 'call' | 'voice' | 'job' | 'agent' | 'invite';
 
@@ -47,8 +58,8 @@ export interface StateMeta {
 
 const s = (label: string, family: StateFamily, glyph: StateGlyph): StateMeta => ({ label, family, glyph });
 
-const calling = s('Calling', 'live', 'PhoneOutgoing');
-const callFailed = s('Call didn’t connect', 'failed', 'TriangleAlert');
+const calling = s('On the phone', 'live', 'PhoneOutgoing');
+const callFailed = s("Didn't connect", 'failed', 'TriangleAlert');
 // Not a row of spec 2.6, which only names the review states of a finished call. Shown for a
 // finished call when nothing waits on a person: the stage is already decided, or unknown.
 // callStateKey gives results_pending or ready_for_review while the stage is still open.
@@ -71,18 +82,18 @@ const call = {
   dialing: calling,
   ringing: calling,
   calling,
-  active: s('On call', 'live', 'LiveBars'),
+  active: s('On the phone', 'live', 'LiveBars'),
   transferring: s('Handing to your team', 'live', 'PhoneForwarded'),
   results_pending: s('Writing up the call', 'live', 'FileClock'),
   ready_for_review: s('Ready for review', 'review', 'FileCheckCorner'),
   completed: callEnded,
   ended: callEnded,
   // failureReason, per the backend contract. Reasons with no words of their own read as the generic one.
-  no_answer: s('No answer', 'failed', 'PhoneMissed'),
-  busy: s('Line busy', 'failed', 'PhoneMissed'),
-  voicemail: s('Reached voicemail', 'failed', 'Voicemail'),
-  line_not_connected: s('Calling number not set up', 'failed', 'Unplug'),
-  invalid_number: s('Number not valid', 'failed', 'TriangleAlert'),
+  no_answer: s("Didn't connect · Rang out", 'failed', 'PhoneMissed'),
+  busy: s("Didn't connect", 'failed', 'PhoneMissed'),
+  voicemail: s("Didn't connect · Voicemail", 'failed', 'Voicemail'),
+  line_not_connected: s("Didn't connect · Number not reachable", 'failed', 'Unplug'),
+  invalid_number: s("Didn't connect · Number not reachable", 'failed', 'TriangleAlert'),
   carrier_blocked: callFailed,
   network: callFailed,
   unknown: callFailed,
@@ -110,9 +121,9 @@ export const STATE_MAP: Record<StateDomain, Record<string, StateMeta>> = {
   voice,
   job: {
     draft: s('Draft', 'decided', 'PenLine'),
-    open: s('Open for calls', 'live', 'Radio'),
-    // Open, but no calling number yet: only test calls in the browser can run.
-    open_test_only: s('Open · test calls only', 'queued', 'Unplug'),
+    open: s('Active', 'live', 'Radio'),
+    // Active, but no calling number yet: only browser test calls run. The banner says so; the word stays Active.
+    open_test_only: s('Active', 'live', 'Radio'),
     closed: s('Closed', 'decided', 'Archive'),
     archived: s('Archived', 'decided', 'Archive'),
   },

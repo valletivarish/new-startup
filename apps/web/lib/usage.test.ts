@@ -151,8 +151,8 @@ describe('callOutcomes', () => {
     ]);
     expect(outcomes).toMatchObject({ total: 7, connected: 1, inProgress: 1, notConnected: 5 });
     expect(outcomes.reasons).toEqual([
-      { key: 'network', label: 'Call didn’t connect', count: 3 },
-      { key: 'no_answer', label: 'No answer', count: 2 },
+      { key: 'network', label: "Didn't connect", count: 3 },
+      { key: 'no_answer', label: "Didn't connect · Rang out", count: 2 },
     ]);
   });
 });

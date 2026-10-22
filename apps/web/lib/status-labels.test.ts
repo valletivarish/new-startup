@@ -5,7 +5,9 @@ import {
   CALL_STATUS_LABEL,
   JOB_STATUS_LABEL,
   PIPELINE_STATUS_LABEL,
+  JOB_ACTION_LABEL,
   STATE_MAP,
+  TEST_ONLY_BANNER,
   callStateKey,
   getStateMeta,
   labelStatus,
@@ -23,28 +25,28 @@ const SPEC: [StateDomain, string, string, string, string][] = [
   ['candidate', 'reviewed', 'Moved forward', 'decided', 'CircleCheck'],
   ['candidate', 'declined', 'Not moving forward', 'decided', 'CircleX'],
   ['call', 'not_called', 'Not called yet', 'queued', 'Clock'],
-  ['call', 'dialing', 'Calling', 'live', 'PhoneOutgoing'],
-  ['call', 'ringing', 'Calling', 'live', 'PhoneOutgoing'],
-  ['call', 'active', 'On call', 'live', 'LiveBars'],
+  ['call', 'dialing', 'On the phone', 'live', 'PhoneOutgoing'],
+  ['call', 'ringing', 'On the phone', 'live', 'PhoneOutgoing'],
+  ['call', 'active', 'On the phone', 'live', 'LiveBars'],
   ['call', 'transferring', 'Handing to your team', 'live', 'PhoneForwarded'],
   ['call', 'results_pending', 'Writing up the call', 'live', 'FileClock'],
   ['call', 'ready_for_review', 'Ready for review', 'review', 'FileCheckCorner'],
-  ['call', 'no_answer', 'No answer', 'failed', 'PhoneMissed'],
-  ['call', 'busy', 'Line busy', 'failed', 'PhoneMissed'],
-  ['call', 'voicemail', 'Reached voicemail', 'failed', 'Voicemail'],
-  ['call', 'failed', 'Call didn’t connect', 'failed', 'TriangleAlert'],
-  ['call', 'line_not_connected', 'Calling number not set up', 'failed', 'Unplug'],
-  ['call', 'invalid_number', 'Number not valid', 'failed', 'TriangleAlert'],
-  ['call', 'carrier_blocked', 'Call didn’t connect', 'failed', 'TriangleAlert'],
-  ['call', 'network', 'Call didn’t connect', 'failed', 'TriangleAlert'],
-  ['call', 'unknown', 'Call didn’t connect', 'failed', 'TriangleAlert'],
+  ['call', 'no_answer', "Didn't connect · Rang out", 'failed', 'PhoneMissed'],
+  ['call', 'busy', "Didn't connect", 'failed', 'PhoneMissed'],
+  ['call', 'voicemail', "Didn't connect · Voicemail", 'failed', 'Voicemail'],
+  ['call', 'failed', "Didn't connect", 'failed', 'TriangleAlert'],
+  ['call', 'line_not_connected', "Didn't connect · Number not reachable", 'failed', 'Unplug'],
+  ['call', 'invalid_number', "Didn't connect · Number not reachable", 'failed', 'TriangleAlert'],
+  ['call', 'carrier_blocked', "Didn't connect", 'failed', 'TriangleAlert'],
+  ['call', 'network', "Didn't connect", 'failed', 'TriangleAlert'],
+  ['call', 'unknown', "Didn't connect", 'failed', 'TriangleAlert'],
   ['voice', 'connecting', 'Connecting', 'live', 'PhoneOutgoing'],
   ['voice', 'listening', 'Listening', 'live', 'Ear'],
   ['voice', 'speaking', 'Agent speaking', 'live', 'LiveBars'],
   ['voice', 'completed', 'Call ended', 'decided', 'PhoneOff'],
-  ['voice', 'failed', 'Call didn’t connect', 'failed', 'TriangleAlert'],
+  ['voice', 'failed', "Didn't connect", 'failed', 'TriangleAlert'],
   ['job', 'draft', 'Draft', 'decided', 'PenLine'],
-  ['job', 'open', 'Open for calls', 'live', 'Radio'],
+  ['job', 'open', 'Active', 'live', 'Radio'],
   ['job', 'closed', 'Closed', 'decided', 'Archive'],
   ['agent', 'draft', 'Draft', 'decided', 'PenLine'],
   ['agent', 'published', 'Live', 'live', 'Radio'],
@@ -82,7 +84,7 @@ describe('getStateMeta', () => {
 
   it('words are sentence case with no dashes', () => {
     for (const meta of Object.values(STATE_MAP).flatMap((m) => Object.values(m))) {
-      expect(meta.label).toMatch(/^[A-Z][^A-Z–—]*$/);
+      expect(meta.label.replace(/ · [A-Z]/g, ' · x')).toMatch(/^[A-Z][^A-Z–—]*$/);
     }
   });
 });
@@ -127,11 +129,11 @@ describe('legacy maps follow the state map', () => {
     });
     expect(CALL_STATUS_LABEL).toEqual({
       not_called: 'Not called yet',
-      calling: 'Calling',
+      calling: 'On the phone',
       completed: 'Call ended',
-      failed: 'Call didn’t connect',
+      failed: "Didn't connect",
     });
-    expect(JOB_STATUS_LABEL.open).toBe('Open for calls');
+    expect(JOB_STATUS_LABEL.open).toBe('Active');
     expect(AGENT_STATUS_LABEL.paused).toBe('Paused');
   });
 });
@@ -139,10 +141,49 @@ describe('legacy maps follow the state map', () => {
 describe('labelStatus', () => {
   it('never returns "None" or a raw value', () => {
     vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-    expect(labelStatus(JOB_STATUS_LABEL, 'open')).toBe('Open for calls');
+    expect(labelStatus(JOB_STATUS_LABEL, 'open')).toBe('Active');
     expect(labelStatus(JOB_STATUS_LABEL, null)).toBe('Unknown');
     expect(labelStatus(JOB_STATUS_LABEL, undefined)).toBe('Unknown');
     expect(labelStatus(JOB_STATUS_LABEL, 'weird_value')).toBe('Unknown');
     expect(labelStatus(JOB_STATUS_LABEL, 'constructor')).toBe('Unknown');
+  });
+});
+
+describe('one vocabulary (redesign slice 1)', () => {
+  it('jobs read Active, with the test-only case a banner rather than a word', () => {
+    expect(STATE_MAP.job.open!.label).toBe('Active');
+    expect(STATE_MAP.job.open_test_only!.label).toBe('Active');
+    expect(TEST_ONLY_BANNER).toBe('Browser test calls only until your calling number is set up');
+    expect(JOB_ACTION_LABEL).toEqual({
+      open: 'Make active',
+      reopen: 'Make active again',
+      draft: 'Move to draft',
+      close: 'Close job',
+    });
+  });
+
+  it('a call that did not connect names its reason from stored states only', () => {
+    expect(STATE_MAP.call.no_answer!.label).toBe("Didn't connect · Rang out");
+    expect(STATE_MAP.call.voicemail!.label).toBe("Didn't connect · Voicemail");
+    expect(STATE_MAP.call.line_not_connected!.label).toBe("Didn't connect · Number not reachable");
+    expect(STATE_MAP.call.not_called!.label).toBe('Not called yet');
+  });
+
+  it('fit lanes read Needs a look, and the old words are gone', async () => {
+    const { LANE_LABEL, FIT_LANES, OVERALL } = await import('../components/candidates/fit');
+    expect(LANE_LABEL.check).toBe('Needs a look');
+    expect(OVERALL.check.label).toBe('Needs a look');
+    expect(FIT_LANES).not.toContain('not_screened');
+    const all = [
+      ...Object.values(STATE_MAP).flatMap((m) => Object.values(m).map((s) => s.label)),
+      ...Object.values(JOB_STATUS_LABEL),
+      ...Object.values(LANE_LABEL),
+      ...Object.values(OVERALL).map((o) => o.label),
+    ];
+    for (const label of all) {
+      expect(label).not.toMatch(/Open for calls|Not screened/);
+      expect(label).not.toBe('Check');
+    }
+    for (const label of Object.values(JOB_STATUS_LABEL)) expect(label).not.toMatch(/Published|Live/);
   });
 });

@@ -143,7 +143,7 @@ describe('status badges', () => {
 
   it('reads a state-map word the same in every badge, and gives every badge an icon', () => {
     expect(html(h(Badge, { tone: 'success', children: 'Call ended' }))).toContain('bg-status-neutral-bg');
-    expect(html(h(Badge, { tone: 'accent', children: 'Calling' }))).toContain('animate-[ping');
+    expect(html(h(Badge, { tone: 'accent', children: 'On the phone' }))).toContain('animate-[ping');
     expect(html(h(Badge, { tone: 'neutral', children: 'Not called yet' }))).toContain('lucide-clock');
     expect(html(h(Badge, { tone: 'success', children: 'Answered' }))).toContain('lucide-circle-check');
     expect(html(h(Badge, { tone: 'neutral', children: 'Unknown' }))).toContain('lucide-circle-question-mark');
@@ -152,7 +152,7 @@ describe('status badges', () => {
 
   it('renders domain states from the one map', () => {
     const live = html(h(StatusTag, { domain: 'call', value: 'active' }));
-    expect(live).toContain('On call');
+    expect(live).toContain('On the phone');
     expect(live).toContain('animate-[ping');
     expect(html(h(StatusTag, { domain: 'job', value: null }))).toContain('Unknown');
   });
@@ -164,7 +164,7 @@ describe('status badges', () => {
     );
     expect(html(h(StatusTag, { domain: 'call', value: 'completed', stage: 'reviewed' }))).toContain('Call ended');
     expect(html(h(StatusTag, { domain: 'call', value: 'failed', failureReason: 'voicemail' }))).toContain(
-      'Reached voicemail',
+      "Didn&#x27;t connect · Voicemail",
     );
   });
 

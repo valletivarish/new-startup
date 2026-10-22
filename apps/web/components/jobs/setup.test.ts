@@ -22,7 +22,7 @@ describe('job readiness', () => {
     expect(r.ready).toBe(true);
     expect(r.phoneReady).toBe(true);
     expect(readinessLine(r)).toBe('Ready for calls.');
-    expect(readinessLine({ ...r, status: 'draft' })).toBe('Set up for calls. Open the job when you start calling.');
+    expect(readinessLine({ ...r, status: 'draft' })).toBe('Set up for calls. Make the job active when you start calling.');
   });
 
   it('never says ready for calls while the calling number isn’t connected', () => {
@@ -32,7 +32,7 @@ describe('job readiness', () => {
     expect(readinessLine(r)).toBe(
       'Phone calls start once your calling number is connected. Test calls in your browser work now.',
     );
-    expect(jobStatusLabel(r)).toBe('Open · test calls only');
+    expect(jobStatusLabel(r)).toBe('Active · browser test calls only');
     expect(jobStatusLabel({ ...r, line: 'connected' })).toBeNull();
     expect(readinessLine(jobReadiness({ ...job, description: longText }, [], true, lineState(null)))).toBeNull();
     expect(lineState(undefined, true)).toBe('unknown');

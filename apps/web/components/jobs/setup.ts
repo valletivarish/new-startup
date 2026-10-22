@@ -83,7 +83,7 @@ function joinAnd(parts: string[]): string {
 
 /** The job's status in words: an open job without a calling number can only take test calls. */
 export function jobStatusLabel(r: Pick<Readiness, 'status' | 'line'>): string | null {
-  return r.status === 'open' && r.line !== 'connected' && r.line !== 'checking' ? 'Open · test calls only' : null;
+  return r.status === 'open' && r.line !== 'connected' && r.line !== 'checking' ? 'Active · browser test calls only' : null;
 }
 
 /** One line for the job's header. Null while the agent or the line is still being checked, so it never flips. */
@@ -91,14 +91,14 @@ export function readinessLine(r: Readiness): string | null {
   if (r.agent === 'checking' || r.line === 'checking') return null;
   if (r.status === 'closed') return 'This job is closed.';
   if (r.phoneReady) {
-    return r.status === 'open' ? 'Ready for calls.' : 'Set up for calls. Open the job when you start calling.';
+    return r.status === 'open' ? 'Ready for calls.' : 'Set up for calls. Make the job active when you start calling.';
   }
   if (r.ready) {
     const why =
       r.line === 'unknown'
         ? 'Test calls in your browser work now. Phone calls need your calling number connected.'
         : 'Phone calls start once your calling number is connected. Test calls in your browser work now.';
-    return r.status === 'open' ? why : `${why} Open the job when you start calling.`;
+    return r.status === 'open' ? why : `${why} Make the job active when you start calling.`;
   }
   const todo: string[] = [];
   if (r.description === 'missing') todo.push('add the job description');

@@ -3,7 +3,7 @@ import { cn } from '../ui/cn';
 import { SAMPLE_CALL, SAMPLE_JOB } from './sample-data';
 import { clock, DURATION } from './sample-call-timeline';
 import summaryPhoto from '../../public/images/site/product-summary.jpg';
-import { CONTAINER, PhotoFrame, SECTION, Tag } from './kit';
+import { CONTAINER, PhotoFrame, SECTION } from './kit';
 
 const FIRST_NAME = SAMPLE_CALL.candidate.split(' ')[0] ?? SAMPLE_CALL.candidate;
 const ASKED = SAMPLE_CALL.answers.filter((answer) => !('extra' in answer && answer.extra));
@@ -128,8 +128,7 @@ export function ProductSection() {
       <div className={CONTAINER}>
         <div data-reveal className="grid grid-cols-1 gap-6 lg:grid-cols-12 lg:items-end">
           <div className="lg:col-span-7">
-            <Tag>Sample record</Tag>
-            <h2 id="product-title" className="site-h2 m-0 mt-5 text-white">
+            <h2 id="product-title" className="site-h2 m-0 text-white">
               Every call comes back ready to review
             </h2>
           </div>

@@ -44,6 +44,7 @@ import {
 } from '../src/providers/elevenlabs/voice.controller.js';
 import { JobsController } from '../src/hiring/jobs.controller.js';
 import { CandidatesController } from '../src/hiring/candidates.controller.js';
+import { HiringSummaryController } from '../src/hiring/summary.controller.js';
 import { ApiKeysController } from '../src/integrations/api-keys.controller.js';
 import { OpenApiController } from '../src/integrations/openapi.controller.js';
 import { V1PingController } from '../src/integrations/v1-ping.controller.js';
@@ -91,6 +92,7 @@ const CONTROLLERS = [
   VoiceWebhookController,
   JobsController,
   CandidatesController,
+  HiringSummaryController,
   ApiKeysController,
   V1PingController,
   OpenApiController,

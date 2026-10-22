@@ -112,6 +112,7 @@ import { ExotelWebhookController } from './providers/exotel/exotel-webhook.contr
 import { createOwnLoopService } from './providers/own-loop/own-loop.service.js';
 import { InternalVoiceController } from './providers/own-loop/internal-voice.controller.js';
 import { CandidatesController } from './hiring/candidates.controller.js';
+import { HiringSummaryController } from './hiring/summary.controller.js';
 import { createVoiceSessionAdapter, createStubVoiceSessionAdapter } from './providers/elevenlabs/adapter.js';
 import { createVoiceSessionService } from './providers/elevenlabs/voice-session.service.js';
 import { createJobsService } from './hiring/jobs.service.js';
@@ -217,6 +218,7 @@ export class AppModule {
         VoiceWebhookController,
         JobsController,
         CandidatesController,
+        HiringSummaryController,
         AdminCostsController,
         InternalVoiceController,
         ExotelWebhookController,

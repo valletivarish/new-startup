@@ -260,7 +260,9 @@ function SampleCallPlayer({ active, autoPlay }: PlayerProps) {
         <div className="flex items-baseline justify-between gap-3">
           <h3 className={LABEL}>What HRVoice wrote down</h3>
           <p className="m-0 text-[0.8125rem] tabular-nums text-site-fg-3">
-            {COVERAGE.answered} of {COVERAGE.total} answered
+            {started
+              ? `${ASKED.filter((i) => i.answer && i.at !== null && time >= i.at).length} of ${COVERAGE.total} so far`
+              : `${COVERAGE.answered} of ${COVERAGE.total} answered`}
           </p>
         </div>
         <ul role="list" className="m-0 mt-4 grid list-none gap-2 p-0">
@@ -373,7 +375,7 @@ export function SampleCallDialog() {
               Sample screening call
             </DialogTitle>
             <DialogDescription className="mt-1.5 max-w-[52ch] text-[0.9375rem] leading-relaxed text-site-fg-2">
-              A sample call for a software engineer role at a sample company.
+              A sample call for a software engineer role at Asha Software, a sample company.
             </DialogDescription>
             <DialogClose
               aria-label="Close the sample call"

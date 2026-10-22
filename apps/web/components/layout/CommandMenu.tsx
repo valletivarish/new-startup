@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { AudioLines, BriefcaseBusiness, CircleAlert, Plus, UserPlus } from 'lucide-react';
+import { BriefcaseBusiness, CircleAlert, Plus, UserPlus, UsersRound } from 'lucide-react';
 import {
   CommandDialog,
   CommandEmpty,
@@ -79,11 +79,11 @@ function Palette({ onDone }: { onDone: () => void }) {
   const nav = buildNav(labels);
   const visible = <T extends { permission?: string }>(items: T[]) =>
     gate(items, permissions).filter((item) => !item.pending);
-  const goItems = visible([...nav.main, ...nav.workspace]);
+  const goItems = visible(nav.main);
   const createItems = visible([
-    { href: '/jobs?create=1', label: `Create ${labels.workItem.one.toLowerCase()}`, icon: Plus, permission: 'jobs.create' },
-    { href: '/agents/new', label: 'Create agent', icon: AudioLines, permission: 'agents.create' },
-    { href: '/settings?section=team&invite=1', label: 'Invite people', icon: UserPlus, permission: 'users.invite' },
+    { href: '/jobs?create=1', label: `New ${labels.workItem.one.toLowerCase()}`, icon: Plus, permission: 'jobs.create' },
+    { href: '/jobs', label: 'Add people', icon: UsersRound, permission: 'candidates.create' },
+    { href: '/settings/team?invite=1', label: 'Invite a teammate', icon: UserPlus, permission: 'users.invite' },
   ]);
 
   // Records join in once someone types, so an empty box stays a short list of places.

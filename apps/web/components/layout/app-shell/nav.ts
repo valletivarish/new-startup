@@ -1,17 +1,4 @@
-import {
-  AudioLines,
-  BookOpen,
-  BriefcaseBusiness,
-  IndianRupee,
-  Inbox,
-  ChartColumn,
-  House,
-  Phone,
-  Settings,
-  UsersRound,
-  Wrench,
-  type LucideIcon,
-} from 'lucide-react';
+import { AudioLines, BriefcaseBusiness, ChartColumn, Inbox, IndianRupee, Settings, UsersRound, type LucideIcon } from 'lucide-react';
 // Relative, so this stays importable under vitest (no @ alias there).
 import type { UseCaseDefinition } from '../../../lib/use-case-definitions';
 
@@ -23,26 +10,23 @@ export interface NavItem {
   permission?: string;
 }
 
-/** The sidebar's two groups. Work item and contact words come from the use case (spec §9). */
-export function buildNav(labels: UseCaseDefinition['labels']): { main: NavItem[]; workspace: NavItem[] } {
+/** The four places a person works from. Platform-owner pages live in the account menu (adminLinks). */
+export function buildNav(labels: UseCaseDefinition['labels']): { main: NavItem[] } {
   return {
     main: [
-      { href: '/dashboard', label: 'Home', icon: House },
-      { href: '/jobs', label: labels.workItem.many, icon: BriefcaseBusiness, permission: 'jobs.read' },
-      { href: '/candidates', label: labels.contact.many, icon: UsersRound, permission: 'candidates.read' },
-      { href: '/calls', label: 'Calls', icon: Phone, permission: 'agents.sessions.read' },
-    ],
-    workspace: [
-      { href: '/agents', label: 'Agents', icon: AudioLines, permission: 'agents.read' },
-      { href: '/knowledge', label: 'Knowledge', icon: BookOpen, permission: 'knowledge.read' },
-      { href: '/tools', label: 'Tools', icon: Wrench, permission: 'agents.read' },
-      { href: '/analytics', label: 'Analytics', icon: ChartColumn, permission: 'analytics.read' },
+      { href: '/jobs', label: labels.workItem.many, icon: BriefcaseBusiness },
+      { href: '/people', label: 'People', icon: UsersRound, permission: 'candidates.read' },
+      { href: '/reports', label: 'Reports', icon: ChartColumn, permission: 'analytics.read' },
       { href: '/settings', label: 'Settings', icon: Settings },
-      { href: '/admin/costs', label: 'Costs', icon: IndianRupee, permission: 'platform.admin' },
-      { href: '/admin/support', label: 'Support inbox', icon: Inbox, permission: 'platform.admin' },
     ],
   };
 }
+
+export const adminLinks: NavItem[] = [
+  { href: '/admin/costs', label: 'Costs', icon: IndianRupee, permission: 'platform.admin' },
+  { href: '/admin/support', label: 'Support inbox', icon: Inbox, permission: 'platform.admin' },
+  { href: '/agents', label: 'Agents', icon: AudioLines, permission: 'platform.admin' },
+];
 
 /**
  * The items this person may see. `permissions` undefined means not known yet: gated items come

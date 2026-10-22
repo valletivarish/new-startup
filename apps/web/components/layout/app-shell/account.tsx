@@ -18,6 +18,7 @@ import { cn } from '@/lib/utils';
 import { Tooltip } from '@/components/ui/tooltip';
 import { UserInitials } from '@/components/shared/user-initials';
 import { MENU, OrgAvatar, PLACEHOLDER, RAIL } from './parts';
+import { adminLinks, gate } from './nav';
 
 /** Invalidate after renaming or joining a workspace. */
 export const organizationsQueryKey = ['organizations'] as const;
@@ -172,7 +173,8 @@ function signOutNow() {
 }
 
 /**
- * The person's menu: Your account, Switch workspace (when there is another), Sign out.
+ * The person's menu: Your account, Switch workspace (when there is another), platform pages for
+ * the platform owner, Sign out.
  * `row` sits at the foot of the sidebar; `avatar` in the canvas header and the phone top bar.
  */
 export function UserMenu({
@@ -201,6 +203,7 @@ export function UserMenu({
     );
   }
 
+  const admin = gate(adminLinks, profile.isPlatformAdmin ? ['platform.admin'] : []);
   const { email } = profile.user;
   const name = profile.user.name.trim() || email;
 
@@ -265,6 +268,14 @@ export function UserMenu({
               </Menu.Portal>
             </Menu.Sub>
           ) : null}
+          {admin.map((item) => (
+            <Menu.Item key={item.href} asChild className={MENU.item}>
+              <Link href={item.href}>
+                <item.icon aria-hidden strokeWidth={1.5} />
+                {item.label}
+              </Link>
+            </Menu.Item>
+          ))}
           <Menu.Separator className={MENU.separator} />
           <Menu.Item className={MENU.item} onSelect={signOutNow}>
             <LogOut aria-hidden strokeWidth={1.5} />

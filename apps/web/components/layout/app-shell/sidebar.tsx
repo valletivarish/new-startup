@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useId, useRef, useState, useSyncExternalStore, type FocusEvent, type PointerEvent } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore, type FocusEvent, type PointerEvent } from 'react';
 import { Pin, PanelLeftClose, PanelLeftOpen, Sparkle } from 'lucide-react';
 import type { Me } from '@/lib/api';
 import { cn } from '@/lib/utils';
@@ -101,20 +101,15 @@ function NavRow({ item, active, index, ripple }: { item: NavItem; active: boolea
 function NavList({
   items,
   pathname,
-  labelledBy,
-  offset = 0,
   ripple,
 }: {
   items: (NavItem & { pending: boolean })[];
   pathname: string;
-  labelledBy?: string;
-  /** Where this list starts in the open-ripple order. */
-  offset?: number;
   /** Bumps each time the rail springs open, to ripple the icons. */
   ripple: number;
 }) {
   return (
-    <ul role="list" aria-labelledby={labelledBy} className="m-0 flex list-none flex-col gap-0.5 p-0">
+    <ul role="list" className="m-0 flex list-none flex-col gap-0.5 p-0">
       {items.map((item, i) =>
         item.pending ? (
           // Same geometry as a row, so nothing moves when permissions arrive.
@@ -123,7 +118,7 @@ function NavList({
             <span className={cn(PLACEHOLDER.onGround, 'h-3 w-20 shrink-0 rounded-pill', LABEL)} />
           </li>
         ) : (
-          <NavRow key={item.href} item={item} active={isActive(pathname, item.href)} index={offset + i} ripple={ripple} />
+          <NavRow key={item.href} item={item} active={isActive(pathname, item.href)} index={i} ripple={ripple} />
         ),
       )}
     </ul>
@@ -180,7 +175,7 @@ export function Sidebar({
   profile: Me | null;
   /** undefined while unknown: gated rows wait as placeholders. null: only ungated rows. */
   permissions: readonly string[] | null | undefined;
-  nav: { main: NavItem[]; workspace: NavItem[] };
+  nav: { main: NavItem[] };
   pathname: string;
   /** Plural contact noun from the use case, lower case ("candidates"). */
   contactLabel: string;
@@ -188,7 +183,6 @@ export function Sidebar({
   const mode = useSyncExternalStore(subscribeMode, readMode, () => 'auto' as const);
   const desktop = useSyncExternalStore(subscribeDesktop, () => window.matchMedia(DESKTOP).matches, () => true);
   const rail = mode === 'collapsed' || (mode === 'auto' && !desktop);
-  const groupId = useId();
 
   // The rail opens over the page while a mouse is on it or focus is inside it: 'open', then
   // 'closing' while it folds back (labels stay laid out so they can fade), then 'closed'.
@@ -295,17 +289,6 @@ export function Sidebar({
           {/* Negative margin plus padding: focus outlines are not clipped by the scroll box. */}
           <nav aria-label="Main" className="-mx-2 mt-4 min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-2 py-1">
             <NavList items={gate(nav.main, permissions)} pathname={pathname} ripple={ripple} />
-            {/* Same height in the rail and open (heading faded, divider drawn), so no row moves. */}
-            <div className="relative mb-1 mt-5">
-              <p id={groupId} className={cn('m-0 overflow-hidden whitespace-nowrap px-3 text-meta text-text-3', LABEL)}>
-                Workspace
-              </p>
-              <span
-                aria-hidden
-                className={cn('absolute left-3 top-1/2 h-px w-[1.125rem] bg-border-input opacity-50', RAIL.only)}
-              />
-            </div>
-            <NavList items={gate(nav.workspace, permissions)} pathname={pathname} labelledBy={groupId} offset={nav.main.length} ripple={ripple} />
           </nav>
 
           <div className="mt-3 flex shrink-0 flex-col gap-2">

@@ -72,7 +72,7 @@ export function AppShell({ profile: pageProfile, children, title, breadcrumb, ac
     : me.isError
       ? null
       : undefined;
-  const section = [...nav.main, ...nav.workspace].find((item) => isActive(pathname, item.href))?.label;
+  const section = nav.main.find((item) => isActive(pathname, item.href))?.label;
   const heading = title ?? section;
 
   return (

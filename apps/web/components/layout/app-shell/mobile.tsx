@@ -2,12 +2,11 @@
 
 import Link from 'next/link';
 import type { ReactNode } from 'react';
-import { Ellipsis, Search, UserPlus, type LucideIcon } from 'lucide-react';
+import { Search, type LucideIcon } from 'lucide-react';
 import type { Me } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { BrandLink } from '@/components/brand/logo-mark';
 import { IconButton } from '@/components/ui/icon-button';
-import { Sheet, SheetBody, SheetClose, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { openCommandMenu } from '@/components/layout/CommandMenu';
 import { HelpButton } from '@/components/support/help-panel';
 import { UserMenu } from './account';
@@ -46,25 +45,16 @@ function TabIcon({ icon: Icon, active }: { icon: LucideIcon; active: boolean }) 
   );
 }
 
-const sheetRow = (active: boolean) =>
-  cn(
-    'flex min-h-12 items-center gap-3 rounded-input px-3 text-md text-text [&>svg]:size-5 [&>svg]:shrink-0 [&>svg]:text-text-2',
-    active ? 'bg-muted font-medium' : 'hover:bg-subtle',
-  );
-
-/** Phones: the main items as tabs, the workspace group behind More (a bottom sheet). */
+/** Phones: the four items as tabs. */
 export function MobileTabBar({
   nav,
   permissions,
   pathname,
 }: {
-  nav: { main: NavItem[]; workspace: NavItem[] };
+  nav: { main: NavItem[] };
   permissions: readonly string[] | null | undefined;
   pathname: string;
 }) {
-  const more = gate(nav.workspace, permissions).filter((item) => !item.pending);
-  const moreActive = more.some((item) => isActive(pathname, item.href));
-
   return (
     <nav aria-label="Main" className="shrink-0 border-t border-border bg-canvas pb-[env(safe-area-inset-bottom)] md:hidden">
       <ul role="list" className="m-0 flex list-none p-0">
@@ -86,47 +76,6 @@ export function MobileTabBar({
             </li>
           );
         })}
-        <li className="min-w-0 flex-1">
-          <Sheet>
-            <SheetTrigger className={tab(moreActive)}>
-              <TabIcon icon={Ellipsis} active={moreActive} />
-              More
-            </SheetTrigger>
-            <SheetContent side="bottom" className="pb-[env(safe-area-inset-bottom)]">
-              <SheetHeader>
-                <SheetTitle>More</SheetTitle>
-              </SheetHeader>
-              <SheetBody>
-                <ul role="list" className="m-0 flex list-none flex-col gap-1 p-0">
-                  {more.map((item) => {
-                    const active = isActive(pathname, item.href);
-                    const Icon = item.icon;
-                    return (
-                      <li key={item.href}>
-                        <SheetClose asChild>
-                          <Link href={item.href} aria-current={active ? 'page' : undefined} className={sheetRow(active)}>
-                            <Icon aria-hidden strokeWidth={1.5} />
-                            {item.label}
-                          </Link>
-                        </SheetClose>
-                      </li>
-                    );
-                  })}
-                  {permissions?.includes('users.invite') ? (
-                    <li>
-                      <SheetClose asChild>
-                        <Link href="/settings?section=team&invite=1" className={sheetRow(false)}>
-                          <UserPlus aria-hidden strokeWidth={1.5} />
-                          Invite people
-                        </Link>
-                      </SheetClose>
-                    </li>
-                  ) : null}
-                </ul>
-              </SheetBody>
-            </SheetContent>
-          </Sheet>
-        </li>
       </ul>
     </nav>
   );

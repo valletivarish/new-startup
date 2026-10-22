@@ -27,12 +27,14 @@ function TeamBody() {
   if (!profile) return null;
   return (
     <div className="space-y-8">
-      <TeamSettings
-        profile={profile}
-        workspaceName={workspaceName}
-        inviteRequested={params.get('invite') === '1'}
-        onInviteHandled={clearInvite}
-      />
+      {can('users.read') || can('users.invite') ? (
+        <TeamSettings
+          profile={profile}
+          workspaceName={workspaceName}
+          inviteRequested={params.get('invite') === '1'}
+          onInviteHandled={clearInvite}
+        />
+      ) : null}
       {can('roles.read') ? <AccessLevels /> : null}
     </div>
   );

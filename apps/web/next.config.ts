@@ -1,10 +1,8 @@
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import type { NextConfig } from 'next';
+import { staticRedirects } from './lib/redirects';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-
-/** @type {import('next').NextConfig} */
-const nextConfig = {
+const nextConfig: NextConfig = {
   // Lets `next dev` and `next build` run side by side without sharing a
   // build directory (NEXT_DIST_DIR=.next-dev for the dev server).
   distDir: process.env.NEXT_DIST_DIR || '.next',
@@ -12,6 +10,9 @@ const nextConfig = {
   outputFileTracingRoot: path.join(__dirname, '../..'),
   // Dev browser often uses 127.0.0.1 while Next binds localhost.
   allowedDevOrigins: ['127.0.0.1', 'localhost'],
+  async redirects() {
+    return staticRedirects();
+  },
   async headers() {
     // The careers-page snippet keeps one URL forever: browsers recheck it hourly (ETag), the
     // CDN keeps it until the next deploy.

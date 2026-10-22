@@ -137,7 +137,7 @@ export function WorkspaceSection({ profile }: { profile: Me }) {
 const AUTO_ADVANCE_HELP =
   'When a call meets every requirement you set, the candidate moves forward on their own. Candidates who don’t meet them always wait for you.';
 
-function AutoAdvance({ canEdit }: { canEdit: boolean }) {
+export function AutoAdvance({ canEdit }: { canEdit: boolean }) {
   const queryClient = useQueryClient();
   const settings = useQuery({ queryKey: ['organization-settings'], queryFn: getOrganizationSettings });
   const [busy, setBusy] = useState(false);
@@ -233,7 +233,7 @@ function AutoAdvance({ canEdit }: { canEdit: boolean }) {
   );
 }
 
-function WorkspaceName({ profile, canRename }: { profile: Me; canRename: boolean }) {
+export function WorkspaceName({ profile, canRename }: { profile: Me; canRename: boolean }) {
   const queryClient = useQueryClient();
   const orgs = useQuery({ queryKey: organizationsQueryKey, queryFn: myOrganizations, staleTime: 5 * 60_000 });
   const current = orgs.data?.organizations.find((o) => o.id === profile.activeOrganization?.id)?.name.trim() ?? '';
@@ -339,7 +339,7 @@ function WorkspaceName({ profile, canRename }: { profile: Me; canRename: boolean
   );
 }
 
-function CallingNumber({ canTest }: { canTest: boolean }) {
+export function CallingNumber({ canTest }: { canTest: boolean }) {
   const status = useQuery({ queryKey: ['telephony-status'], queryFn: getTelephonyStatus });
   const data = status.data;
   const people = useUseCase().labels.contact.many.toLowerCase();

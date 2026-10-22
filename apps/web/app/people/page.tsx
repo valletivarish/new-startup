@@ -60,7 +60,7 @@ function personHref(row: HiringPerson): string {
   return personState(row.status, row.callStatus) === 'review' ? `${href}&tab=results` : href;
 }
 
-export default function CandidatesPage() {
+export default function PeoplePage() {
   const router = useRouter();
   const me = useMe();
   const profile = me.data ?? null;
@@ -68,7 +68,7 @@ export default function CandidatesPage() {
   const canRead = can('candidates.read');
 
   useEffect(() => {
-    if (me.error instanceof ApiClientError && me.error.status === 401) router.push(loginPathForReturn('/candidates'));
+    if (me.error instanceof ApiClientError && me.error.status === 401) router.push(loginPathForReturn('/people'));
   }, [me.error, router]);
 
   const [queryDraft, setQueryDraft] = useState('');
@@ -115,7 +115,7 @@ export default function CandidatesPage() {
     <AppShell profile={profile}>
       <PageMain>
         <PageHeader
-          title="Candidates"
+          title="People"
           accent="across your jobs"
           description="Everyone on your open jobs and where they stand. Open someone to call them, read what they said, or decide."
           actions={

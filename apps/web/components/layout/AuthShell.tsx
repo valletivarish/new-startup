@@ -97,7 +97,7 @@ export function AuthShell({ children }: { children: ReactNode }) {
           >
             <Agent size={52} follow hoverable />
             <p className="m-0 mt-5 text-[clamp(1.6rem,1.2rem+1.4vw,2.35rem)] font-normal leading-[1.08] tracking-[-0.035em]">
-              Your AI hiring agent makes the calls.{' '}
+              HRVoice makes the screening calls.{' '}
               <span className="serif-accent">You decide who&rsquo;s&nbsp;next.</span>
             </p>
             <p className="m-0 mt-4 max-w-[40ch] text-md leading-relaxed text-white/85">

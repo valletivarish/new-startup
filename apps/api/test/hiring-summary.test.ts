@@ -39,7 +39,7 @@ interface Summary {
     jobId: string;
     jobTitle: string;
     jobStatus: string;
-    funnel: { total: number; notCalled: number; toReview: number; onHold: number; movedForward: number } | null;
+    funnel: { total: number; notCalled: number; notConnected: number; toReview: number; onHold: number; movedForward: number } | null;
   }[];
 }
 
@@ -212,8 +212,8 @@ describe('with data', () => {
   it('gives each job its funnel, closed jobs included with their status', async () => {
     const body = await summaryOf(owner);
     const byId = Object.fromEntries(body.jobs.map((j) => [j.jobId, j]));
-    expect(byId[main]?.funnel).toEqual({ total: 8, notCalled: 1, toReview: 1, onHold: 2, movedForward: 1 });
-    expect(byId[bulk]?.funnel).toEqual({ total: 12, notCalled: 12, toReview: 0, onHold: 0, movedForward: 0 });
+    expect(byId[main]?.funnel).toEqual({ total: 8, notCalled: 1, notConnected: 1, toReview: 1, onHold: 2, movedForward: 1 });
+    expect(byId[bulk]?.funnel).toEqual({ total: 12, notCalled: 12, notConnected: 0, toReview: 0, onHold: 0, movedForward: 0 });
     expect(byId[closed]).toMatchObject({ jobStatus: 'closed', jobTitle: 'Closed job' });
     expect(byId[closed]?.funnel?.total).toBe(1);
     expect(body.counts).toEqual({ agents: 1, openJobs: 2, candidates: 21 });
@@ -254,4 +254,33 @@ describe('with data', () => {
     const res = await api.request({ method: 'GET', url: '/hiring/summary' });
     expect(res.statusCode).toBe(401);
   });
+});
+
+describe('a big job', () => {
+  it('lists people by call status, so Review finds answers past the first page; the funnel is exact past 100', async () => {
+    const boss = await registerUser(api, 'sum-big');
+    await createOrganization(api, boss, 'Big Org');
+    const agent = await publishedAgent(boss);
+    const big = await job(boss, 'Big job', 'open');
+    for (let i = 1; i <= 100; i += 1) await candidate(boss, big, `Quiet ${String(i).padStart(3, '0')}`);
+    const answered: string[] = [];
+    for (const n of ['A', 'B', 'C']) answered.push(await candidate(boss, big, `Answered ${n}`));
+    for (const id of answered) await call(boss, agent, big, id, 'ended');
+    await call(boss, agent, big, await candidate(boss, big, 'Failed one'), 'failed');
+
+    type Page = { candidates: { callStatus: string; candidate: { fullName: string } }[]; nextCursor: string | null };
+    const review = await json<Page>(boss, 'GET', `/jobs/${big}/candidates?status=new&call=completed&limit=40`);
+    expect(review.status).toBe(200);
+    expect(review.body.candidates.map((c) => c.candidate.fullName).sort()).toEqual(['Answered A', 'Answered B', 'Answered C']);
+    expect(review.body.nextCursor).toBeNull();
+    const quiet = await json<Page>(boss, 'GET', `/jobs/${big}/candidates?call=not_called&limit=40`);
+    expect(quiet.body.candidates).toHaveLength(40);
+    expect(quiet.body.nextCursor).not.toBeNull();
+    const failed = await json<Page>(boss, 'GET', `/jobs/${big}/candidates?call=failed`);
+    expect(failed.body.candidates.map((c) => c.callStatus)).toEqual(['failed']);
+    expect((await json(boss, 'GET', `/jobs/${big}/candidates?call=bogus`)).status).toBe(422);
+
+    const funnel = (await summaryOf(boss)).jobs.find((j) => j.jobId === big)?.funnel;
+    expect(funnel).toMatchObject({ total: 104, notCalled: 100, notConnected: 1, toReview: 3 });
+  }, 180_000);
 });

@@ -8,12 +8,12 @@ export const FAQ = [
   {
     question: 'Does HRVoice decide who gets hired?',
     answer:
-      'No. It has the conversation and reports what was said, with the transcript and the recording, so you can see who fits. A person on your team moves each candidate forward or not.',
+      'No. It makes the call and writes down what the candidate said. It marks each candidate Meets all, Needs a look or Doesn’t meet, against the requirements you wrote. You listen, read and decide. It never rejects anyone.',
   },
   {
     question: 'What does the call actually sound like?',
     answer:
-      'Like a conversation, not a form. It speaks in a natural voice, picks up on what the candidate says and follows up, for example “What’s behind the eighteen?”, and stops to answer when a candidate cuts in. The 84-second sample call on this page is the proof: press play and judge for yourself.',
+      'Like a short chat, not a form. It asks one question at a time and follows up on what the candidate says, for example “What’s behind the eighteen?” If the candidate cuts in, it stops and answers. Play the 84-second sample call on this page and judge for yourself.',
   },
   {
     question: 'Will candidates know it’s automated?',
@@ -23,16 +23,16 @@ export const FAQ = [
   {
     question: 'Which languages does it speak?',
     answer:
-      'English today. A natural call in the candidate’s own language matters to us. If yours need another, tell us when you start your pilot and we will say plainly whether it is ready.',
+      'English only today. If your candidates need another language, tell us when you sign up. We will tell you straight whether we can call in it yet.',
   },
   {
     question: 'Do I need a calling number to start?',
     answer:
-      'No. Start today with a test call in your browser. To call candidates’ phones, your company needs a calling number. The phone carrier runs a KYC check first, and we help you through it.',
+      'No. You can make a test call in your browser today. To call candidates’ real phones, your company needs its own calling number. The phone company runs a KYC check on your company first, and we help you with it.',
   },
   {
     question: 'What does the candidate need to do?',
-    answer: 'Nothing. They answer an ordinary phone call. They never need an account or an app.',
+    answer: 'Nothing. They pick up an ordinary phone call, between 9 am and 8 pm IST. No account and no app.',
   },
   {
     question: 'Who can see recordings and transcripts?',
@@ -57,10 +57,10 @@ export function FaqSection() {
       <div className={cn(CONTAINER, 'grid grid-cols-1 gap-12 lg:grid-cols-12 lg:gap-16')}>
         <div data-reveal className="lg:sticky lg:top-28 lg:col-span-4 lg:self-start">
           <h2 id="faq-title" className="site-h2 m-0 text-white">
-            Questions, answered
+            Questions HR teams ask
           </h2>
           <p className="m-0 mt-5 max-w-[30ch] text-[1.0625rem] leading-relaxed text-site-fg-2 max-sm:hidden">
-            How the call sounds, what candidates hear, who decides and who sees what.
+            What the call sounds like, what candidates hear, who decides and who can hear recordings.
           </p>
           <p className="m-0 mt-6 text-[0.9375rem] md:mt-10 leading-relaxed text-site-fg-2">
             Not on the list? Ask in your own words.

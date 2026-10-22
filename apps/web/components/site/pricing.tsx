@@ -10,9 +10,9 @@ import { CONTAINER, SECTION, SIGNUP_HREF, siteButton } from './kit';
 export const INCLUDED = [
   'Test calls in your browser',
   'Calls to candidates’ phones, once your calling number is set up',
-  'Recordings, transcripts and answers',
-  'Your whole team. You choose who can hear recordings.',
-  'Reports on your own calls',
+  'A recording, transcript, summary and answers for every call',
+  'Your whole team can log in. You choose who can hear recordings.',
+  'Each candidate’s call status, such as Rang out or Voicemail',
 ] as const;
 
 const MIN = 20;
@@ -57,7 +57,7 @@ export function PricingSection() {
         <div className="mt-10 grid grid-cols-1 gap-4 md:mt-14 lg:grid-cols-12">
           <div data-reveal className="rounded-[26px] border border-site-line bg-site-raised p-6 sm:p-9 lg:col-span-7">
             <label htmlFor="pricing-candidates" className="block text-[0.9375rem] text-site-fg-2">
-              Candidates you screen a month
+              Candidates you call each month
             </label>
             <p aria-hidden className="m-0 mt-2 text-[clamp(2.5rem,2rem+1.6vw,3.5rem)] font-normal leading-none tracking-[-0.04em] tabular-nums text-white">
               {count(candidates)}
@@ -84,17 +84,17 @@ export function PricingSection() {
               <span className="block text-[1.125rem] tracking-[-0.01em] text-white">
                 Up to {count(candidates)} screening calls a month
               </span>
-              Each completed call comes back with its recording, transcript, summary and answers. You pay only for
-              calls that complete. No fee per user.
+              Each completed call gives you the recording, transcript, summary and answers. You pay only for
+              completed calls. No fee per user.
             </output>
 
             <Link href={SIGNUP_HREF} className={cn(siteButton('paper'), 'mt-7')}>
-              Start a pilot
+              Create account
             </Link>
           </div>
 
           <div data-reveal className="rounded-[26px] border border-site-line p-6 sm:p-9 lg:col-span-5">
-            <h3 className="m-0 text-[1.0625rem] font-medium text-white">Included in the pilot</h3>
+            <h3 className="m-0 text-[1.0625rem] font-medium text-white">What you get</h3>
             <ul role="list" className="m-0 mt-4 grid list-none gap-2.5 p-0 sm:gap-3.5">
               {INCLUDED.map((item) => (
                 <li key={item} className="flex gap-3 text-[1rem] leading-relaxed text-site-fg-2">

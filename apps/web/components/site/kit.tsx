@@ -7,7 +7,7 @@ import type { SiteMenuLink } from './menu';
   Shared by the website sections (Synergos styling). Server-safe: no 'use client'.
 */
 
-/** The one signup route. Its label is always "Start a pilot". */
+/** The one signup route. Its label is always "Create account". */
 export const SIGNUP_HREF = '/login?mode=register';
 export const SIGN_IN_HREF = '/login';
 
@@ -42,7 +42,7 @@ const TONE: Record<Tone, string> = {
 
 /**
  * Soft-cornered buttons, the reference's shape (10px, not pills). For links and buttons alike:
- * <Link className={siteButton('paper')} href={SIGNUP_HREF}>Start a pilot</Link>
+ * <Link className={siteButton('paper')} href={SIGNUP_HREF}>Create account</Link>
  */
 export function siteButton(tone: Tone, size: 'md' | 'lg' = 'lg') {
   return cn(

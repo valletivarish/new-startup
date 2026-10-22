@@ -39,7 +39,7 @@ function HeroPhoto() {
 /**
  * The first viewport: tall grass under open sky, full bleed. Centred in the sky, the way the
  * Levito sky hero sits: a small tag, the two-line headline with the page's first italic phrase,
- * one line, Start a pilot and Hear a sample call, and a quiet line under them. The live call
+ * one line, Create account and Hear a sample call, and a quiet line under them. The live call
  * card is the glass object in the scene (Lodge's glass panel), rising out of the grass and
  * across the fold into the black (Apogee). Phones leave it out: the playable sample call
  * follows straight after. The photo settles and the words rise on load (CSS, so the first paint is never blank),
@@ -81,7 +81,7 @@ export function SiteHero() {
           className="site-display site-rise m-0 mt-6 text-white [text-shadow:0_1px_24px_rgb(9_27_46/0.25)]"
           style={rise(0.18)}
         >
-          <span className="block">A screening call that sounds natural.</span>
+          <span className="block">Every candidate gets a phone call.</span>
           <span className="block">
             You decide <Italic>who&rsquo;s&nbsp;next.</Italic>
           </span>
@@ -90,13 +90,13 @@ export function SiteHero() {
           className="site-rise m-0 mt-6 max-w-[34rem] text-[1.0625rem] leading-relaxed text-white/90 [text-shadow:0_1px_12px_rgb(9_27_46/0.35)] lg:max-w-[40rem]"
           style={rise(0.3)}
         >
-          Add a job and your must-ask questions. HRVoice phones each candidate and talks it through like a good
-          recruiter: a natural voice, real follow-ups, room to interrupt. You get the recording, transcript and
-          answers. An AI phone screener that sounds like your team.
+          Add a job, your must-ask questions and your requirements. Our AI phones each candidate between 9 am and
+          8 pm IST and asks your questions in your order. You get the recording, the transcript and each candidate
+          marked Meets all, Needs a look or Doesn&rsquo;t meet.
         </p>
         <div className="site-rise mt-9 flex flex-wrap justify-center gap-3" style={rise(0.4)}>
           <Link href={SIGNUP_HREF} className={siteButton('paper')}>
-            Start a pilot
+            Create account
           </Link>
           <a href="#sample-call-card" className={siteButton('frost')}>
             Hear a sample call
@@ -106,7 +106,7 @@ export function SiteHero() {
           className="site-rise m-0 mt-5 max-w-[30rem] text-[0.875rem] leading-relaxed text-white [text-shadow:0_1px_10px_rgb(9_27_46/0.55)]"
           style={rise(0.45)}
         >
-          Test calls in your browser. No calling number needed to start.
+          Start with a test call in your browser. No calling number needed.
         </p>
         {/* The glass object in the scene: a call in progress, rising out of the grass under the buttons. */}
         <div

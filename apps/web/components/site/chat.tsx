@@ -121,7 +121,7 @@ const ENTRIES: readonly Entry[] = [
       'asked',
     ],
     answer:
-      'Add a job and the questions every candidate must answer. HRVoice phones each candidate and talks it through like a good recruiter: a natural voice, your questions in your order, follow-ups on what they say, and answers to their questions from your job description. You get the recording, transcript and answers, and you decide who moves forward.',
+      'Add a job, the questions every candidate must answer and your requirements. HRVoice phones each candidate between 9 am and 8 pm IST and asks your questions in your order. It follows up on what they say and answers their questions from your job description. You get the recording, the transcript and each candidate marked Meets all, Needs a look or Doesn’t meet. You decide who moves forward.',
     link: { href: '#sample-call-card', label: 'Hear a sample call' },
   },
   {
@@ -153,8 +153,8 @@ const ENTRIES: readonly Entry[] = [
       'free',
     ],
     answer:
-      'You pay for each completed screening call, and there are no fees per user. We start with a pilot on one of your real jobs and agree the price per call with you before any real candidate is called.',
-    link: { href: SIGNUP_HREF, label: 'Start a pilot' },
+      'You pay for each completed screening call, and there are no fees per user. You start by adding one real job and making test calls in your browser. We agree the price per call with you before any real candidate is called.',
+    link: { href: SIGNUP_HREF, label: 'Create account' },
   },
   {
     id: 'start',
@@ -177,21 +177,21 @@ const ENTRIES: readonly Entry[] = [
     ],
     answer:
       'Create your account, add one real job and try a test call in your browser. You don’t need a calling number for that. Before it calls real candidates, we set up your company’s calling number with you.',
-    link: { href: SIGNUP_HREF, label: 'Start a pilot' },
+    link: { href: SIGNUP_HREF, label: 'Create account' },
   },
   {
     id: 'decide',
     ask: 'Does it decide who gets hired?',
     words: ['decide', 'decision', 'hire', 'reject', 'select', 'shortlist', 'score', 'rank', 'judge', 'filter', 'bias', 'fair'],
     answer:
-      'No. It has the conversation and reports what was said, with the transcript and the recording, so you can see who fits. A person on your team moves each candidate forward or not.',
+      'No. It makes the call and writes down what the candidate said. It marks each candidate Meets all, Needs a look or Doesn’t meet, against the requirements you wrote. You listen, read and decide. It never rejects anyone.',
   },
   {
     id: 'natural',
     ask: 'Does it sound natural?',
     words: ['natural', 'sound', 'sounds', 'voice', 'robotic', 'robot', 'real', 'conversation', 'interrupt', 'follow up', 'follow-up'],
     answer:
-      'That is what we built it for: a natural voice, follow-ups like “What’s behind the eighteen?”, and it stops to answer when a candidate cuts in. Play the 84-second sample call and judge for yourself.',
+      'Like a short chat, not a form. It asks one question at a time and follows up on what the candidate says, for example “What’s behind the eighteen?” If the candidate cuts in, it stops and answers. Play the 84-second sample call and judge for yourself.',
     link: { href: '#sample-call-card', label: 'Hear a sample call' },
   },
   {
@@ -216,7 +216,7 @@ const ENTRIES: readonly Entry[] = [
       'multilingual',
     ],
     answer:
-      'English today. A natural call in the candidate’s own language matters to us. If yours need another, tell us when you start your pilot and we will say plainly whether it is ready.',
+      'English only today. If your candidates need another language, tell us when you sign up. We will tell you straight whether we can call in it yet.',
   },
   {
     id: 'line',
@@ -235,7 +235,7 @@ const ENTRIES: readonly Entry[] = [
       'own number',
     ],
     answer:
-      'Not to start: you can test in your browser today. To call candidates’ phones, your company needs a calling number. The phone carrier runs a KYC check first, and we help you through it.',
+      'Not to start: you can make a test call in your browser today. To call candidates’ real phones, your company needs its own calling number. The phone company runs a KYC check on your company first, and we help you with it.',
   },
   {
     id: 'candidate',
@@ -252,7 +252,7 @@ const ENTRIES: readonly Entry[] = [
       'for candidates',
       'candidate experience',
     ],
-    answer: 'Nothing. They answer an ordinary phone call. They never need an account or an app.',
+    answer: 'Nothing. They pick up an ordinary phone call, between 9 am and 8 pm IST. No account and no app.',
   },
   {
     id: 'person',
@@ -281,7 +281,7 @@ const ENTRIES: readonly Entry[] = [
       'confidential',
     ],
     answer:
-      'Only the people you allow: your admin decides who on your team can hear recordings and read transcripts. Each company’s workspace is walled off from every other company’s. Ask us for our data terms before your pilot.',
+      'Only the people you allow: your admin decides who on your team can hear recordings and read transcripts. Each company’s workspace is walled off from every other company’s. Ask us for our data terms before you sign up.',
   },
   {
     id: 'missed',
@@ -473,7 +473,7 @@ export function SiteChat() {
         () => {
           setTyping(false);
           setAgent('speaking');
-          if (aloud) speak(entry ? entry.answer : 'This page doesn’t answer that yet. Ask us when you start your pilot.');
+          if (aloud) speak(entry ? entry.answer : 'This page doesn’t answer that yet. Ask us when you sign up.');
           setMessages((list) => [
             ...list,
             entry
@@ -485,9 +485,9 @@ export function SiteChat() {
                 }
               : {
                   from: 'bot',
-                  text: 'This page doesn’t answer that yet. Ask us when you start your pilot, or pick one of these:',
+                  text: 'This page doesn’t answer that yet. Ask us when you sign up, or pick one of these:',
                   offers: true,
-                  link: { href: SIGNUP_HREF, label: 'Start a pilot' },
+                  link: { href: SIGNUP_HREF, label: 'Create account' },
                 },
           ]);
           timers.current.push(window.setTimeout(() => setAgent('idle'), 1800));

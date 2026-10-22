@@ -308,7 +308,7 @@ describe('POST /organization/members/:id/password-reset', () => {
     expect(res.statusCode).toBe(201);
     expect(JSON.parse(res.body)).toEqual({ sent: true });
     expect(res.body).not.toMatch(/reset-password|http/);
-    const mail = api.outbox.slice(before).find((m) => m.to === member.email && m.subject === 'Reset your password');
+    const mail = api.outbox.slice(before).find((m) => m.to === member.email && m.subject === 'Reset your HRVoice password');
     expect(mail?.text).toMatch(/reset-password\//);
 
     const audit = await api.request({

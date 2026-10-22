@@ -107,8 +107,10 @@ export function createAuth(deps: AuthDeps) {
       sendResetPassword: async ({ user, url }) => {
         await notifications.sendEmail({
           to: user.email,
-          subject: 'Reset your password',
-          text: `Reset your password: ${url}`,
+          subject: 'Reset your HRVoice password',
+          text:
+            `Open this link to choose a new HRVoice password:\n${url}\n\n` +
+            `If you didn’t ask for this, you can ignore this email. Your password stays the same.`,
         });
       },
     },
@@ -118,8 +120,8 @@ export function createAuth(deps: AuthDeps) {
       sendVerificationEmail: async ({ user, url }) => {
         await notifications.sendEmail({
           to: user.email,
-          subject: 'Verify your email',
-          text: `Verify your email address: ${url}`,
+          subject: 'Confirm your email for HRVoice',
+          text: `Open this link to confirm your email address for HRVoice:\n${url}`,
         });
       },
     },

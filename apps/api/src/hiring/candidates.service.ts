@@ -177,7 +177,7 @@ function resolveCreateFields(input: {
   throw ApiError.validation([
     {
       field: 'phone',
-      message: 'Phone is required for new candidates',
+      message: 'Add a mobile number for this candidate.',
     },
   ]);
 }

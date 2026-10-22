@@ -73,7 +73,7 @@ async function fetchAnalytics(can: (permission: string) => boolean): Promise<Ana
   return { sessions, jobs, stages };
 }
 
-export default function AnalyticsPage() {
+export default function ReportsPage() {
   const me = useMe();
   return (
     <AppShell profile={me.data ?? null}>
@@ -84,7 +84,7 @@ export default function AnalyticsPage() {
   );
 }
 
-const TITLE = { title: 'Analytics', accent: 'from real calls' } as const;
+const TITLE = { title: 'Reports', accent: 'from real calls' } as const;
 
 function AnalyticsContent({ me }: { me: UseQueryResult<Me> }) {
   const loading = useHeldLoading(me.isPending);
@@ -100,7 +100,7 @@ function AnalyticsContent({ me }: { me: UseQueryResult<Me> }) {
             description="Analytics counts the calls in a workspace. Choose one on Home."
             action={
               <Button asChild variant="secondary">
-                <Link href="/dashboard">Go to Home</Link>
+                <Link href="/jobs">Go to Home</Link>
               </Button>
             }
           />

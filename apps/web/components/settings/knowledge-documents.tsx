@@ -25,7 +25,6 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { AppShell } from '@/components/AppShell';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm';
 import { EmptyState, IconTile } from '@/components/ui/empty-state';
@@ -33,7 +32,7 @@ import { ErrorState } from '@/components/ui/error-state';
 import { IconButton } from '@/components/ui/icon-button';
 import { Field, FileInput, Input, SearchInput, Select, Textarea, formatBytes } from '@/components/ui/input';
 import { Alert, type StatusTone } from '@/components/ui/notice';
-import { PageHeader, PageMain } from '@/components/ui/page-header';
+import { SectionHead } from '@/components/settings/sections';
 import { Segmented } from '@/components/ui/segmented';
 import { SkeletonRows, useHeldLoading } from '@/components/ui/skeleton';
 import { StatusBadge } from '@/components/ui/state-tag';
@@ -92,7 +91,7 @@ function kindOf(contentType: string): string | null {
 
 type Removal = { kind: 'document' | 'set'; id: string; name: string };
 
-export default function KnowledgePage() {
+export function KnowledgeDocuments() {
   const { labels } = useUseCase();
   const job = labels.workItem.one.toLowerCase();
   const contact = labels.contact.one.toLowerCase();
@@ -296,20 +295,18 @@ export default function KnowledgePage() {
   }
 
   const header = (
-    <PageHeader
-      title="What the agent"
-      accent="answers from"
+    <SectionHead
+      id="company-facts"
+      title="What the agent answers from"
       description={`Company facts it can use on every call. Anything about one ${job} goes on that ${job}.`}
     />
   );
 
   const shell = (children: ReactNode) => (
-    <AppShell profile={profile}>
-      <PageMain>
-        {header}
-        {children}
-      </PageMain>
-    </AppShell>
+    <>
+      {header}
+      {children}
+    </>
   );
 
   if (skeleton) return shell(<SkeletonRows rows={3} />);

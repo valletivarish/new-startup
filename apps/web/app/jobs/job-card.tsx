@@ -1,7 +1,6 @@
 import Link from 'next/link';
 import { ListCell, ListRow, ListRowPrimary } from '../../components/ui/strip';
 import { StatusTag } from '../../components/ui/state-tag';
-import { useJobReadiness } from '../../features/readiness/use-job-readiness';
 import type { NextAction } from '../../features/readiness/next-action';
 import type { Job } from '../../lib/api';
 import { formatWhen } from '../../lib/format';
@@ -22,8 +21,8 @@ export function JobCard({
 }: {
   job: Job;
   funnel: JobFunnel | undefined;
-  /** undefined while it loads, or when it can't be known (closed job, no access to people). */
-  next: NextAction | undefined;
+  /** null only for a closed job. */
+  next: NextAction | null;
   contact: Noun;
 }) {
   const questions = job.screeningQuestions?.length ?? 0;
@@ -37,7 +36,7 @@ export function JobCard({
   return (
     <ListRow>
       <ListRowPrimary title={job.title} meta={meta || undefined} href={`/jobs/${toPublicId(job.id)}`} />
-      {/* Unknown (no access to people, or a closed job) stays empty, never "No people yet". */}
+      {/* Unknown people (no access) stay empty, never "No people yet". */}
       <ListCell className="max-md:hidden">{formatJobPeopleSummary(funnel, contact)}</ListCell>
       <ListCell className="text-text">
         {next ? (
@@ -58,10 +57,4 @@ export function JobCard({
       </ListCell>
     </ListRow>
   );
-}
-
-/** The card with its Next line from the shared readiness hook; a closed job has no next step. */
-export function JobCardWithNext({ job, funnel, contact }: { job: Job; funnel: JobFunnel | undefined; contact: Noun }) {
-  const { next } = useJobReadiness(job.id);
-  return <JobCard job={job} funnel={funnel} next={job.status === 'closed' ? undefined : next} contact={contact} />;
 }

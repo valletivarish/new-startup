@@ -40,8 +40,8 @@ describe('JobCard', () => {
     expect(html).toContain(`href="/jobs/${id}/review"`);
   });
 
-  it('shows no Next line while the next step is still loading', () => {
-    const html = renderToStaticMarkup(<JobCard job={base} funnel={undefined} next={undefined} contact={contact} />);
+  it('shows no Next line for a closed job', () => {
+    const html = renderToStaticMarkup(<JobCard job={base} funnel={undefined} next={null} contact={contact} />);
     expect(html).not.toContain('Next:');
   });
 });

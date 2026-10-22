@@ -23,14 +23,13 @@ import { Field, Input } from '@/components/ui/input';
 import { Alert } from '@/components/ui/notice';
 import { PageHeader, PageMain } from '@/components/ui/page-header';
 import { SkeletonPage, SkeletonRows, useHeldLoading } from '@/components/ui/skeleton';
-import { ListRows } from '@/components/ui/strip';
-import { createJob, listAgents, type Job } from '@/lib/api';
+import { createJob, listAgents } from '@/lib/api';
 import { messageText, toUserMessage } from '@/lib/errors';
-import { hiringPeopleQueryKey, useHomeSnapshot, useHiringPeople, type JobFunnel } from '@/lib/hiring-people';
+import { hiringPeopleQueryKey, useHomeSnapshot, useHiringPeople } from '@/lib/hiring-people';
 import { toPublicId } from '@/lib/public-id';
 import { useMe } from '@/lib/use-me';
 import { useUseCase } from '@/lib/use-cases';
-import { JobCardWithNext } from './job-card';
+import { JobList } from './job-list';
 import { NeedsYou } from './needs-you';
 
 /*
@@ -151,29 +150,6 @@ function JobsPageInner() {
         {canCreate ? <CreateJobDialog open={creating} onOpenChange={setCreating} /> : null}
       </PageMain>
     </AppShell>
-  );
-}
-
-function JobList({ jobs, funnels }: { jobs: Job[]; funnels: Record<string, JobFunnel> }) {
-  const { labels } = useUseCase();
-  const contact = { one: labels.contact.one.toLowerCase(), many: labels.contact.many.toLowerCase() };
-  return (
-    <ListRows
-      aria-label={labels.workItem.many}
-      columns="minmax(0,1.2fr) minmax(0,1.6fr) minmax(0,0.9fr) auto"
-      header={
-        <>
-          <span>{labels.workItem.one}</span>
-          <span>{labels.contact.many}</span>
-          <span>Next</span>
-          <span>Status</span>
-        </>
-      }
-    >
-      {jobs.map((job) => (
-        <JobCardWithNext key={job.id} job={job} funnel={funnels[job.id]} contact={contact} />
-      ))}
-    </ListRows>
   );
 }
 

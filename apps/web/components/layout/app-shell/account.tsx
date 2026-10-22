@@ -41,7 +41,7 @@ function useWorkspaces(profile: Me | null) {
     setSwitching(true);
     switchOrganization(id)
       // Every page holds data from the old workspace, so start clean on Home.
-      .then(() => window.location.assign('/dashboard'))
+      .then(() => window.location.assign('/jobs'))
       .catch((error: unknown) => {
         setSwitching(false);
         toast.error(formatApiError(error, 'We couldn’t switch workspaces. Try again.'));
@@ -249,7 +249,7 @@ export function UserMenu({
           </Menu.Label>
           <Menu.Separator className={MENU.separator} />
           <Menu.Item asChild className={MENU.item}>
-            <Link href="/settings?section=account">
+            <Link href="/settings/account">
               <UserRound aria-hidden strokeWidth={1.5} />
               Your account
             </Link>

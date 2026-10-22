@@ -9,8 +9,8 @@ import { HIRING_USE_CASE } from '../../lib/use-case-definitions';
 export type JobTab = 'candidates' | 'setup';
 
 const PATH: Record<JobTab, (jobId: string) => string> = {
-  candidates: (id) => `/jobs/${id}/candidates`,
-  setup: (id) => `/jobs/${id}`,
+  candidates: (id) => `/jobs/${id}/people`,
+  setup: (id) => `/jobs/${id}/setup`,
 };
 
 export interface JobHeaderProps {

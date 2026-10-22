@@ -6,7 +6,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { BriefcaseBusiness, Lock, Plus } from 'lucide-react';
 import { AppShell } from '@/components/AppShell';
-import { hasJobDescription } from '@/components/jobs/setup';
+import { GettingStarted } from '@/components/home/first-run';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -23,26 +23,20 @@ import { Field, Input } from '@/components/ui/input';
 import { Alert } from '@/components/ui/notice';
 import { PageHeader, PageMain } from '@/components/ui/page-header';
 import { SkeletonPage, SkeletonRows, useHeldLoading } from '@/components/ui/skeleton';
-import { StatusTag } from '@/components/ui/state-tag';
-import { ListCell, ListRow, ListRowPrimary, ListRows } from '@/components/ui/strip';
+import { ListRows } from '@/components/ui/strip';
 import { createJob, listAgents, type Job } from '@/lib/api';
 import { messageText, toUserMessage } from '@/lib/errors';
-import { formatWhen } from '@/lib/format';
-import {
-  formatJobNextStep,
-  formatJobPeopleSummary,
-  hiringPeopleQueryKey,
-  useHiringPeople,
-  type JobFunnel,
-} from '@/lib/hiring-people';
+import { hiringPeopleQueryKey, useHomeSnapshot, useHiringPeople, type JobFunnel } from '@/lib/hiring-people';
 import { toPublicId } from '@/lib/public-id';
 import { useMe } from '@/lib/use-me';
 import { useUseCase } from '@/lib/use-cases';
+import { JobCardWithNext } from './job-card';
+import { NeedsYou } from './needs-you';
 
 /*
-  Jobs (D2): the page's one serif accent in the title, then every job as a row: who is on it,
-  the next step, its status. A job that has its description opens on its candidates; one
-  that doesn't opens on setup, where the description goes in.
+  Jobs is home: what needs you first (three rows, then Show all), then every job as a row with
+  who is on it, its status and one Next: line from the same readiness model as the job's banner.
+  A new workspace sees the getting-started steps instead.
 */
 
 export default function JobsPage() {
@@ -76,6 +70,8 @@ function JobsPageInner() {
   const canRead = permissions.includes('jobs.read');
   const canCreate = permissions.includes('jobs.create');
   const jobs = useHiringPeople(canRead);
+  const home = useHomeSnapshot(me.data);
+  const can = (permission: string) => permissions.includes(permission);
   // Pending stays true while the query waits on permission; only a fetch in flight is loading.
   const loading = useHeldLoading(me.isPending || (jobs.isPending && jobs.fetchStatus !== 'idle'));
 
@@ -119,7 +115,9 @@ function JobsPageInner() {
             This list is from the last time it loaded.
           </Alert>
         ) : null}
-        {jobs.data.jobs.length === 0 ? (
+        {jobs.data.jobs.length === 0 && home.data ? (
+          <GettingStarted snapshot={home.data} can={can} />
+        ) : jobs.data.jobs.length === 0 ? (
           <EmptyState
             icon={<BriefcaseBusiness />}
             title={`No ${labels.workItem.many.toLowerCase()} yet`}
@@ -128,7 +126,10 @@ function JobsPageInner() {
             className="rounded-card border border-border"
           />
         ) : (
-          <JobList jobs={jobs.data.jobs} funnels={jobs.data.funnels} />
+          <>
+            {home.data ? <NeedsYou snapshot={home.data} can={can} /> : null}
+            <JobList jobs={jobs.data.jobs} funnels={jobs.data.funnels} />
+          </>
         )}
       </>
     );
@@ -164,38 +165,14 @@ function JobList({ jobs, funnels }: { jobs: Job[]; funnels: Record<string, JobFu
         <>
           <span>{labels.workItem.one}</span>
           <span>{labels.contact.many}</span>
-          <span>Next step</span>
+          <span>Next</span>
           <span>Status</span>
         </>
       }
     >
-      {jobs.map((job) => {
-        const described = hasJobDescription(job);
-        const funnel = funnels[job.id];
-        const questions = job.screeningQuestions?.length ?? 0;
-        const created = formatWhen(job.createdAt);
-        const meta = [
-          questions > 0 ? `${questions} ${questions === 1 ? 'question' : 'questions'}` : null,
-          created ? `Created ${created}` : null,
-        ]
-          .filter(Boolean)
-          .join(' · ');
-        return (
-          <ListRow key={job.id}>
-            <ListRowPrimary
-              title={job.title}
-              meta={meta || undefined}
-              href={described ? `/jobs/${toPublicId(job.id)}/candidates` : `/jobs/${toPublicId(job.id)}`}
-            />
-            {/* Unknown (no access to candidates, or a closed job) stays empty, never "No candidates yet". */}
-            <ListCell className="max-md:hidden">{formatJobPeopleSummary(funnel, contact)}</ListCell>
-            <ListCell className="text-text">{formatJobNextStep(described, funnel, contact)}</ListCell>
-            <ListCell kind="tag">
-              <StatusTag domain="job" value={job.status} />
-            </ListCell>
-          </ListRow>
-        );
-      })}
+      {jobs.map((job) => (
+        <JobCardWithNext key={job.id} job={job} funnel={funnels[job.id]} contact={contact} />
+      ))}
     </ListRows>
   );
 }

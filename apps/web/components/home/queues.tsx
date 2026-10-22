@@ -59,7 +59,7 @@ const CARD = 'rounded-card border border-border bg-canvas';
 
 /** A person's page on their job's board; `results` opens their answers. */
 function personHref(item: HiringQueueItem, results = false): string {
-  const href = `/jobs/${toPublicId(item.jobId)}/candidates?c=${encodeURIComponent(toPublicId(item.candidateId))}`;
+  const href = `/jobs/${toPublicId(item.jobId)}/people?c=${encodeURIComponent(toPublicId(item.candidateId))}`;
   return results ? `${href}&tab=results` : href;
 }
 
@@ -344,7 +344,7 @@ function NoLineNote({ id }: { id: string }) {
     <p id={id} className="m-0 px-5 pb-3 text-meta text-text-2">
       {NO_LINE_REASON}{' '}
       <Link
-        href="/settings?section=workspace"
+        href="/settings/company"
         className="font-medium text-text underline underline-offset-4 hover:decoration-2"
       >
         See your calling number
@@ -464,7 +464,7 @@ function AtAGlance({ snapshot, canReadCandidates }: { snapshot: HomeSnapshot; ca
       label: stageLabel('screening'),
       value: snapshot.queues?.onHold.total ?? null,
       icon: <CirclePause />,
-      href: canReadCandidates ? '/candidates?stage=screening' : undefined,
+      href: canReadCandidates ? '/people?stage=screening' : undefined,
     },
   ];
   const row = 'flex min-h-14 items-center gap-3 px-5 py-2';
@@ -560,7 +560,7 @@ function NotCalledCard({
             <div key={group.jobId}>
               <h3 className="m-0">
                 <Link
-                  href={`/jobs/${toPublicId(group.jobId)}/candidates?stage=new`}
+                  href={`/jobs/${toPublicId(group.jobId)}/people?stage=new`}
                   className="-ml-1 inline-flex min-h-11 max-w-full items-center gap-1 rounded-input px-1 text-label font-medium text-text-2 transition-colors hover:text-text"
                 >
                   <span className="truncate">{group.jobTitle}</span>
@@ -601,7 +601,7 @@ function NotCalledCard({
         <Showing shown={queue.items.length} total={queue.total}>
           {canSeeCandidates ? (
             <Button asChild variant="tertiary" size="sm" className="-mr-2">
-              <Link href="/candidates?stage=new">
+              <Link href="/people?stage=new">
                 See all<span className="sr-only"> {contacts} not called yet</span>
                 <ChevronRight aria-hidden strokeWidth={1.5} />
               </Link>

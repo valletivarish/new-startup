@@ -80,7 +80,7 @@ export function GettingStarted({ snapshot, can }: { snapshot: HomeSnapshot; can:
       icon: <AudioLines />,
       done: snapshot.agents === null ? null : snapshot.agents > 0,
       action: 'Set up agent',
-      href: '/agents/new?returnTo=%2Fdashboard',
+      href: '/agents/new?returnTo=%2Fjobs',
       blocked: can('agents.create') ? undefined : askAdmin,
     },
     {
@@ -98,7 +98,7 @@ export function GettingStarted({ snapshot, can }: { snapshot: HomeSnapshot; can:
       icon: <UsersRound />,
       done: snapshot.candidates === null ? null : snapshot.candidates > 0,
       action: `Add ${contacts}`,
-      href: snapshot.firstJobId ? `/jobs/${toPublicId(snapshot.firstJobId)}/candidates` : '/jobs',
+      href: snapshot.firstJobId ? `/jobs/${toPublicId(snapshot.firstJobId)}/people` : '/jobs',
       blocked: !can('candidates.create')
         ? askAdmin
         : snapshot.jobs === 0
@@ -114,7 +114,7 @@ export function GettingStarted({ snapshot, can }: { snapshot: HomeSnapshot; can:
       // A check that failed or hasn't answered yet isn't shown as done or not done.
       done: telephony.data ? telephony.data.outboundPhone : null,
       action: 'See calling number',
-      href: '/settings?section=workspace',
+      href: '/settings/company',
     });
   }
   const doneCount = steps.filter((step) => step.done).length;
@@ -291,7 +291,7 @@ function ChooseWorkspace({ orgs }: { orgs: { id: string; name: string }[] }) {
     setError(null);
     switchOrganization(id)
       // A full load, as the shell's switcher does, so nothing from before carries over.
-      .then(() => window.location.assign('/dashboard'))
+      .then(() => window.location.assign('/jobs'))
       .catch((e: unknown) => {
         setOpening(null);
         const message = toUserMessage(e, 'open that workspace');

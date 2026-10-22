@@ -56,7 +56,7 @@ function filterOf(row: HiringPerson): Filter | null {
 
 /** Their row on the job's board; a call waiting on review opens on its answers. */
 function personHref(row: HiringPerson): string {
-  const href = `/jobs/${toPublicId(row.jobId)}/candidates?c=${encodeURIComponent(toPublicId(row.candidateId))}`;
+  const href = `/jobs/${toPublicId(row.jobId)}/people?c=${encodeURIComponent(toPublicId(row.candidateId))}`;
   return personState(row.status, row.callStatus) === 'review' ? `${href}&tab=results` : href;
 }
 
@@ -106,7 +106,7 @@ export default function PeoplePage() {
   );
   // Adding happens on a job: the one in view, or the only one; with several, the jobs list.
   const addTo = openJobs.find((job) => job.id === jobFilter) ?? (openJobs.length === 1 ? openJobs[0] : null);
-  const addHref = can('candidates.create') ? (addTo ? `/jobs/${toPublicId(addTo.id)}/candidates` : '/jobs') : null;
+  const addHref = can('candidates.create') ? (addTo ? `/jobs/${toPublicId(addTo.id)}/people` : '/jobs') : null;
 
   const loadingProfile = useHeldLoading(me.isPending);
   const loadingPeople = useHeldLoading(people.isPending && people.fetchStatus !== 'idle');

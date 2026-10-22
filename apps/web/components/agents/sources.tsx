@@ -26,7 +26,7 @@ export function AgentSources({
       permission: 'jobs.read',
     },
     {
-      href: '/knowledge',
+      href: '/settings/company',
       icon: <BookOpen />,
       title: 'Company facts',
       text: 'Policies, benefits and locations it can answer from on every call.',

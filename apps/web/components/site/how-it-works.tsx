@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import Link from 'next/link';
-import { ArrowDown, ArrowDownLeft, ArrowRight, FileText, Mic, PhoneCall, Users } from 'lucide-react';
+import { ArrowDown, ArrowLeft, ArrowRight, FileText, Mic, PhoneCall, Users } from 'lucide-react';
 import { Agent } from '../brand/agent';
 import type { AgentState } from '../brand/agent-draw';
 import { cn } from '../ui/cn';
@@ -196,7 +196,7 @@ const STEPS = [
     title: 'Hear a test call',
     body: 'Play the candidate in your browser and hear the call as they will. No calling number needed.',
     moment: <TestCallMoment />,
-    span: 'lg:col-span-5',
+    span: 'lg:col-span-5 lg:col-start-8 lg:row-start-2',
     sky: true,
   },
   {
@@ -204,19 +204,20 @@ const STEPS = [
     title: 'Calls go out',
     body: 'We set up your calling number with you. Then HRVoice phones each candidate, and passes the call to your team if they ask for a person.',
     moment: <CallsMoment />,
-    span: 'lg:col-span-7',
+    span: 'lg:col-span-7 lg:col-start-1 lg:row-start-2',
     sky: false,
   },
 ] as const;
 
-// Where the round arrow sits to join a tile to the next one. Phones: below, pointing down.
+// Where the round arrow sits to join a tile to the next one. Laptop: a U, so every arrow points at
+// the very next step (1 → 2, 2 ↓ 3 under it, 3 ← 4). Phones: below, pointing down.
 const DOWN = 'max-lg:-bottom-[1.75rem] max-lg:left-1/2 max-lg:-translate-x-1/2';
 const JOIN = [
   `${DOWN} lg:-right-[1.65rem] lg:top-24 lg:-translate-y-1/2`,
-  `${DOWN} lg:bottom-[-1.75rem] lg:left-10 lg:-translate-x-1/2`,
-  `${DOWN} lg:-right-[1.65rem] lg:top-24 lg:-translate-y-1/2`,
+  `${DOWN} lg:bottom-[-1.75rem] lg:left-1/2 lg:-translate-x-1/2`,
+  `${DOWN} lg:-left-[1.65rem] lg:top-24 lg:-translate-y-1/2`,
 ];
-const JOIN_ICON = [ArrowRight, ArrowDownLeft, ArrowRight];
+const JOIN_ICON = [ArrowRight, ArrowDown, ArrowLeft];
 
 function Tile({ index, step }: { index: number; step: (typeof STEPS)[number] }) {
   const { icon: Icon, title, body, moment, span, sky } = step;

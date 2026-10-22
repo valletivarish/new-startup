@@ -15,6 +15,14 @@ export interface JobCounts {
   undecided: number;
 }
 
+/** How many people the counts look at (the API has no "answered" total yet). */
+export const COUNT_PAGE = 100;
+
+/** True when everyone on the job was counted and nobody has answered: Review is then just empty. */
+export function noAnswersYet(counts: JobCounts | undefined): boolean {
+  return counts !== undefined && counts.answered === 0 && counts.people <= COUNT_PAGE;
+}
+
 export const ALL_CAUGHT_UP = 'All caught up';
 
 /** A Draft job opens on Set up, every other job on People. Stateless: no cookie, no memory. */

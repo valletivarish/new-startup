@@ -77,6 +77,21 @@ export function jobReadiness(
   };
 }
 
+/**
+ * The job's "The call" card: whether the call setup is ready (the agent is published), not the
+ * agent's publish state, and no "agent" in the words. badge is null while it isn't known.
+ */
+export function callCard(
+  hasAgent: boolean,
+  agentLive: boolean | null,
+  line: Readiness['line'],
+): { badge: 'Ready' | 'Not ready' | 'Not chosen' | null; text: string } {
+  if (!hasAgent) return { badge: 'Not chosen', text: 'Choose who calls for this job.' };
+  if (agentLive === null) return { badge: null, text: 'Checking the call setup…' };
+  if (!agentLive) return { badge: 'Not ready', text: 'Not ready yet. Publish it in the call settings before calling.' };
+  return { badge: 'Ready', text: line === 'connected' ? 'Ready to call.' : 'Ready for test calls in your browser.' };
+}
+
 function joinAnd(parts: string[]): string {
   return parts.length < 2 ? (parts[0] ?? '') : `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)}`;
 }

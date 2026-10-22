@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Readiness } from '../../components/jobs/setup';
-import { nextAction, openingTab } from './next-action';
+import { nextAction, noAnswersYet, openingTab } from './next-action';
 
 const ok: Readiness = {
   description: 'saved',
@@ -62,5 +62,14 @@ describe('openingTab', () => {
     expect(openingTab('draft')).toBe('setup');
     expect(openingTab('open')).toBe('people');
     expect(openingTab('closed')).toBe('people');
+  });
+
+  it('Review is empty only when everyone is counted and nobody answered', () => {
+    expect(noAnswersYet({ people: 3, answered: 0, undecided: 0 })).toBe(true);
+    expect(noAnswersYet({ people: 0, answered: 0, undecided: 0 })).toBe(true);
+    expect(noAnswersYet({ people: 3, answered: 1, undecided: 1 })).toBe(false);
+    // More people than the counted page: an answer may be past it, so don't claim there are none.
+    expect(noAnswersYet({ people: 250, answered: 0, undecided: 0 })).toBe(false);
+    expect(noAnswersYet(undefined)).toBe(false);
   });
 });

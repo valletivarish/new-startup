@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { legacyBoardPath, openingPath } from './job-routes';
+import { legacyBoardPath, openingPath, searchRecord } from './job-routes';
 
 describe('old job URLs', () => {
   it('sends the old candidates board to People, keeping its params', () => {
@@ -20,5 +20,11 @@ describe('old job URLs', () => {
     expect(openingPath('j1', 'open', { c: 'p9' })).toBe('/jobs/j1/people?c=p9');
     expect(openingPath('j1', 'closed', {})).toBe('/jobs/j1/people');
     expect(openingPath('j1', null, {})).toBe('/jobs/j1/people');
+  });
+
+  it('carries the incoming query to the opening tab, repeated keys included', () => {
+    const q = searchRecord(new URLSearchParams('c=p9&tag=a&tag=b'));
+    expect(openingPath('j1', 'draft', q)).toBe('/jobs/j1/setup?c=p9&tag=a&tag=b');
+    expect(openingPath('j1', 'draft', searchRecord(new URLSearchParams('')))).toBe('/jobs/j1/setup');
   });
 });

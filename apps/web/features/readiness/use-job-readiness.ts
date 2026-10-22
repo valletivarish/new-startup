@@ -3,11 +3,10 @@ import { jobReadiness, lineState, type Readiness } from '../../components/jobs/s
 import { getAgent, getJob, getTelephonyStatus, listJobCandidates, listJobKnowledge, type Job } from '../../lib/api';
 import { fromPublicId, toPublicId } from '../../lib/public-id';
 import { useMe } from '../../lib/use-me';
-import { nextAction, type JobCounts, type NextAction } from './next-action';
+import { COUNT_PAGE, nextAction, type JobCounts, type NextAction } from './next-action';
 
-// ponytail: counts come from the first 100 people (the API has no "answered" total yet);
+// ponytail: counts come from the first COUNT_PAGE people (the API has no "answered" total yet);
 // the server readiness slice replaces this with one call.
-const COUNT_PAGE = 100;
 
 /**
  * One definition of "is this job ready, and what is next": the existing pure `jobReadiness`

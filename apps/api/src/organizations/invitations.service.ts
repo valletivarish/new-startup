@@ -28,6 +28,7 @@ import { canAssignRole, isSystemRole } from '@platform/permissions';
 import { ApiError } from '../errors.js';
 import type { AuditService } from '../audit/audit.service.js';
 import type { NotificationProvider } from '@platform/providers';
+import type { BetterAuthInstance } from '../auth/better-auth.js';
 
 const INVITATION_TTL_HOURS = 72;
 
@@ -62,6 +63,34 @@ export interface InvitationsService {
     readonly userId: string;
     readonly userEmail: string;
   }): Promise<{ readonly organizationId: string }>;
+  /** Public: what the accept page shows for a token. Nothing else leaves. */
+  preview(token: string): Promise<InvitationPreview>;
+  /** Public: a person with no account joins and is signed in. */
+  acceptNew(params: {
+    readonly token: string;
+    readonly name: string;
+    readonly password: string;
+    readonly email?: string | undefined;
+  }): Promise<{
+    readonly organizationId: string;
+    readonly userId: string;
+    readonly sessionToken: string;
+    readonly cookies: readonly string[];
+  }>;
+  /** New link (the old one stops working), fresh expiry, same email again. */
+  resend(
+    actor: Actor,
+    invitationId: string,
+  ): Promise<{ readonly id: string; readonly acceptUrl: string }>;
+}
+
+export interface InvitationPreview {
+  readonly organizationName: string;
+  readonly inviterName: string;
+  readonly roleName: string;
+  readonly email: string;
+  readonly status: 'pending' | 'expired' | 'revoked' | 'accepted';
+  readonly accountExists: boolean;
 }
 
 function hashToken(token: string): string {
@@ -73,7 +102,32 @@ export function createInvitationsService(
   audit: AuditService,
   notifications: NotificationProvider,
   webUrl: string,
+  auth: BetterAuthInstance,
 ): InvitationsService {
+  async function sendInviteEmail(email: string, company: string, acceptUrl: string) {
+    await notifications.sendEmail({
+      to: email,
+      subject: `Join ${company}`,
+      text:
+        `You've been invited to ${company}.\n\n` +
+        `Open this link to join (expires in ${INVITATION_TTL_HOURS} hours):\n` +
+        `${acceptUrl}\n\n` +
+        `If the link asks you to sign in, use this same email address.`,
+    });
+  }
+
+  async function companyName(actor: Actor): Promise<string> {
+    const rows = await withTenantContext(
+      database.db,
+      { organizationId: actor.organizationId, userId: actor.userId },
+      async (tx) =>
+        tx.execute<{ name: string }>(sql`
+          select name from organizations where id = ${actor.organizationId} limit 1
+        `),
+    );
+    return rows[0]?.name?.trim() || 'your hiring desk';
+  }
+
   return {
     async list(actor) {
       const rows = await withTenantContext(
@@ -163,27 +217,7 @@ export function createInvitationsService(
       );
 
       const acceptUrl = `${webUrl}/invitations/accept?token=${token}`;
-      const orgRows = await withTenantContext(
-        database.db,
-        { organizationId: actor.organizationId, userId: actor.userId },
-        async (tx) =>
-          tx.execute<{ name: string }>(sql`
-            select name from organizations
-            where id = ${actor.organizationId}
-            limit 1
-          `),
-      );
-      const company =
-        orgRows[0]?.name?.trim() || 'your hiring desk';
-      await notifications.sendEmail({
-        to: email,
-        subject: `Join ${company}`,
-        text:
-          `You've been invited to ${company}.\n\n` +
-          `Open this link to join (expires in ${INVITATION_TTL_HOURS} hours):\n` +
-          `${acceptUrl}\n\n` +
-          `If the link asks you to sign in, use this same email address.`,
-      });
+      await sendInviteEmail(email, await companyName(actor), acceptUrl);
 
       await audit.record({
         organizationId: actor.organizationId,
@@ -311,6 +345,133 @@ export function createInvitationsService(
       });
 
       return { organizationId: invitation.organization_id };
+    },
+
+    async preview(token) {
+      const tokenHash = hashToken(token);
+      const row = await withInvitationContext(database.db, tokenHash, async (tx) => {
+        const rows = await tx.execute<{
+          email: string;
+          status: InvitationPreview['status'];
+          expired: boolean;
+          organization_name: string;
+          role_name: string;
+          inviter_name: string;
+          account_exists: boolean;
+        }>(sql`
+          select i.email, i.status, (i.expires_at < now()) as expired,
+                 o.name as organization_name, r.name as role_name,
+                 coalesce(u.name, '') as inviter_name,
+                 exists (select 1 from users x where lower(x.email) = lower(i.email)) as account_exists
+          from organization_invitations i
+          join organizations o on o.id = i.organization_id
+          join roles r on r.id = i.role_id
+          left join users u on u.id = i.invited_by_user_id
+          where i.token_hash = ${tokenHash}
+        `);
+        return rows[0] ?? null;
+      });
+      if (!row) throw ApiError.notFound('Invitation');
+      return {
+        organizationName: row.organization_name,
+        inviterName: row.inviter_name,
+        roleName: row.role_name,
+        email: row.email,
+        status: row.status === 'pending' && row.expired ? 'expired' : row.status,
+        accountExists: row.account_exists,
+      };
+    },
+
+    async acceptNew({ token, name, password, email }) {
+      const preview = await this.preview(token);
+      // A supplied email must be the invited one; the invitation decides the
+      // address, never the request.
+      if (email !== undefined && email.toLowerCase() !== preview.email.toLowerCase()) {
+        throw ApiError.notFound('Invitation');
+      }
+      if (preview.status !== 'pending') {
+        throw ApiError.gone('This invitation is no longer valid');
+      }
+      if (preview.accountExists) {
+        throw ApiError.conflict('An account already exists for this email. Sign in to join.');
+      }
+
+      // ponytail: sign-up and the membership insert are two transactions (Better
+      // Auth owns its own connection). The invitation is claimed atomically with
+      // the membership in accept(); a failure between them leaves a plain account
+      // that can sign in and use the link again.
+      let created;
+      try {
+        created = await auth.api.signUpEmail({
+          body: { email: preview.email, password, name },
+          returnHeaders: true,
+        });
+      } catch (error) {
+        const status = (error as { statusCode?: number }).statusCode;
+        if (status === 422 || status === 409) {
+          throw ApiError.conflict('An account already exists for this email. Sign in to join.');
+        }
+        if (status === 400) {
+          throw ApiError.validation([{ field: 'password', message: 'Use a password of 8 to 128 characters.' }]);
+        }
+        throw error;
+      }
+      const userId = created.response.user.id;
+      const sessionToken = created.response.token;
+      if (!sessionToken) throw new Error('sign-up returned no session');
+
+      const { organizationId } = await this.accept({ token, userId, userEmail: preview.email });
+      return {
+        organizationId,
+        userId,
+        sessionToken,
+        cookies: created.headers.getSetCookie(),
+      };
+    },
+
+    async resend(actor, invitationId) {
+      const token = randomBytes(32).toString('base64url');
+      const row = await withTenantContext(
+        database.db,
+        { organizationId: actor.organizationId, userId: actor.userId },
+        async (tx) => {
+          try {
+            const rows = await tx.execute<{ email: string }>(sql`
+              update organization_invitations
+              set token_hash = ${hashToken(token)}, status = 'pending',
+                  expires_at = now() + make_interval(hours => ${INVITATION_TTL_HOURS}),
+                  updated_at = now()
+              where id = ${invitationId}
+                and organization_id = ${actor.organizationId}
+                and status in ('pending', 'expired')
+              returning email
+            `);
+            if (rows[0]) return rows[0];
+          } catch (error) {
+            if ((error as { cause?: { code?: string } }).cause?.code === '23505') {
+              throw ApiError.conflict('A pending invitation for that email already exists');
+            }
+            throw error;
+          }
+          const exists = await tx.execute(sql`
+            select 1 from organization_invitations
+            where id = ${invitationId} and organization_id = ${actor.organizationId}
+          `);
+          if (exists.length === 0) throw ApiError.notFound('Invitation');
+          throw ApiError.conflict('That invitation was already used or revoked');
+        },
+      );
+
+      const acceptUrl = `${webUrl}/invitations/accept?token=${token}`;
+      await sendInviteEmail(row.email, await companyName(actor), acceptUrl);
+      await audit.record({
+        organizationId: actor.organizationId,
+        actorUserId: actor.userId,
+        eventType: 'invitation.resent',
+        resourceType: 'invitation',
+        resourceId: invitationId,
+      });
+      return { id: invitationId, acceptUrl };
     },
   };
 }

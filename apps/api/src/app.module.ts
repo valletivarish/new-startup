@@ -282,6 +282,7 @@ export class AppModule {
               audit,
               deps.notifications,
               deps.env.WEB_URL,
+              deps.auth,
             ),
         },
         {

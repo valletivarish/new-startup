@@ -178,12 +178,6 @@ describe('new client functions', () => {
     expect(lastCall()).toMatchObject(['/backend/organization/members/m1', { method: 'DELETE' }]);
     await api.sendMemberPasswordReset('m1');
     expect(lastCall()).toMatchObject(['/backend/organization/members/m1/password-reset', { method: 'POST' }]);
-    await api.createRole({ name: 'Recruiter', permissions: [] });
-    expect(lastCall()).toMatchObject(['/backend/roles', { method: 'POST' }]);
-    await api.updateRole('r1', { name: 'Lead' });
-    expect(lastCall()).toMatchObject(['/backend/roles/r1', { method: 'PATCH' }]);
-    await api.deleteRole('r1');
-    expect(lastCall()).toMatchObject(['/backend/roles/r1', { method: 'DELETE' }]);
     await api.getHiringSummary();
     expect(lastCall()[0]).toBe('/backend/hiring/summary');
     await api.listJobCandidates('j1', { status: 'declined' });

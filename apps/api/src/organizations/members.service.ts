@@ -53,6 +53,12 @@ export interface MembersService {
   changeRole(actor: Actor, membershipId: string, roleKey: string): Promise<void>;
   changeStatus(actor: Actor, membershipId: string, status: 'active' | 'suspended'): Promise<void>;
   remove(actor: Actor, membershipId: string): Promise<void>;
+  /** Looks the member up in the caller's company, then hands their email to `send`. */
+  sendPasswordReset(
+    actor: Actor,
+    membershipId: string,
+    send: (email: string) => Promise<void>,
+  ): Promise<void>;
 }
 
 // Type alias, not interface: drizzle's execute<T> constraint requires
@@ -340,6 +346,31 @@ export function createMembersService(
         organizationId: actor.organizationId,
         actorUserId: actor.userId,
         eventType: 'membership.removed',
+        resourceType: 'membership',
+        resourceId: membershipId,
+      });
+    },
+
+    async sendPasswordReset(actor, membershipId, send) {
+      const email = await withTenantContext(
+        database.db,
+        { organizationId: actor.organizationId, userId: actor.userId },
+        async (tx) => {
+          const target = await lockTarget(tx, actor.organizationId, membershipId);
+          await assertCanModifyAudited(actor, target);
+          const rows = await tx.execute<{ email: string }>(sql`
+            select email from users where id = ${target.user_id}
+          `);
+          const found = rows[0]?.email;
+          if (!found) throw ApiError.notFound('Member');
+          return found;
+        },
+      );
+      await send(email);
+      await audit.record({
+        organizationId: actor.organizationId,
+        actorUserId: actor.userId,
+        eventType: 'membership.password_reset_sent',
         resourceType: 'membership',
         resourceId: membershipId,
       });

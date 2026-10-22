@@ -83,7 +83,7 @@ export function SiteMenu({ links, className }: SiteMenuProps) {
           </nav>
           <Button asChild size="lg" className="mt-5 w-full">
             <Link href={SIGNUP_HREF} onClick={() => setOpen(false)}>
-              Start a pilot
+              Create account
             </Link>
           </Button>
           <Button asChild variant="secondary" size="lg" className="mt-2 w-full">

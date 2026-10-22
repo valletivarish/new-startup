@@ -44,8 +44,8 @@ export function SiteFooter() {
             {WORDMARK}
           </Link>
           <p className="m-0 mt-3 max-w-[32ch] text-[0.9375rem] leading-relaxed text-site-fg-2">
-            HRVoice phones your candidates and hands you the record. Made in
-            India.
+            HRVoice phones your candidates and sends you the recording and answers.
+            Made in India.
           </p>
         </div>
         <nav
@@ -66,7 +66,7 @@ export function SiteFooter() {
             </ul>
           </div>
           <div>
-            <h2 className={HEAD}>Modules</h2>
+            <h2 className={HEAD}>Our products</h2>
             <ul role="list" className="m-0 mt-2 grid list-none p-0">
               {MODULES.map((m) => (
                 <li
@@ -90,13 +90,13 @@ export function SiteFooter() {
               ))}
             </ul>
           </div>
-          {/* Phones have Start a pilot and Sign in in the header already. */}
+          {/* Phones have Create account and Sign in in the header already. */}
           <div className="hidden md:block">
             <h2 className={HEAD}>Account</h2>
             <ul role="list" className="m-0 mt-2 grid list-none p-0">
               <li>
                 <Link href={SIGNUP_HREF} className={LINK}>
-                  Start a pilot
+                  Create account
                 </Link>
               </li>
               <li>

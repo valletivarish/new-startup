@@ -11,7 +11,7 @@ const TERMS = ['Test calls in your browser', 'Pay per completed call', 'A record
 /**
  * The closing band (Levito's dusk sky, Margin's centred close): green hills under open sky,
  * faded in from the black above and out into the footer's black below, so the band and the
- * footer read as one. The page's last italic phrase, Start a pilot and Hear a sample call, the
+ * footer read as one. The page's last italic phrase, Create account and Hear a sample call, the
  * terms in one line, and the contact row (Aerosea) once the founder has set it in contact.ts.
  */
 export function ClosingSection() {
@@ -29,14 +29,14 @@ export function ClosingSection() {
       />
       <div className={`${CONTAINER} flex min-h-[34rem] flex-col items-center justify-center py-24 text-center md:min-h-[46rem] md:py-32`}>
         <h2 id="closing-title" className="site-h2 m-0 text-white [text-shadow:0_1px_24px_rgb(9_27_46/0.3)]">
-          <span className="block">Hear it before any candidate does.</span>
+          <span className="block">Hear the call before any candidate does.</span>
           <span className="block">
             Start with <Italic>one real job.</Italic>
           </span>
         </h2>
         <div className="mt-9 flex flex-wrap justify-center gap-3">
           <Link href={SIGNUP_HREF} className={siteButton('paper')}>
-            Start a pilot
+            Create account
           </Link>
           <a href="#sample-call-card" className={siteButton('frost')}>
             Hear a sample call

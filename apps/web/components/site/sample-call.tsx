@@ -25,8 +25,8 @@ const moment = (words: string, label: string) => {
 };
 const MOMENTS = [
   moment('thirty days', 'Notice period: thirty days, can be shortened'),
-  moment('can I pick which three days', 'She cuts in, and it answers and carries on'),
-  moment('good jump from thirteen', 'It follows up: what’s behind the eighteen?'),
+  moment('can I pick which three days', 'Priya cuts in. It answers, then returns to its question'),
+  moment('good jump from thirteen', 'It follows up on her salary: what’s behind the eighteen?'),
 ] as const;
 
 // The turn each moment starts on, so a chip lights up while its turn is spoken.
@@ -38,7 +38,7 @@ const COVERAGE = answerCoverage(SAMPLE_CALL.answers);
 const FACTS = `${SAMPLE_JOB.title}, ${SAMPLE_JOB.location} · ${clock(DURATION)} · ${COVERAGE.answered} of ${COVERAGE.total} answered`;
 
 /** Three plain facts under the card, true of every call. */
-const POINTS = ['Natural voice, same questions every call', 'Every answer links to its second', 'It never recommends hire or reject'] as const;
+const POINTS = ['Same questions, in your order, on every call', 'Tap an answer to hear that moment', 'It never rejects anyone. You decide.'] as const;
 
 // A picture of the recording's loudness for the scrubber: fixed, so server and client agree.
 const BARS = Array.from({ length: 72 }, (_, i) => {
@@ -162,7 +162,7 @@ export function SampleCallSection({ className }: SampleCallSectionProps) {
         <div data-reveal className="flex flex-col items-center text-center">
           <Tag>Sample call</Tag>
           <h2 id="sample-call-title" className="site-h2 m-0 mt-5 text-white">
-            Hear how natural it is. <Italic>Then&nbsp;skim&nbsp;the&nbsp;answers.</Italic>
+            Hear a full screening call. <Italic>Then&nbsp;read&nbsp;the&nbsp;answers.</Italic>
           </h2>
         </div>
 
@@ -174,7 +174,7 @@ export function SampleCallSection({ className }: SampleCallSectionProps) {
           {/* The player: moments, play, the scrubber. */}
           <div className="min-w-0 p-5 sm:p-7 lg:col-start-1 lg:row-start-1 lg:p-9 lg:pb-6">
             <p className="m-0 text-[0.8125rem] text-site-fg-3" id="sample-call-moments">
-              Jump to a moment
+              Jump to a part of the call
             </p>
             <ul
               role="list"
@@ -296,7 +296,7 @@ export function SampleCallSection({ className }: SampleCallSectionProps) {
                       )}
                     >
                       <p className="m-0 flex items-baseline gap-2 text-[0.75rem] text-site-fg-3">
-                        <span className="font-medium text-site-fg-2">{turn.speaker === 'agent' ? 'Hiring team call' : FIRST_NAME}</span>
+                        <span className="font-medium text-site-fg-2">{turn.speaker === 'agent' ? 'Hiring team' : FIRST_NAME}</span>
                         <span className="tabular-nums">{clock(turn.at)}</span>
                       </p>
                       <p className="m-0 mt-1 text-[0.9375rem] leading-relaxed text-white">{turn.text}</p>
@@ -319,7 +319,7 @@ export function SampleCallSection({ className }: SampleCallSectionProps) {
           {/* The job's answers, each lighting up the second it is said. */}
           <div className="min-w-0 border-t border-white/10 p-5 sm:p-7 lg:col-start-1 lg:row-start-2 lg:p-9 lg:pt-7">
             <div className="flex items-baseline justify-between gap-3">
-              <h3 className="m-0 text-[0.8125rem] font-medium uppercase tracking-[0.08em] text-site-fg-3">Answers</h3>
+              <h3 className="m-0 text-[0.8125rem] font-medium uppercase tracking-[0.08em] text-site-fg-3">Your must-ask questions</h3>
             </div>
             <ul role="list" className="m-0 mt-4 grid list-none grid-cols-1 gap-2 p-0 sm:grid-cols-2">
               {ASKED.map((item, i) => {

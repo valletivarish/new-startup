@@ -19,9 +19,9 @@ const EXCERPT = SAMPLE_CALL.turns.filter((turn) => turn.at >= 18 && turn.at < 25
 
 /** What each part of the record is for: beside the panel on laptops, under it on phones. */
 const POINTS = [
-  { title: 'Talks it through naturally', body: 'Your questions, in your order, with follow-ups on what the candidate says. It handles interruptions.' },
-  { title: 'Answers from your job description', body: 'Candidates ask about the job. It answers from what you uploaded and passes on the rest.' },
-  { title: 'Hands you the full record', body: 'Summary first, then the answers, transcript and recording. Nothing is decided for you.' },
+  { title: 'Asks your questions in your order', body: 'It follows up on what the candidate says. If they cut in, it answers and carries on.' },
+  { title: 'Answers the candidate’s questions', body: 'It answers from the job description you uploaded. Anything else goes to your team.' },
+  { title: 'Sends you everything from the call', body: 'A summary, each answer, the transcript and the recording. You make the decision.' },
 ] as const;
 
 /**
@@ -40,7 +40,7 @@ function RecordPanel() {
           </p>
         </div>
         <span className="inline-flex h-6 shrink-0 items-center rounded-[7px] border border-status-info-border bg-status-info-bg px-2 text-[0.6875rem] font-medium text-status-info-text">
-          Ready for review
+          Summary ready
         </span>
       </div>
 
@@ -129,12 +129,12 @@ export function ProductSection() {
         <div data-reveal className="grid grid-cols-1 gap-6 lg:grid-cols-12 lg:items-end">
           <div className="lg:col-span-7">
             <h2 id="product-title" className="site-h2 m-0 text-white">
-              Every call comes back ready to review
+              Each call gives you the answers, a summary and the recording
             </h2>
           </div>
           <p className="m-0 max-w-[30rem] text-[1.0625rem] leading-relaxed text-site-fg-2 max-sm:hidden lg:col-span-5 lg:justify-self-end">
-            You read what was said and see who fits, then decide who moves forward. HRVoice reports. It never
-            recommends hire or reject.
+            You read what the candidate said and see if they meet the requirements you wrote. You decide who
+            moves forward. HRVoice never rejects anyone.
           </p>
         </div>
 

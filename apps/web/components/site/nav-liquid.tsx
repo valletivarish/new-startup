@@ -12,12 +12,12 @@ import { SiteMenu, type SiteMenuLink } from './menu';
 /**
  * A web take on Apple's Liquid Glass for the website header (an approximation: Apple ships the
  * material for its own platforms, not the web). One floating glass capsule pinned to the top:
- * the agent and name, the section links, Sign in and Start a pilot. Behind the links rides a
+ * the agent and name, the section links, Sign in and Create account. Behind the links rides a
  * clear glass lens; the label it sits under brightens and grows a little. It slides to the
  * link you point at or focus, and you can drag it: it stretches with speed, wobbles a little
  * as it lands, and letting go over a link takes you there. Reduced motion: the lens jumps,
  * no stretch, no wobble, no growing label. On phones the bar keeps the wordmark, a compact
- * Start a pilot and the menu button.
+ * Create account and the menu button.
  */
 
 // What the header's agent acts out while the page scrolls: every state, and a few faces.
@@ -330,7 +330,7 @@ export function LiquidNav({ sections }: { sections: readonly SiteMenuLink[] }) {
             data-ink
             className="inline-flex h-11 items-center whitespace-nowrap rounded-[10px] bg-[rgb(var(--ink))] px-3.5 text-[0.875rem] font-medium text-[rgb(var(--paper))] no-underline transition-[background-color,color,scale] duration-300 hover:bg-[rgb(var(--ink)/0.86)] motion-safe:active:[scale:0.98] sm:h-10 sm:px-4 [@media(pointer:coarse)]:h-11"
           >
-            Start a pilot
+            Create account
           </Link>
           <div data-ink className="lg:hidden">
             <SiteMenu

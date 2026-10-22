@@ -12,10 +12,10 @@ import { PricingSection } from '../components/site/pricing';
 import { ProductSection } from '../components/site/product';
 import { SampleCallSection } from '../components/site/sample-call';
 
-const TITLE = `${WORDMARK} | Phone screening that sounds like your team`;
+const TITLE = `${WORDMARK} | AI screening calls to your job applicants`;
 // The hero's line under the headline.
 const DESCRIPTION =
-  'Add a job and your must-ask questions. HRVoice phones each candidate and talks it through like a good recruiter, then sends you the recording, transcript and answers. An AI phone screener that sounds like your team.';
+  'Add a job, your must-ask questions and your requirements. HRVoice phones each candidate between 9 am and 8 pm IST and asks your questions in your order. You get the recording, the transcript and each candidate marked Meets all, Needs a look or Doesn’t meet.';
 
 export const metadata: Metadata = {
   // The origin robots.ts and sitemap.ts use, so the canonical and the card image point at the real site.

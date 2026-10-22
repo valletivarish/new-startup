@@ -1,6 +1,6 @@
 /**
  * Sample data for the website only. Every name, number and answer here is
- * illustrative and is labelled as a sample wherever it renders. Nothing in
+ * illustrative. Nothing in
  * this file is read by the app or presented as a real customer or result.
  * The agent's lines mirror the real hiring definition's opening and flow.
  */
@@ -114,4 +114,3 @@ export const SAMPLE_CALL = {
     'Priya has about four years as a software engineer, mostly building web applications in Java and Python, and a thirty-day notice period that can be shortened. She lives in Pune and is fine with three office days a week. She earns about ₹13 lakh a year now and expects about ₹18 lakh, because she leads a small team and has another offer at about ₹17 lakh; she has some flexibility for the right role. She is free for a technical interview on Tuesday or Wednesday afternoon, and asked whether the first round is online. She also asked if she can choose which three days she comes to the office; the agent said it would check with the hiring team.',
 } as const;
 
-export const SAMPLE_LABEL = 'Sample calls. Names and answers are illustrative.';

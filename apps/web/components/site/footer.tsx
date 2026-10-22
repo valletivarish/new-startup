@@ -137,9 +137,6 @@ export function SiteFooter() {
               </Link>
             ))}
           </p>
-          <p className="m-0">
-            Names, calls and photos on this page are illustrative.
-          </p>
           <a
             href="#top"
             className="inline-flex min-h-11 items-center text-site-fg-3 no-underline hover:text-white"

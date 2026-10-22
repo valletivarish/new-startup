@@ -9,7 +9,6 @@ import type { AgentState } from '../brand/agent-draw';
 import { ListeningBar, type ListeningState } from '../shared/listening-bar';
 import { Transcript, type TranscriptTurn } from '../shared/transcript';
 import { cn } from '../ui/cn';
-import { SAMPLE_NOTE } from './kit';
 import { SAMPLE_CALL, SAMPLE_JOB } from './sample-data';
 
 gsap.registerPlugin(useGSAP);
@@ -228,7 +227,6 @@ export function LiveCall({ className }: { className?: string }) {
             </li>
           ))}
         </ol>
-        <p>{SAMPLE_NOTE}</p>
       </div>
       <div
         ref={card}
@@ -259,7 +257,6 @@ export function LiveCall({ className }: { className?: string }) {
             announce={false}
           />
         </div>
-        <p className="m-0 px-4 pb-3 pt-2.5 text-[0.6875rem] text-white/60">{SAMPLE_NOTE}</p>
       </div>
       {/* The agent, seated on the card, acting out the call: ringing, thinking, speaking, listening. */}
       <div aria-hidden className="pointer-events-none absolute left-1/2 top-0 z-10 -translate-x-1/2 -translate-y-[62%]">

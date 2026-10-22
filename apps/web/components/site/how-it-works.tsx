@@ -8,7 +8,7 @@ import type { AgentState } from '../brand/agent-draw';
 import { cn } from '../ui/cn';
 import { SAMPLE_CALL, SAMPLE_CANDIDATES, SAMPLE_JOB, type SampleStripState } from './sample-data';
 import fieldPhoto from '../../public/images/site/setup-field.jpg';
-import { CONTAINER, PhotoFrame, SAMPLE_NOTE, SECTION, SIGNUP_HREF } from './kit';
+import { CONTAINER, PhotoFrame, SECTION, SIGNUP_HREF } from './kit';
 
 const QUESTIONS = SAMPLE_CALL.answers.filter((answer) => !('extra' in answer && answer.extra)).map((a) => a.question);
 
@@ -225,7 +225,6 @@ export function HowItWorksSection() {
                   ))}
                 </div>
               </PhotoFrame>
-              <p className="m-0 mt-4 text-[0.8125rem] text-site-fg-3">{SAMPLE_NOTE}</p>
             </div>
           </div>
         </div>

@@ -7,7 +7,7 @@ import { cn } from '../ui/cn';
 import { answerCoverage } from '../shared/answers-list';
 import { SAMPLE_CALL, SAMPLE_JOB } from './sample-data';
 import { clampTime, clock, DURATION, percentAt, playFrom, positionText, turnIndexAt } from './sample-call-timeline';
-import { CONTAINER, Italic, SAMPLE_NOTE, SECTION, Tag } from './kit';
+import { CONTAINER, Italic, SECTION, Tag } from './kit';
 import framePhoto from '../../public/images/site/sample-frame.jpg';
 
 /** The sample call's recording. Labelled as a sample beside the player. */
@@ -320,7 +320,6 @@ export function SampleCallSection({ className }: SampleCallSectionProps) {
           <div className="min-w-0 border-t border-white/10 p-5 sm:p-7 lg:col-start-1 lg:row-start-2 lg:p-9 lg:pt-7">
             <div className="flex items-baseline justify-between gap-3">
               <h3 className="m-0 text-[0.8125rem] font-medium uppercase tracking-[0.08em] text-site-fg-3">Answers</h3>
-              <p className="m-0 text-[0.75rem] text-site-fg-3">{SAMPLE_NOTE}</p>
             </div>
             <ul role="list" className="m-0 mt-4 grid list-none grid-cols-1 gap-2 p-0 sm:grid-cols-2">
               {ASKED.map((item, i) => {

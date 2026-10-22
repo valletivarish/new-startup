@@ -29,7 +29,6 @@ export const CONTAINER = 'mx-auto w-full max-w-[80rem] px-5 md:px-8 lg:px-12';
 /** The vertical rhythm between dark sections. */
 export const SECTION = 'py-16 md:py-32';
 
-export const SAMPLE_NOTE = 'Sample call. Names and answers are illustrative.';
 
 type Tone = 'ink' | 'paper' | 'frost';
 

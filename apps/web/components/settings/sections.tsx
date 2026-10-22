@@ -377,7 +377,7 @@ export function CallingNumber({ canTest }: { canTest: boolean }) {
               Not connected yet
             </StatusBadge>
           ),
-          text: `We set up your calling number with you before the agent phones real ${people}. Until then, try the agent with a test call in your browser.`,
+          text: `We set up your calling number with you before HRVoice phones real ${people}. Until then, try a test call in your browser.`,
         }
       : data.openOutbound
         ? {
@@ -386,7 +386,7 @@ export function CallingNumber({ canTest }: { canTest: boolean }) {
                 Ready to call
               </StatusBadge>
             ),
-            text: `The agent phones ${people} from your calling number. Use Call now on anyone with a valid mobile number.`,
+            text: `HRVoice phones ${people} from your calling number. Use Call now on anyone with a valid mobile number.`,
           }
         : {
             badge: (
@@ -416,7 +416,7 @@ export function CallingNumber({ canTest }: { canTest: boolean }) {
   }
 
   return (
-    <SettingsCard title="Calling number" description={`The number your AI hiring agent phones ${people} from.`}>
+    <SettingsCard title="Calling number" description={`The number HRVoice phones ${people} from.`}>
       {body}
     </SettingsCard>
   );

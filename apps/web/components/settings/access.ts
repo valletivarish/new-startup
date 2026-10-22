@@ -26,11 +26,12 @@ const BUILT_IN: Record<string, { name: string; blurb: (l: Labels) => string }> =
   },
   knowledge_manager: {
     name: 'Knowledge manager',
-    blurb: (l) => `Adds and edits what the agent answers from. No ${lower(l.contact.many)} or calls.`,
+    blurb: (l) => `Adds and edits what HRVoice answers from. No ${lower(l.contact.many)} or calls.`,
   },
   agent_manager: {
-    name: 'Agent manager',
-    blurb: () => 'Sets up, tests and publishes the agent, and reads its calls to tune it.',
+    // Display only: the stored key stays agent_manager.
+    name: 'Call setup manager',
+    blurb: () => 'Sets up, tests and publishes the call, and reads its calls to tune it.',
   },
   administrator: { name: 'Administrator', blurb: () => 'Everything except billing and deleting the workspace.' },
   owner: { name: 'Owner', blurb: () => 'Everything, including billing and deleting the workspace.' },
@@ -118,8 +119,15 @@ const LABEL: Record<string, string> = {
   'roles.assign': 'Change someone’s access level',
   'roles.manage': 'Create and edit access levels',
   'agents.test': 'Make test calls in the browser',
-  'agents.sessions.read': 'See the agent’s calls',
-  'agents.sessions.manage': 'Start and end the agent’s calls',
+  'agents.read': 'See call setups',
+  'agents.create': 'Create call setups',
+  'agents.update': 'Edit call setups',
+  'agents.delete': 'Delete call setups',
+  'agents.deploy': 'Publish call setups',
+  'agents.pause': 'Pause calls',
+  'agents.archive': 'Archive call setups',
+  'agents.sessions.read': 'See the calls',
+  'agents.sessions.manage': 'Start and end calls',
 };
 
 export function permissionLabel(p: Pick<PermissionInfo, 'key' | 'label'>): string {
@@ -140,7 +148,7 @@ export function groupPermissions(catalogue: readonly PermissionInfo[], labels: L
   }
   const rank = (g: string) => (GROUP_ORDER.includes(g) ? GROUP_ORDER.indexOf(g) : GROUP_ORDER.length);
   const name = (g: string) =>
-    g === 'Jobs' ? labels.workItem.many : g === 'People' ? labels.contact.many : g === 'Company' ? 'Workspace' : g;
+    g === 'Jobs' ? labels.workItem.many : g === 'People' ? labels.contact.many : g === 'Company' ? 'Workspace' : g === 'Agents' ? 'Call setup' : g;
   return [...byGroup.keys()]
     .sort((a, b) => rank(a) - rank(b))
     .map((g) => ({ name: name(g), items: byGroup.get(g) ?? [] }));

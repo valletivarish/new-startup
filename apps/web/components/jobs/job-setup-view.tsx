@@ -20,7 +20,7 @@ import {
 } from 'lucide-react';
 import { AppShell } from '@/components/AppShell';
 import { Agent } from '@/components/brand/agent';
-import { callCard, cleanQuestions, jobReadiness, jobStatusLabel, lineState, readinessLine, sameQuestions } from '@/components/jobs/setup';
+import { callCard, callVoiceLine, cleanQuestions, jobReadiness, jobStatusLabel, lineState, readinessLine, sameQuestions } from '@/components/jobs/setup';
 import { requirementsDirty, toForm, type RequirementsForm } from '@/components/jobs/requirements';
 import { RequirementsEditor, RequirementsSummary } from '@/components/jobs/requirements-form';
 import { CareersPagePanel } from '@/components/jobs/careers-page-panel';
@@ -256,7 +256,6 @@ function JobSetup({ publicId }: { publicId: string }) {
 
   const permissions = me.data?.activeOrganization?.permissions ?? [];
   const canEdit = permissions.includes('jobs.update');
-  const linkedAgent = agents?.find((a) => a.id === job?.agentId) ?? null;
   // Unknown while loading or when it couldn't be read: then nothing claims it is or isn't live.
   const agentLive =
     agentStatus === null || agentStatus === 'unknown' ? null : agentStatus === 'published';
@@ -870,7 +869,7 @@ function JobSetup({ publicId }: { publicId: string }) {
                 <Agent size={48} colour="glass" onLight />
                 <div className="min-w-0 flex-1 basis-40">
                   <p className="m-0 truncate font-medium text-text">
-                    {job.agentId ? (linkedAgent?.name ?? 'The caller on this job') : 'No caller chosen yet'}
+                    {job.agentId ? callVoiceLine(job) : 'No caller chosen yet'}
                   </p>
                   <p className="m-0 mt-0.5 text-meta text-text-3">
                     {!job.agentId
@@ -896,9 +895,9 @@ function JobSetup({ publicId }: { publicId: string }) {
                 <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-end">
                   <Field label={job.agentId ? 'Change who calls' : 'Who calls for this job'} className="min-w-0 flex-1">
                     <Select value={linkAgentId} onChange={(e) => setLinkAgentId(e.target.value)}>
-                      {agents.map((a) => (
+                      {agents.map((a, i) => (
                         <option key={a.id} value={a.id}>
-                          {a.name}
+                          {`Call setup ${i + 1}`}
                           {a.status === 'published' ? '' : ' (not ready)'}
                         </option>
                       ))}

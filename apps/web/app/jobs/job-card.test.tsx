@@ -40,6 +40,14 @@ describe('JobCard', () => {
     expect(html).toContain(`href="/jobs/${id}/review"`);
   });
 
+  it('the title opens the tab the job opens on, not the redirecting /jobs/<id>', () => {
+    const draft = renderToStaticMarkup(<JobCard job={base} funnel={undefined} next={null} contact={contact} />);
+    expect(draft).toContain(`href="/jobs/${id}/setup"`);
+    const open = renderToStaticMarkup(<JobCard job={{ ...base, status: 'open' }} funnel={undefined} next={null} contact={contact} />);
+    expect(open).toContain(`href="/jobs/${id}/people"`);
+    expect(open).not.toContain(`href="/jobs/${id}"`);
+  });
+
   it('shows no Next line for a closed job', () => {
     const html = renderToStaticMarkup(<JobCard job={base} funnel={undefined} next={null} contact={contact} />);
     expect(html).not.toContain('Next:');

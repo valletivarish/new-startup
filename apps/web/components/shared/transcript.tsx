@@ -128,7 +128,7 @@ export interface TranscriptProps {
   label?: string;
   /** Speaker label for a contact turn with no name: the use case's word (spec 9). */
   contactLabel?: string;
-  /** Speaker label for the agent's turns. */
+  /** Speaker label for the screener's turns. */
   agentLabel?: string;
   /** 'canvas' (default): bubbles on white. 'glass': white text on a frosted card over a photo. */
   variant?: TranscriptVariant;
@@ -146,7 +146,7 @@ export function Transcript({
   writeIn = false,
   label = 'Transcript',
   contactLabel = HIRING_USE_CASE.labels.contact.one,
-  agentLabel = 'Agent',
+  agentLabel = 'HRVoice',
   variant = 'canvas',
   bare = false,
   className,

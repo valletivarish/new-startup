@@ -3,6 +3,7 @@ import {
   callStatusLabel,
   formatCallDuration,
   answerItems,
+  hasPlayableRecording,
   sessionListMeta,
 } from './screening-answers';
 import { answerCoverage } from '../shared/answers-list';
@@ -11,6 +12,19 @@ const QUESTIONS = [
   { id: 'java', label: 'How many years have you worked with Java?' },
   { id: 'spring', label: 'Describe a Spring Boot service you built.' },
 ] as const;
+
+describe('hasPlayableRecording', () => {
+  it('asks for audio only when the call ended, ran, and the server says it kept one', () => {
+    const ended = { recordingAvailable: true, status: 'ended', durationSeconds: 42 };
+    expect(hasPlayableRecording(ended)).toBe(true);
+    expect(hasPlayableRecording({ ...ended, recordingAvailable: false })).toBe(false);
+    expect(hasPlayableRecording({ ...ended, recordingAvailable: undefined })).toBe(false);
+    expect(hasPlayableRecording({ ...ended, status: 'active' })).toBe(false);
+    expect(hasPlayableRecording({ ...ended, status: 'failed' })).toBe(false);
+    expect(hasPlayableRecording({ ...ended, durationSeconds: 0 })).toBe(false);
+    expect(hasPlayableRecording({ ...ended, durationSeconds: null })).toBe(false);
+  });
+});
 
 describe('sessionListMeta', () => {
   it('keeps list cards to status, duration, and answered count', () => {

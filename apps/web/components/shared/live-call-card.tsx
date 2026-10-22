@@ -165,7 +165,7 @@ export function LiveCallCard({
         open={confirm === 'end'}
         onOpenChange={close}
         title={`End the call with ${name}?`}
-        body="The agent hangs up right away."
+        body="HRVoice hangs up right away."
         confirmLabel="End call"
         cancelLabel="Keep the call"
         tone="danger"

@@ -1,4 +1,4 @@
-import type { Job, JobKnowledgeSource } from '../../lib/api';
+import { SCREENING_LANGUAGE_LABEL, type Job, type JobKnowledgeSource } from '../../lib/api';
 import { requirementLines } from '../candidates/fit';
 
 /**
@@ -90,6 +90,12 @@ export function callCard(
   if (agentLive === null) return { badge: null, text: 'Checking the call setup…' };
   if (!agentLive) return { badge: 'Not ready', text: 'Not ready yet. Publish it in the call settings before calling.' };
   return { badge: 'Ready', text: line === 'connected' ? 'Ready to call.' : 'Ready for test calls in your browser.' };
+}
+
+/** "Kore · English": the voice (when the job has one) and language of the call. Never the agent record's name. */
+export function callVoiceLine(job: Pick<Job, 'voicePersona' | 'screeningLanguage'>): string {
+  const voice = job.voicePersona ? job.voicePersona.charAt(0).toUpperCase() + job.voicePersona.slice(1) : '';
+  return [voice, SCREENING_LANGUAGE_LABEL[job.screeningLanguage]].filter(Boolean).join(' · ');
 }
 
 function joinAnd(parts: string[]): string {

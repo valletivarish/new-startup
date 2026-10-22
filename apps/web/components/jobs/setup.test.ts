@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { callCard, hasJobDescription, jobReadiness, jobStatusLabel, lineState, readinessLine, sameQuestions } from './setup';
+import { callCard, callVoiceLine, hasJobDescription, jobReadiness, jobStatusLabel, lineState, readinessLine, sameQuestions } from './setup';
 
 const job = {
   description: '',
@@ -9,6 +9,13 @@ const job = {
   screeningQuestions: [{ id: 'q1', label: 'Notice period?' }],
 };
 const longText = 'Warehouse supervisor, Chakan. Runs a shift of 30.';
+
+describe('callVoiceLine', () => {
+  it('says voice and language, never an agent name', () => {
+    expect(callVoiceLine({ voicePersona: 'kore', screeningLanguage: 'en' })).toBe('Kore · English');
+    expect(callVoiceLine({ screeningLanguage: 'hi' })).toBe('Hindi');
+  });
+});
 
 describe('job readiness', () => {
   it('counts saved text of 20+ characters or attached files as the description', () => {

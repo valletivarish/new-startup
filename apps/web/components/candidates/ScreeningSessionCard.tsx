@@ -9,7 +9,9 @@ import { RecordingPlayer, type RecordingPlayerHandle } from '@/components/shared
 import { TranscriptCard, toTranscriptTurns } from '@/components/shared/transcript';
 import { voiceSessionRecordingUrl, type CandidateScreeningResults } from '@/lib/api';
 import { callStateKey } from '@/lib/status-labels';
+import { firstNameOf } from '@/components/home/copy';
 import { answerItems } from './answers';
+import { hasPlayableRecording } from './screening-answers';
 import { FitBlock } from './fit-chips';
 
 export function sessionHasResults(session: CandidateScreeningResults): boolean {
@@ -48,7 +50,8 @@ export function ScreeningSessionCard({
   const [time, setTime] = useState<number | null>(null);
   // The server said this call kept no recording: stop promising one in the header.
   const [noRecording, setNoRecording] = useState(false);
-  const turns = toTranscriptTurns(session.transcript, candidateName);
+  const first = firstNameOf(candidateName) || candidateName;
+  const turns = toTranscriptTurns(session.transcript, first);
   const answers = answerItems(session.structuredAnswers, screeningQuestions);
   const hasResults = sessionHasResults(session);
   const live = session.status === 'pending' || session.status === 'active';
@@ -57,9 +60,12 @@ export function ScreeningSessionCard({
   // Live: who spoke last. After the call: what became of it.
   const face = live ? (turns.at(-1)?.speaker === 'agent' ? 'speaking' : 'listening') : agentStateFor(shown);
   const recording =
-    canPlayRecording && session.recordingAvailable && session.voiceSessionId && agentId
+    canPlayRecording && hasPlayableRecording(session) && session.voiceSessionId && agentId
       ? voiceSessionRecordingUrl(agentId, session.voiceSessionId)
       : null;
+
+  // A finished call with no audio says so, without asking the server for it.
+  const quietNoRecording = canPlayRecording && !recording && !live && !failed && hasResults;
 
   const callAgain =
     canCallAgain && onCallAgain ? (
@@ -105,18 +111,18 @@ export function ScreeningSessionCard({
       ) : null}
 
       <TranscriptCard
-        title="AI hiring agent"
+        title="HRVoice"
         subtitle={recording && !noRecording ? 'Transcript and recording' : turns.length > 0 ? 'Transcript' : undefined}
         agentState={face}
         turns={turns}
         currentTime={time}
         onPlayFrom={recording && !noRecording ? (at) => player.current?.seek(at) : undefined}
         label={`Transcript of the call with ${candidateName}`}
-        contactLabel={candidateName}
+        contactLabel={first}
         // Full height, in the drawer's (or page's) own scroll: no scroll box inside a scroll box.
         transcriptClassName="overflow-visible"
         footer={
-          recording || note ? (
+          recording || note || quietNoRecording ? (
             <div className="grid gap-3">
               {recording ? (
                 <RecordingPlayer
@@ -127,6 +133,7 @@ export function ScreeningSessionCard({
                   label={`Recording of the call with ${candidateName}`}
                 />
               ) : null}
+              {quietNoRecording ? <p className="m-0 px-1 text-meta text-text-3">No recording for this call</p> : null}
               {note ? (
                 <div className="flex flex-wrap items-center justify-between gap-3 px-1">
                   <p className="m-0 text-meta text-text-2">{note}</p>

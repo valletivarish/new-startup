@@ -75,11 +75,11 @@ export function GettingStarted({ snapshot, can }: { snapshot: HomeSnapshot; can:
   const telephony = useQuery({ queryKey: ['telephony-status'], queryFn: getTelephonyStatus, enabled: canCall });
   const steps: Step[] = [
     {
-      title: 'Set up your agent',
+      title: 'Set up the call',
       detail: 'Pick a voice and publish it, so it can place calls.',
       icon: <AudioLines />,
       done: snapshot.agents === null ? null : snapshot.agents > 0,
-      action: 'Set up agent',
+      action: 'Set up the call',
       href: '/agents/new?returnTo=%2Fjobs',
       blocked: can('agents.create') ? undefined : askAdmin,
     },
@@ -227,7 +227,7 @@ function AgentNote({ contact, job }: { contact: string; job: string }) {
       <div className="flex items-center gap-3">
         <Agent size={56} state="idle" onLight hoverable />
         <h2 id="home-agent-note" className="m-0 text-title font-semibold text-text">
-          Then your agent takes the calls
+          Then HRVoice takes the calls
         </h2>
       </div>
       <ol role="list" className="m-0 mt-5 list-none space-y-3 p-0">

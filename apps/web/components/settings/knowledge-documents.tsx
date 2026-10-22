@@ -185,7 +185,7 @@ export function KnowledgeDocuments() {
 
   function added(name: string, deduplicated: boolean) {
     if (deduplicated) toast.info('That exact document is already here.');
-    else toast.success(`Added ${name}`, { description: 'The agent can use it in a moment.' });
+    else toast.success(`Added ${name}`, { description: 'HRVoice can use it in a moment.' });
   }
 
   async function onUpload(event: FormEvent) {
@@ -297,7 +297,7 @@ export function KnowledgeDocuments() {
   const header = (
     <SectionHead
       id="company-facts"
-      title="What the agent answers from"
+      title="What HRVoice answers from"
       description={`Company facts it can use on every call. Anything about one ${job} goes on that ${job}.`}
     />
   );
@@ -373,7 +373,7 @@ export function KnowledgeDocuments() {
                   title="No company facts yet"
                   description={
                     can('knowledge.create')
-                      ? `Add what’s true for every ${job}: who you are, your policies, benefits and locations. The agent answers from them on every call.`
+                      ? `Add what’s true for every ${job}: who you are, your policies, benefits and locations. HRVoice answers from them on every call.`
                       : 'Ask a workspace admin to add your policies and facts about the company.'
                   }
                 />
@@ -538,7 +538,7 @@ export function KnowledgeDocuments() {
 
           <section aria-labelledby="knowledge-search" className={CARD}>
             <h2 id="knowledge-search" className="m-0 text-section text-text">
-              Check what the agent can find
+              Check what HRVoice can find
             </h2>
             <p className="mb-0 mt-1 text-text-2">
               Ask the way a {contact} might. It searches your documents the way a call does.
@@ -693,8 +693,8 @@ export function KnowledgeDocuments() {
           title={removing.kind === 'document' ? `Remove ${removing.name}?` : `Remove the set ${removing.name}?`}
           body={
             removing.kind === 'document'
-              ? 'The agent stops using it on calls. You can add it again later.'
-              : 'Its documents are removed too, and the agent stops using them on calls.'
+              ? 'HRVoice stops using it on calls. You can add it again later.'
+              : 'Its documents are removed too, and HRVoice stops using them on calls.'
           }
           confirmLabel="Remove"
           tone="danger"

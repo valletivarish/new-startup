@@ -20,9 +20,9 @@ export function legacyBoardPath(jobId: string, params: Query): string {
   return `/jobs/${jobId}/${review ? 'review' : 'people'}${queryString(params)}`;
 }
 
-/** Where /jobs/[id] lands: a Draft opens on Set up, anything else (or an unreadable job) on People. */
-export function openingPath(jobId: string, status: string | null, params: Query): string {
-  return `/jobs/${jobId}/${status ? openingTab(status) : 'people'}${queryString(params)}`;
+/** Where /jobs/[id] lands: a Draft opens on Set up, anything else (or an unreadable job) on People. `hash` (with its #) is kept. */
+export function openingPath(jobId: string, status: string | null, params: Query, hash = ''): string {
+  return `/jobs/${jobId}/${status ? openingTab(status) : 'people'}${queryString(params)}${hash}`;
 }
 
 /** A URLSearchParams as the Query record the helpers above take (repeated keys kept). */

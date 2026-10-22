@@ -1,8 +1,8 @@
 import { HIRING_USE_CASE } from './use-case-definitions';
 
-// The one place the product name lives. It is a placeholder until the founder names the product.
+// The one place the product name lives.
 export const BRAND = {
-  name: 'Voice platform',
+  name: 'HRVoice',
   tagline: 'AI agents that make business phone calls. Made in India.',
 } as const;
 

@@ -144,7 +144,7 @@ function JobsPageInner() {
         <PageHeader
           title={labels.workItem.many}
           accent="you’re hiring for"
-          description="The agent brings each job’s description and questions to every call."
+          description="Add a job and the people for it. HRVoice phones them, and you decide who moves forward."
           actions={createButton}
         />
         {body}

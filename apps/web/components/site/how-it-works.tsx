@@ -2,259 +2,308 @@
 
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import Link from 'next/link';
-import { FileText, Mic } from 'lucide-react';
+import { ArrowDown, ArrowDownLeft, ArrowRight, FileText, Mic, PhoneCall, Users } from 'lucide-react';
 import { Agent } from '../brand/agent';
 import type { AgentState } from '../brand/agent-draw';
 import { cn } from '../ui/cn';
 import { SAMPLE_CALL, SAMPLE_CANDIDATES, SAMPLE_JOB, type SampleStripState } from './sample-data';
-import fieldPhoto from '../../public/images/site/setup-field.jpg';
+import skyPhoto from '../../public/images/site/hero.jpg';
 import { CONTAINER, PhotoFrame, SECTION, SIGNUP_HREF } from './kit';
 
-const QUESTIONS = SAMPLE_CALL.answers.filter((answer) => !('extra' in answer && answer.extra)).map((a) => a.question);
+/*
+  Option B, "Bento flow": all four steps on screen at once in an asymmetric grid. Each tile is
+  a small product moment that loops quietly while it is in view (and holds still for reduced
+  motion). Round connectors between tiles make the order read. The previews are pictures of
+  the product with sample data, hidden from assistive tech; the list items carry the meaning.
+*/
 
-/** The job and its must-ask questions, as the app shows them. */
-function JobPreview() {
-  return (
-    <Panel title={SAMPLE_JOB.title} meta={SAMPLE_JOB.location}>
-      <p className="m-0 flex items-center gap-2 rounded-[10px] bg-white/[0.08] px-3 py-2 text-[0.8125rem]">
-        <FileText strokeWidth={1.75} className="size-4 shrink-0 text-white/70" />
-        Job description added
-      </p>
-      <p className="m-0 mt-3.5 text-[0.75rem] text-white/60">Must-ask questions</p>
-      <ol role="list" className="m-0 mt-1.5 grid list-none gap-1.5 p-0">
-        {QUESTIONS.map((q, i) => (
-          <li key={q} className="flex gap-2.5 text-[0.8125rem] leading-snug">
-            <span className="w-3 shrink-0 tabular-nums text-white/50">{i + 1}</span>
-            {q}
-          </li>
-        ))}
-      </ol>
-    </Panel>
-  );
+const QUESTIONS = SAMPLE_CALL.answers.filter((a) => !('extra' in a && a.extra)).map((a) => a.question);
+const byId = (id: string) => SAMPLE_CANDIDATES.find((c) => c.id === id);
+
+const CSS = `
+@media (prefers-reduced-motion: no-preference) {
+  .hiwb-live .hiwb-loop { animation: hiwb-in var(--hiwb-d, 9s) var(--hiwb-delay, 0s) infinite both; }
+  .hiwb-live .hiwb-ping { animation: hiwb-ping 2.2s ease-out infinite; }
+  .hiwb-live .hiwb-bar { animation: hiwb-bar 1.1s ease-in-out infinite alternate; }
+  .hiwb-live .hiwb-flow { animation: hiwb-flow 2.4s ease-in-out infinite; }
 }
-
-/** Candidates added from resumes, each phone number picked up from the file. */
-function CandidatesPreview() {
-  const people = SAMPLE_CANDIDATES.slice(4, 8);
-  return (
-    <Panel title="Add candidates" meta="One at a time, CSV or resumes">
-      <ul role="list" className="m-0 grid list-none gap-1.5 p-0">
-        {people.map((c) => (
-          <li key={c.id} className="flex items-center gap-3 rounded-[12px] bg-white/[0.07] px-3 py-2">
-            <span className="min-w-0 flex-1">
-              <span className="block truncate text-[0.8125rem]">{c.name}</span>
-              <span className="block text-[0.75rem] tabular-nums text-white/60">{c.phoneMasked}</span>
-            </span>
-            <span className="shrink-0 rounded-[6px] border border-white/20 px-1.5 py-0.5 text-[0.6875rem] text-white/80">
-              From resume
-            </span>
-          </li>
-        ))}
-      </ul>
-    </Panel>
-  );
+@keyframes hiwb-in {
+  0% { opacity: 0; transform: translateY(8px); }
+  6%, 86% { opacity: 1; transform: none; }
+  94%, 100% { opacity: 0; transform: translateY(-2px); }
 }
+@keyframes hiwb-ping { 0% { box-shadow: 0 0 0 0 rgb(var(--site-lime-rgb) / .55); } 80%, 100% { box-shadow: 0 0 0 8px rgb(var(--site-lime-rgb) / 0); } }
+@keyframes hiwb-bar { from { transform: scaleY(.3); } to { transform: scaleY(1); } }
+@keyframes hiwb-flow { 0%, 100% { transform: translateX(0); } 50% { transform: translateX(3px); } }
+`;
 
-/** A test call in the browser: the recruiter plays the candidate. */
-function TestCallPreview() {
-  const first = SAMPLE_CALL.turns[0];
+/** A row that arrives on a loop, one after another. */
+function Loop({ i, children, className, d = 9 }: { i: number; children: ReactNode; className?: string; d?: number }) {
   return (
-    <Panel title="Test call in your browser" meta="You are the candidate">
-      <div className="flex flex-col items-center py-2 text-center">
-        <Agent colour="pearl" size={56} state="speaking" />
-        <p className="m-0 mt-3 text-[0.75rem] text-white/60">Hiring team call</p>
-        <p className="m-0 mt-1.5 max-w-[30ch] text-[0.875rem] leading-snug">{first?.text}</p>
-        <span className="mt-4 inline-flex h-9 items-center gap-2 rounded-full bg-white px-4 text-[0.8125rem] font-medium text-site-black">
-          <Mic strokeWidth={2} className="size-4" />
-          Your microphone is on
-        </span>
-      </div>
-    </Panel>
-  );
-}
-
-// Each row's agent acts out where that call stands, so the states read without a legend.
-const STATE: Partial<Record<SampleStripState, { label: string; agent: AgentState; dot: string }>> = {
-  on_call: { label: 'On the phone', agent: 'speaking', dot: 'bg-site-lime' },
-  calling: { label: 'On the phone', agent: 'ringing', dot: 'bg-white' },
-  ready_for_review: { label: 'Ready for review', agent: 'done', dot: 'bg-[#84adff]' },
-  not_called: { label: 'Not called yet', agent: 'idle', dot: 'border border-white/50' },
-};
-const QUEUE = ['priya', 'arjun', 'kavya', 'rohan', 'sameer']
-  .map((id) => SAMPLE_CANDIDATES.find((c) => c.id === id))
-  .filter((c) => c !== undefined);
-
-/** The job's queue once calls go out: who is on a call, who is ready for review. */
-function QueuePreview() {
-  return (
-    <Panel title={SAMPLE_JOB.title} meta="Calling by phone">
-      <ul role="list" className="m-0 grid list-none gap-1.5 p-0">
-        {QUEUE.map((c) => {
-          const state = STATE[c.state];
-          return (
-            <li key={c.id} className="flex items-center gap-3 rounded-[12px] bg-white/[0.07] px-3 py-2">
-              <Agent colour="pearl" size={22} state={state?.agent ?? 'idle'} />
-              <span className="min-w-0 flex-1 truncate text-[0.8125rem]">{c.name}</span>
-              <span className="inline-flex shrink-0 items-center gap-1.5 text-[0.75rem] text-white/80">
-                <span className={cn('size-1.5 rounded-full', state?.dot)} />
-                {state?.label}
-              </span>
-            </li>
-          );
-        })}
-      </ul>
-    </Panel>
-  );
-}
-
-function Panel({ title, meta, children }: { title: string; meta: string; children: ReactNode }) {
-  return (
-    <div className="site-smoke w-full max-w-[24rem] rounded-[18px] p-4 text-white">
-      <div className="mb-3 flex items-baseline justify-between gap-3">
-        <p className="m-0 truncate text-[0.875rem] font-medium">{title}</p>
-        <p className="m-0 shrink-0 text-[0.75rem] text-white/60">{meta}</p>
-      </div>
+    <div
+      className={cn('hiwb-loop', className)}
+      style={{ ['--hiwb-delay' as string]: `${i * 0.55}s`, ['--hiwb-d' as string]: `${d}s` }}
+    >
       {children}
     </div>
   );
 }
 
-const STEPS: readonly { title: string; body: string; preview: ReactNode }[] = [
+function JobMoment() {
+  return (
+    <div className="rounded-[18px] border border-white/10 bg-black/30 p-4">
+      <div className="flex items-baseline justify-between gap-3">
+        <p className="m-0 text-[0.9375rem] font-medium">{SAMPLE_JOB.title}</p>
+        <p className="m-0 text-[0.8125rem] text-white/70">{SAMPLE_JOB.location}</p>
+      </div>
+      <p className="m-0 mt-3 flex items-center gap-2 rounded-[10px] bg-white/[0.08] px-3 py-2 text-[0.8125rem]">
+        <FileText strokeWidth={1.75} className="size-4 shrink-0 text-white/75" />
+        Job description added
+      </p>
+      <p className="m-0 mt-4 text-[0.8125rem] text-white/70">Must-ask questions</p>
+      <ol role="list" className="m-0 mt-2 grid list-none gap-1.5 p-0">
+        {QUESTIONS.map((q, i) => (
+          <li key={q}>
+            <Loop i={i} d={9} className="flex items-center gap-3 rounded-[10px] border border-white/10 bg-white/[0.06] px-3 py-2 text-[0.875rem] leading-snug">
+              <span className="w-3 shrink-0 tabular-nums text-white/60">{i + 1}</span>
+              {q}
+            </Loop>
+          </li>
+        ))}
+      </ol>
+    </div>
+  );
+}
+
+const SOURCES = [
+  ['kavya', 'From resume'],
+  ['rohan', 'From CSV'],
+  ['ananya', 'From careers form'],
+  ['farhan', 'From resume'],
+  ['divya', 'From CSV'],
+] as const;
+
+function PeopleMoment() {
+  return (
+    <div className="grid gap-2">
+      <div className="mb-1 flex flex-wrap gap-2 text-[0.8125rem] text-white/85">
+        {['One at a time', 'CSV', 'Resumes', 'Careers page'].map((t) => (
+          <span key={t} className="rounded-full border border-white/20 bg-white/[0.08] px-3 py-1">{t}</span>
+        ))}
+      </div>
+      {SOURCES.map(([id, source], i) => {
+        const c = byId(id);
+        return (
+          <Loop key={id} i={i} d={8} className="flex items-center gap-3 rounded-[14px] border border-white/10 bg-black/30 px-3.5 py-2.5">
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-[0.875rem]">{c?.name}</span>
+              <span className="block text-[0.8125rem] tabular-nums text-white/70">{c?.phoneMasked}</span>
+            </span>
+            <span className="shrink-0 rounded-[6px] border border-white/25 px-2 py-0.5 text-[0.75rem] text-white/90">{source}</span>
+          </Loop>
+        );
+      })}
+    </div>
+  );
+}
+
+function TestCallMoment() {
+  const [a, b, c] = [SAMPLE_CALL.turns[2], SAMPLE_CALL.turns[3], SAMPLE_CALL.turns[4]];
+  return (
+    <div className="site-smoke rounded-[18px] p-4 text-white">
+      <div className="flex items-center gap-3">
+        <Agent colour="pearl" size={40} state="speaking" />
+        <div className="min-w-0 flex-1">
+          <p className="m-0 text-[0.875rem] font-medium">Test call</p>
+          <p className="m-0 text-[0.8125rem] text-white/75">You are the candidate</p>
+        </div>
+        <span aria-hidden className="flex h-5 items-end gap-[3px]">
+          {[0.5, 1, 0.7, 0.9, 0.4].map((h, i) => (
+            <span key={i} className="hiwb-bar block w-[3px] origin-bottom rounded-full bg-white/80" style={{ height: `${h * 100}%`, animationDelay: `${i * 0.13}s` }} />
+          ))}
+        </span>
+      </div>
+      <div className="mt-3 grid gap-2 text-[0.875rem] leading-snug">
+        <Loop i={0} d={10} className="max-w-[92%] rounded-[12px] rounded-tl-[4px] bg-white/[0.12] px-3 py-2">{a?.text}</Loop>
+        <Loop i={2} d={10} className="ml-auto max-w-[88%] rounded-[12px] rounded-tr-[4px] bg-white px-3 py-2 text-site-black">{b?.text}</Loop>
+        <Loop i={4} d={10} className="max-w-[80%] rounded-[12px] rounded-tl-[4px] bg-white/[0.12] px-3 py-2">{c?.text}</Loop>
+      </div>
+      <p className="m-0 mt-3 inline-flex items-center gap-2 text-[0.8125rem] text-white/80">
+        <Mic strokeWidth={2} className="size-4" /> Your microphone is on
+      </p>
+    </div>
+  );
+}
+
+const STATE: Partial<Record<SampleStripState, { label: string; agent: AgentState; dot: string }>> = {
+  on_call: { label: 'On the phone', agent: 'speaking', dot: 'bg-site-lime' },
+  calling: { label: 'Ringing', agent: 'ringing', dot: 'bg-white' },
+  ready_for_review: { label: 'Ready for review', agent: 'done', dot: 'bg-[#84adff]' },
+  not_called: { label: 'Not called yet', agent: 'idle', dot: 'border border-white/60' },
+};
+const QUEUE = ['kavya', 'rohan', 'priya', 'arjun', 'ananya', 'sameer'].map(byId).filter((c) => c !== undefined);
+
+function CallsMoment() {
+  return (
+    <div className="grid gap-3">
+      <p className="m-0 inline-flex w-fit items-center gap-2 rounded-[10px] border border-white/15 bg-black/30 px-3 py-2 text-[0.875rem]">
+        <span className="hiwb-ping size-2 rounded-full bg-site-lime" />
+        Your calling number
+        <span className="text-white/70">Connected</span>
+      </p>
+      <ul role="list" className="m-0 grid list-none gap-2 p-0 sm:grid-cols-2">
+        {QUEUE.map((c, i) => {
+          const s = STATE[c.state];
+          return (
+            <li key={c.id}>
+              <Loop i={i} d={9} className="flex items-center gap-3 rounded-[14px] border border-white/10 bg-black/30 px-3 py-2.5">
+                <Agent colour="pearl" size={24} state={s?.agent ?? 'idle'} />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[0.875rem]">{c.name}</span>
+                  <span className="inline-flex items-center gap-1.5 text-[0.8125rem] text-white/75">
+                    <span className={cn('size-1.5 rounded-full', s?.dot)} />
+                    {s?.label}
+                  </span>
+                </span>
+              </Loop>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
+const STEPS = [
   {
-    title: 'Add a job and your must-ask questions',
-    body: 'Paste the job description or upload the file you have (PDF, Word or PowerPoint). Then add the questions every candidate must answer. No call script to write.',
-    preview: <JobPreview />,
+    icon: FileText,
+    title: 'Add the job',
+    body: 'Paste the job description or upload the file, then add the questions every candidate must answer.',
+    moment: <JobMoment />,
+    span: 'lg:col-span-7',
+    sky: false,
   },
   {
-    title: 'Add candidates',
-    body: 'Type them in one at a time, upload a spreadsheet saved as CSV, or upload their resumes. We pick up each phone number from the resume. Or paste one line into your careers page, and applicants ask for their call there. There is no applicant tracking system link yet.',
-    preview: <CandidatesPreview />,
+    icon: Users,
+    title: 'Add people',
+    body: 'Type them in, upload a CSV or resumes, or add one line to your careers page.',
+    moment: <PeopleMoment />,
+    span: 'lg:col-span-5',
+    sky: false,
   },
   {
-    title: 'Try a test call in your browser',
-    body: 'You play the candidate and hear how natural the call feels, exactly as they will. This works on day one, before any calling number is set up.',
-    preview: <TestCallPreview />,
+    icon: Mic,
+    title: 'Hear a test call',
+    body: 'Play the candidate in your browser and hear the call as they will. No calling number needed.',
+    moment: <TestCallMoment />,
+    span: 'lg:col-span-5',
+    sky: true,
   },
   {
-    title: 'We connect your calling number. HRVoice phones each candidate.',
-    body: 'Calls to phones need your company’s own calling number, and the phone carrier runs a KYC check on it first. We go through it with you and agree the price per completed call. Then it phones each candidate and talks it through naturally, spots voicemail, and hands the call to your team if a candidate asks for a person.',
-    preview: <QueuePreview />,
+    icon: PhoneCall,
+    title: 'Calls go out',
+    body: 'We set up your calling number with you. Then HRVoice phones each candidate, and passes the call to your team if they ask for a person.',
+    moment: <CallsMoment />,
+    span: 'lg:col-span-7',
+    sky: false,
   },
+] as const;
+
+// Where the round arrow sits to join a tile to the next one. Phones: below, pointing down.
+const DOWN = 'max-lg:-bottom-[1.75rem] max-lg:left-1/2 max-lg:-translate-x-1/2';
+const JOIN = [
+  `${DOWN} lg:-right-[1.65rem] lg:top-24 lg:-translate-y-1/2`,
+  `${DOWN} lg:bottom-[-1.75rem] lg:left-10 lg:-translate-x-1/2`,
+  `${DOWN} lg:-right-[1.65rem] lg:top-24 lg:-translate-y-1/2`,
 ];
+const JOIN_ICON = [ArrowRight, ArrowDownLeft, ArrowRight];
 
-/**
- * Website section 4 (#how-it-works), the one place the pilot is told. On laptops, Cadence's
- * sticky stepper: four steps on the left, the one in the middle of the screen full white and
- * the rest dimmed, beside a sticky photograph whose product preview crossfades to match (CSS
- * sticky and an IntersectionObserver, no pinning). On phones, a snap carousel of four cards,
- * preview above the words. The previews are pictures of the product (sample data), hidden
- * from assistive tech; the steps carry the meaning.
- */
+function Tile({ index, step }: { index: number; step: (typeof STEPS)[number] }) {
+  const { icon: Icon, title, body, moment, span, sky } = step;
+  const Join = JOIN_ICON[index];
+  const inner = (
+    <div className="flex h-full flex-col p-5 sm:p-7">
+      <span className="flex items-center gap-3 text-[0.8125rem] font-medium text-white/80">
+        <span className="grid size-9 place-items-center rounded-full border border-white/20 bg-white/10">
+          <Icon strokeWidth={1.75} className="size-[1.125rem] text-white" />
+        </span>
+        Step {index + 1}
+      </span>
+      <h3 className="m-0 mt-5 text-[1.25rem] font-medium leading-snug tracking-[-0.015em] text-white">{title}</h3>
+      <p className="m-0 mt-2 max-w-[44ch] text-[1rem] leading-[1.55] text-site-fg-2">{body}</p>
+      <div aria-hidden className="mt-6 flex flex-1 flex-col justify-start">
+        {moment}
+      </div>
+    </div>
+  );
+  return (
+    <li data-reveal className={cn('relative', span)}>
+      {sky ? (
+        <PhotoFrame photo={skyPhoto} sizes="(min-width: 1024px) 40vw, 100vw" position="50% 35%" className="h-full">
+          <div className="absolute inset-0 -z-10 bg-[#0e243a]/35" />
+          {inner}
+        </PhotoFrame>
+      ) : (
+        <div className="h-full overflow-hidden rounded-[26px] border border-white/10 bg-[linear-gradient(160deg,rgb(255_255_255/0.07),rgb(255_255_255/0.02))] backdrop-blur-sm">
+          {inner}
+        </div>
+      )}
+      {Join && (
+        <span
+          aria-hidden
+          className={cn(
+            'absolute z-10 grid size-10 place-items-center rounded-full border border-white/20 bg-site-black text-white shadow-[0_0_0_4px_var(--site-black)]',
+            JOIN[index],
+          )}
+        >
+          <Join strokeWidth={1.75} className="hiwb-flow size-4 max-lg:hidden" />
+          <ArrowDown strokeWidth={1.75} className="hiwb-flow size-4 lg:hidden" />
+        </span>
+      )}
+    </li>
+  );
+}
+
 export function HowItWorksSection() {
-  const [active, setActive] = useState(0);
-  const steps = useRef<(HTMLLIElement | null)[]>([]);
-
+  const [live, setLive] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    const observer = new IntersectionObserver(
-      (entries) => {
-        for (const entry of entries) {
-          if (entry.isIntersecting) setActive(Number((entry.target as HTMLElement).dataset.step));
-        }
-      },
-      { rootMargin: '-45% 0px -45% 0px' },
-    );
-    steps.current.forEach((el) => el && observer.observe(el));
-    return () => observer.disconnect();
+    const el = ref.current;
+    if (!el) return;
+    const io = new IntersectionObserver(([e]) => setLive(!!e?.isIntersecting), { rootMargin: '0px 0px -10% 0px' });
+    io.observe(el);
+    return () => io.disconnect();
   }, []);
 
   return (
     <section id="how-it-works" aria-labelledby="how-title" className={cn(SECTION, 'border-t border-site-line')}>
+      <style>{CSS}</style>
       <div className={CONTAINER}>
-        <div data-reveal className="max-w-[40rem]">
-          <h2 id="how-title" className="site-h2 m-0 text-white">
-            From job description to first call
+        <div data-reveal className="max-w-[56rem]">
+          <h2
+            id="how-title"
+            className="m-0 text-[clamp(2.25rem,4vw,3.5rem)] font-normal leading-[1.05] tracking-[-0.04em] text-white [text-wrap:balance]"
+          >
+            Set up today. Call when you&rsquo;re ready.
           </h2>
-          <p className="m-0 mt-5 text-[1.0625rem] leading-relaxed text-site-fg-2">
-            If you can post a job ad, you can set this up. Steps 1 to 3 work today, before any calling number.
+          <p className="m-0 mt-5 max-w-[60ch] text-[1.0625rem] leading-[1.55] text-site-fg-2 [text-wrap:pretty]">
+            Add a job and the people for it, then hear a test call in your browser. Calls to candidates&rsquo; phones start once your calling number is set up.
           </p>
         </div>
 
-        {/* Laptops: the sticky stepper. */}
-        <div className="mt-6 hidden grid-cols-12 gap-12 lg:grid">
-          <ol role="list" className="col-span-5 m-0 list-none p-0">
-            {STEPS.map(({ title, body }, i) => (
-              <li
-                key={title}
-                ref={(el) => {
-                  steps.current[i] = el;
-                }}
-                data-step={i}
-                className={cn(
-                  'flex min-h-[42vh] flex-col justify-center transition-opacity duration-500',
-                  active === i ? 'opacity-100' : 'opacity-40',
-                )}
-              >
-                <span className="text-[0.8125rem] font-medium tabular-nums text-site-fg-3">0{i + 1}</span>
-                <h3 className="m-0 mt-2 text-[1.625rem] font-normal leading-tight tracking-[-0.03em] text-white">{title}</h3>
-                <p className="m-0 mt-3 max-w-[34rem] text-[1rem] leading-relaxed text-site-fg-2">{body}</p>
-                <span aria-hidden className="mt-6 block h-px w-full bg-site-line">
-                  <span
-                    className={cn(
-                      'block h-px origin-left bg-white transition-transform duration-700 ease-out',
-                      active === i ? 'scale-x-100' : 'scale-x-0',
-                    )}
-                  />
-                </span>
-              </li>
+        <div ref={ref} className={cn('mt-12 md:mt-16', live && 'hiwb-live')}>
+          <ol role="list" className="m-0 grid list-none gap-10 p-0 lg:grid-cols-12 lg:gap-8">
+            {STEPS.map((s, i) => (
+              <Tile key={s.title} index={i} step={s} />
             ))}
           </ol>
-          <div className="col-span-7">
-            <div className="sticky top-[calc(50vh-17rem)]">
-              <PhotoFrame photo={fieldPhoto} sizes="55vw" position="50% 60%" className="aspect-[4/3.3] w-full">
-                <div aria-hidden className="absolute inset-0 grid place-items-center p-8">
-                  {STEPS.map(({ title, preview }, i) => (
-                    <div
-                      key={title}
-                      className={cn(
-                        'col-start-1 row-start-1 flex w-full justify-center transition-[opacity,transform] duration-500 motion-reduce:transition-none',
-                        active === i ? 'opacity-100' : 'translate-y-2 opacity-0',
-                      )}
-                    >
-                      {preview}
-                    </div>
-                  ))}
-                </div>
-              </PhotoFrame>
-            </div>
-          </div>
         </div>
-
-        {/* Phones and tablets: a snap carousel, preview above the words. */}
-        <ol
-          role="list"
-          tabIndex={0}
-          aria-label="Steps, scroll sideways"
-          className="-mx-5 m-0 mt-10 flex list-none snap-x snap-mandatory scroll-px-5 gap-3 overflow-x-auto px-5 md:scroll-px-8 pb-2 [scrollbar-width:none] focus-visible:outline-white md:-mx-8 md:px-8 lg:hidden"
-        >
-          {STEPS.map(({ title, body, preview }, i) => (
-            <li key={title} className="w-[84%] max-w-[26rem] shrink-0 snap-start">
-              <PhotoFrame photo={fieldPhoto} sizes="84vw" position="50% 60%" className="flex aspect-[4/4.1] items-center justify-center p-4">
-                <div aria-hidden className="flex w-full justify-center">
-                  {preview}
-                </div>
-              </PhotoFrame>
-              <span className="mt-5 block text-[0.8125rem] font-medium tabular-nums text-site-fg-3">0{i + 1} of 04</span>
-              <h3 className="m-0 mt-1 text-[1.1875rem] font-normal leading-snug tracking-[-0.02em] text-white">{title}</h3>
-              <p className="m-0 mt-2 text-[0.9375rem] leading-relaxed text-site-fg-2">{body}</p>
-            </li>
-          ))}
-        </ol>
 
         <Link
           href={SIGNUP_HREF}
-          className="mt-6 inline-flex min-h-11 items-center text-[0.9375rem] font-medium text-white underline decoration-white/40 underline-offset-[6px] transition-colors duration-200 hover:decoration-white lg:mt-10"
+          className="mt-10 inline-flex min-h-11 items-center text-[0.9375rem] font-medium text-white underline decoration-white/40 underline-offset-[6px] transition-colors duration-200 hover:decoration-white focus-visible:outline-white"
         >
-          Start a pilot
+          Create account
         </Link>
       </div>
     </section>

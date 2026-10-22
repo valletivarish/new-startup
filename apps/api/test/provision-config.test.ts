@@ -54,7 +54,7 @@ describe('buildVoiceProvisionConfig', () => {
       /call us back/i,
     );
     expect(result.builtInTools.transferToNumber).toBeUndefined();
-    expect(result.firstMessage).toMatch(/Hi, this is the hiring agent/);
+    expect(result.firstMessage).toMatch(/^Hi, I'm calling from the (.* )?hiring team/);
     expect(result.firstMessage).not.toMatch(/Alex/);
     expect(result.language).toBe('en');
     expect(result.dataCollection).toEqual({
@@ -98,7 +98,7 @@ describe('buildVoiceProvisionConfig', () => {
     ]);
   });
 
-  it('introduces as hiring agent from organization name, not agent display name', () => {
+  it('introduces as the organization hiring team, not the agent display name, and never claims to be human', () => {
     const result = buildVoiceProvisionConfig({
       agentPurpose: 'Screen candidates.',
       agentType: 'hiring',
@@ -106,13 +106,16 @@ describe('buildVoiceProvisionConfig', () => {
       organizationName: 'Acme Logistics',
     });
     expect(result.firstMessage).toBe(
-      'Hi, this is the hiring agent from Acme Logistics calling about a role. Do you have a couple of minutes for a quick chat?',
+      "Hi, I'm calling from the Acme Logistics hiring team about the role you applied for. Do you have a couple of minutes for a quick chat?",
     );
     expect(result.firstMessage).not.toContain('ScreenBot-42');
     expect(result.agentPrompt).toContain(
-      'Introduce yourself only as the hiring agent from Acme Logistics',
+      'Introduce yourself as calling from the Acme Logistics hiring team',
     );
     expect(result.agentPrompt).not.toContain('ScreenBot-42');
+    expect(result.agentPrompt).toContain('answer honestly');
+    expect(result.agentPrompt).toContain('Never claim to be human');
+    expect(result.firstMessage).not.toMatch(/\b(AI|agent|bot)\b/i);
     expect(result.builtInTools.voicemailDetection.params.voicemailMessage).toContain(
       'from Acme Logistics',
     );

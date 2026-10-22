@@ -10,6 +10,13 @@
 import { toE164Phone } from './phone-e164.js';
 import { requirementsPromptBlock, type JobRequirements } from '../../hiring/requirements.js';
 
+/**
+ * Founder decision (22 Oct 2026): the call doesn't open by announcing it's an AI; it sounds like
+ * the hiring team. It never pretends to be human: asked sincerely, it says what it is.
+ */
+const HONEST_IF_ASKED =
+  " If the candidate sincerely asks whether they are talking to a person or a machine, answer honestly in one short sentence (you are an automated screening assistant for the hiring team), then carry on naturally. Never claim to be human.";
+
 /** Never asked, and steered away from if the candidate raises them. */
 export const OFF_LIMITS_TOPICS = ['age', 'religion', 'caste', 'marital status', 'family plans', 'health'] as const;
 
@@ -150,11 +157,11 @@ export function buildVoiceProvisionConfig(input: {
     lines.push('');
     if (orgName) {
       lines.push(
-        `You are the hiring agent for ${orgName}. Introduce yourself only as the hiring agent from ${orgName}. Never use a personal name, nickname, or the agent record name.`,
+        `You are calling for the hiring team at ${orgName}. Introduce yourself as calling from the ${orgName} hiring team. Never use a personal name, nickname, or the agent record name.${HONEST_IF_ASKED}`,
       );
     } else {
       lines.push(
-        'You are the hiring agent for this company. Introduce yourself only as the hiring agent from the company. Never use a personal name, nickname, or the agent record name.',
+        `You are calling for the company's hiring team. Introduce yourself as calling from the hiring team. Never use a personal name, nickname, or the agent record name.${HONEST_IF_ASKED}`,
       );
     }
     lines.push(
@@ -256,8 +263,8 @@ export function buildVoiceProvisionConfig(input: {
 
   const greeting = (input.greeting ?? '').trim();
   const defaultFirstMessage = orgName
-    ? `Hi, this is the hiring agent from ${orgName} calling about a role. Do you have a couple of minutes for a quick chat?`
-    : 'Hi, this is the hiring agent calling about a role. Do you have a couple of minutes for a quick chat?';
+    ? `Hi, I'm calling from the ${orgName} hiring team about the role you applied for. Do you have a couple of minutes for a quick chat?`
+    : "Hi, I'm calling from the hiring team about the role you applied for. Do you have a couple of minutes for a quick chat?";
   const firstMessage = greeting || defaultFirstMessage;
 
   return {

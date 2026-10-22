@@ -75,8 +75,8 @@ function TestCallPreview() {
 
 // Each row's agent acts out where that call stands, so the states read without a legend.
 const STATE: Partial<Record<SampleStripState, { label: string; agent: AgentState; dot: string }>> = {
-  on_call: { label: 'On call', agent: 'speaking', dot: 'bg-site-lime' },
-  calling: { label: 'Calling', agent: 'ringing', dot: 'bg-white' },
+  on_call: { label: 'On the phone', agent: 'speaking', dot: 'bg-site-lime' },
+  calling: { label: 'On the phone', agent: 'ringing', dot: 'bg-white' },
   ready_for_review: { label: 'Ready for review', agent: 'done', dot: 'bg-[#84adff]' },
   not_called: { label: 'Not called yet', agent: 'idle', dot: 'border border-white/50' },
 };

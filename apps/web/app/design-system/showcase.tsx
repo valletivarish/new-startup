@@ -132,10 +132,10 @@ const PEOPLE = [
 
 const FAMILIES: { family: StateFamily; word: string; glyph: LucideIcon | 'live' }[] = [
   { family: 'queued', word: 'Not called yet', glyph: Clock },
-  { family: 'live', word: 'On call', glyph: 'live' },
+  { family: 'live', word: 'On the phone', glyph: 'live' },
   { family: 'review', word: 'Ready for review', glyph: FileCheckCorner },
   { family: 'decided', word: 'Moved forward', glyph: CircleCheck },
-  { family: 'failed', word: 'No answer', glyph: PhoneMissed },
+  { family: 'failed', word: "Didn't connect", glyph: PhoneMissed },
 ];
 
 const DOMAINS: Record<StateDomain, string> = {

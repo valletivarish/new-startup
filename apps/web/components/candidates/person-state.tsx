@@ -17,7 +17,7 @@ export function personState(stage: string | null | undefined, callStatus: string
 
 /**
  * The person's one state as a tag: the stage once it is a decision or on hold, else the call,
- * which names why it didn't connect when the row says ("No answer", "Line busy").
+ * which names why it didn't connect when the row says ("Rang out", "Voicemail").
  */
 export function PersonStateTag({
   stage,

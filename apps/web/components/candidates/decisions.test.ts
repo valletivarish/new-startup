@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { getStateMeta } from '../../lib/status-labels';
 import { decisionDone, decisionLabel, isStage, moveTotals, noConnectReason } from './decisions';
 
 const STAGES = [
@@ -44,10 +45,13 @@ describe('decisions', () => {
 
 describe('noConnectReason', () => {
   it('names why a call never connected, and stays out of the way when it did', () => {
-    expect(noConnectReason('failed', 'no_answer')).toBe('Didn’t answer');
-    expect(noConnectReason('failed', 'busy')).toBe('Number busy');
-    expect(noConnectReason('failed', 'carrier_blocked')).toBe('Couldn’t connect');
-    expect(noConnectReason('failed', null)).toBe('Couldn’t connect');
+    expect(noConnectReason('failed', 'no_answer')).toBe(getStateMeta('call', 'no_answer').label);
+    expect(noConnectReason('failed', 'no_answer')).toBe("Didn't connect · Rang out");
+    expect(noConnectReason('failed', 'voicemail')).toBe("Didn't connect · Voicemail");
+    expect(noConnectReason('failed', 'invalid_number')).toBe(getStateMeta('call', 'invalid_number').label);
+    expect(noConnectReason('failed', 'carrier_blocked')).toBe("Didn't connect");
+    expect(noConnectReason('failed', 'ended')).toBe("Didn't connect");
+    expect(noConnectReason('failed', null)).toBe("Didn't connect");
     expect(noConnectReason('completed', null)).toBeNull();
     expect(noConnectReason('not_called', null)).toBeNull();
   });

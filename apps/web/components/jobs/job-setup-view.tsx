@@ -25,7 +25,7 @@ import { requirementsDirty, toForm, type RequirementsForm } from '@/components/j
 import { RequirementsEditor, RequirementsSummary } from '@/components/jobs/requirements-form';
 import { CareersPagePanel } from '@/components/jobs/careers-page-panel';
 import { JobPageHeader } from '@/components/jobs/job-page-header';
-import { JOB_ACTION_LABEL } from '@/components/jobs/job-copy';
+import { JOB_ACTION_LABEL } from '@/lib/status-labels';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/components/ui/cn';
 import { ErrorState } from '@/components/ui/error-state';
@@ -823,7 +823,7 @@ function JobSetup({ publicId }: { publicId: string }) {
               id="requirements"
               step={canEdit ? 3 : undefined}
               title="Requirements"
-              description="What the role needs. After each call, the answers are checked against these, so candidates sort into Meets all, Check and Doesn’t meet. You decide who moves forward."
+              description="What the role needs. After each call, the answers are checked against these, so candidates sort into Meets all, Needs a look and Doesn’t meet. You decide who moves forward."
               badge={
                 canEdit && reqDirty ? (
                   <UnsavedBadge />
@@ -884,8 +884,8 @@ function JobSetup({ publicId }: { publicId: string }) {
                           ? 'Checking the agent…'
                           : agentLive
                             ? line === 'connected'
-                              ? 'Live and ready to call.'
-                              : 'Live. Ready for test calls in your browser.'
+                              ? 'Ready to call.'
+                              : 'Ready for test calls in your browser.'
                             : 'Not live yet. Publish it before calling.'}
                   </p>
                 </div>

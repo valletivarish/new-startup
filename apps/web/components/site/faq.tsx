@@ -32,7 +32,7 @@ export const FAQ = [
   {
     question: 'What happens if a candidate doesn’t pick up?',
     answer:
-      'The call is marked with what happened, such as No answer or Reached voicemail, so you know it didn’t reach them. You can call them again from their page.',
+      'The call is marked with what happened, such as Rang out or Voicemail, so you know it didn’t reach them. You can call them again from their page.',
   },
 ] as const;
 

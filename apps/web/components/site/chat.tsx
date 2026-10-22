@@ -191,7 +191,7 @@ const ENTRIES: readonly Entry[] = [
     ask: 'Does it sound natural?',
     words: ['natural', 'sound', 'sounds', 'voice', 'robotic', 'robot', 'real', 'conversation', 'interrupt', 'follow up', 'follow-up'],
     answer:
-      'Like a short chat, not a form. It asks one question at a time and follows up on what the candidate says, for example “What’s behind the eighteen?” If the candidate cuts in, it stops and answers. Play the 84-second sample call and judge for yourself.',
+      'Like a short chat, not a form. It asks one question at a time and follows up on what the candidate says, for example “What’s behind the eighteen?” If the candidate cuts in, it stops and answers. Play the 83-second sample call and judge for yourself.',
     link: { href: '#sample-call-card', label: 'Hear a sample call' },
   },
   {

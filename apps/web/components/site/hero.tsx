@@ -81,7 +81,7 @@ export function SiteHero() {
           className="site-display site-rise m-0 mt-6 text-white [text-shadow:0_1px_24px_rgb(9_27_46/0.25)]"
           style={rise(0.18)}
         >
-          <span className="block">Every candidate gets a phone call.</span>
+          <span className="block">Every candidate gets a conversation, not a questionnaire.</span>
           <span className="block">
             You decide <Italic>who&rsquo;s&nbsp;next.</Italic>
           </span>

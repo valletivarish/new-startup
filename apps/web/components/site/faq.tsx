@@ -13,7 +13,7 @@ export const FAQ = [
   {
     question: 'What does the call actually sound like?',
     answer:
-      'Like a short chat, not a form. It asks one question at a time and follows up on what the candidate says, for example “What’s behind the eighteen?” If the candidate cuts in, it stops and answers. Play the 84-second sample call on this page and judge for yourself.',
+      'Like a short chat, not a form. It asks one question at a time and follows up on what the candidate says, for example “What’s behind the eighteen?” If the candidate cuts in, it stops and answers. Play the 83-second sample call on this page and judge for yourself.',
   },
   {
     question: 'Will candidates know it’s automated?',

@@ -215,6 +215,11 @@ const EnvSchema = z.object({
    */
   ZOHO_CLIENT_ID: z.string().default(''),
   ZOHO_CLIENT_SECRET: z.string().default(''),
+  /** Where sign-in starts: the data centre the Zoho API client was created in. */
+  ZOHO_ACCOUNTS_URL: z
+    .string()
+    .regex(/^https:\/\/accounts\.zoho\.(com|in|eu|com\.au|jp|com\.cn|ca|sa|uk)$/)
+    .default('https://accounts.zoho.com'),
   /** Outside production only: the fake Zoho (pnpm test:clients) instead of Zoho's hosts. */
   ZOHO_TEST_BASE_URL: z.string().default(''),
 

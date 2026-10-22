@@ -509,7 +509,7 @@ export class AppModule {
                 ? createZohoClient({
                     clientId: env.ZOHO_CLIENT_ID,
                     clientSecret: env.ZOHO_CLIENT_SECRET,
-                    authorizeBase: testBase ?? 'https://accounts.zoho.com',
+                    authorizeBase: testBase ?? env.ZOHO_ACCOUNTS_URL,
                   })
                 : null,
               sealer: createSealer(env.BETTER_AUTH_SECRET),

@@ -31,10 +31,10 @@ export class ZohoError extends Error {
 
 /** Read-only on jobs, candidates and applications; create on notes. Nothing else. */
 export const ZOHO_SCOPES = [
-  'ZohoRecruit.modules.jobopenings.READ',
-  'ZohoRecruit.modules.candidates.READ',
-  'ZohoRecruit.modules.applications.READ',
-  'ZohoRecruit.modules.notes.CREATE',
+  'ZohoRecruit.modules.jobopening.READ',
+  'ZohoRecruit.modules.candidate.READ',
+  'ZohoRecruit.modules.application.READ',
+  'ZohoRecruit.modules.candidate.CREATE', // Zoho has no notes scope; a note on a candidate needs this
 ].join(',');
 
 const ZOHO_ACCOUNTS = /^https:\/\/accounts\.zoho\.(com|in|eu|com\.au|jp|com\.cn|ca|sa|uk)$/;

@@ -3,7 +3,7 @@
  * components (the website, page shells) can read the words too. The hook is in use-cases.ts.
  */
 
-import type { CandidateStage, UseCaseSummary } from './api';
+import type { CandidateStage } from './api';
 import { getStateMeta, type StateFamily, type StateGlyph } from './status-labels';
 
 export interface UseCaseStage {
@@ -45,26 +45,3 @@ export const HIRING_USE_CASE: UseCaseDefinition = {
   stages: [stage('new', false), stage('screening', false), stage('reviewed', true), stage('declined', true)],
 };
 
-export const BUNDLED_USE_CASES: Record<string, UseCaseDefinition> = { hiring: HIRING_USE_CASE };
-
-const noun = (n?: { label?: string; pluralLabel?: string }) =>
-  n?.label && n.pluralLabel ? { one: n.label, many: n.pluralLabel } : undefined;
-
-/**
- * Server words over the bundled definition. Stage colours and glyphs stay ours; unknown stages are
- * ignored. The undecided stage keeps our "No decision yet": the backend still calls it "Not called
- * yet", a call's state, which contradicts the call tag once someone has been called.
- */
-export function mergeUseCase(bundled: UseCaseDefinition, server: UseCaseSummary): UseCaseDefinition {
-  const stageLabels = new Map((server.stages ?? []).filter((st) => st.key !== 'new').map((st) => [st.key, st.label]));
-  return {
-    ...bundled,
-    moduleName: server.displayName || bundled.moduleName,
-    labels: {
-      ...bundled.labels,
-      workItem: noun(server.workUnit) ?? bundled.labels.workItem,
-      contact: noun(server.contact) ?? bundled.labels.contact,
-    },
-    stages: bundled.stages.map((st) => ({ ...st, label: stageLabels.get(st.value) || st.label })),
-  };
-}

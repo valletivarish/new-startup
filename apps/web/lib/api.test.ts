@@ -137,7 +137,7 @@ describe('optional endpoints', () => {
     fetchMock.mockResolvedValueOnce(json(404, { code: 'not_found', message: 'Not found' }));
     await expect(api.getJobCandidate('j1', 'c1')).rejects.toBeInstanceOf(api.NotAvailableError);
     fetchMock.mockResolvedValueOnce(new Response('', { status: 405 }));
-    await expect(api.listUseCases()).rejects.toBeInstanceOf(api.NotAvailableError);
+    await expect(api.sendMemberPasswordReset('m1')).rejects.toBeInstanceOf(api.NotAvailableError);
     fetchMock.mockResolvedValueOnce(new Response('<html>404</html>', { status: 404 }));
     await expect(api.getHiringSummary()).rejects.toBeInstanceOf(api.NotAvailableError);
   });

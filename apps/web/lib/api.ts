@@ -1125,19 +1125,6 @@ export interface HiringSummary {
  */
 export const getHiringSummary = () => call<HiringSummary>('/backend/hiring/summary', undefined, OPTIONAL);
 
-/** A use case as the backend lists it (GET /use-cases); lib/use-cases.ts merges it over the bundled one. */
-export interface UseCaseSummary {
-  id: string;
-  displayName?: string;
-  workUnit?: { label: string; pluralLabel: string };
-  contact?: { label: string; pluralLabel: string };
-  stages?: { key: string; label: string }[];
-}
-
-/** GET /use-cases → `{ useCases }`. Optional: NotAvailableError on older backends. */
-export const listUseCases = () =>
-  call<{ useCases: UseCaseSummary[] }>('/backend/use-cases', undefined, OPTIONAL);
-
 export type CandidateImportIssue =
   | 'missing_full_name'
   | 'missing_country_code'

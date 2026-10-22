@@ -54,7 +54,8 @@ export default function SettingsLayout({ children }: { children: ReactNode }) {
       const m = toUserMessage(me.error, 'load your settings');
       body = <ErrorState title={m.title} cause={m.detail} onRetry={() => void me.refetch()} retrying={me.isFetching} />;
     }
-  } else if (!profile || loading || waitingOnSources) {
+  } else if (!profile || loading || waitingOnSources || current === '') {
+    // Bare /settings is redirected to Company (next.config); never judge it "not shared".
     body = <SkeletonCard />;
   } else if (sections.some((s) => s.slug === current)) {
     body = children;

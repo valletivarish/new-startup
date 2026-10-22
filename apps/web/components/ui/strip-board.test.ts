@@ -4,7 +4,6 @@ import { renderToStaticMarkup as html } from 'react-dom/server';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { describe, expect, it } from 'vitest';
 import { STATE_MAP, type StateDomain } from '../../lib/status-labels';
-import { HIRING_USE_CASE, mergeUseCase } from '../../lib/use-cases';
 import { Badge, statusTone } from './badge';
 import { Bay, BoardColumn } from './bay';
 import { Breadcrumb } from './breadcrumb';
@@ -174,11 +173,6 @@ describe('status badges', () => {
     expect(stage('screening')).toContain('On hold');
     expect(stage('screening')).toContain('lucide-circle-pause');
     expect(stage('screening')).toContain('bg-status-warning-bg');
-    client.setQueryData(
-      ['use-cases'],
-      [mergeUseCase(HIRING_USE_CASE, { id: 'hiring', stages: [{ key: 'screening', label: 'Paused' }] })],
-    );
-    expect(stage('screening')).toContain('Paused');
     expect(stage('mystery')).toContain('Unknown');
   });
 

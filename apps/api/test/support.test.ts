@@ -493,8 +493,10 @@ describe('inbound email', () => {
 });
 
 describe('/status', () => {
-  it('is public and names three parts with a state each', async () => {
-    const res = await api.request({ method: 'GET', url: '/status' });
+  it('is not public: anonymous is refused, a signed-in member gets the same body', async () => {
+    expect((await api.request({ method: 'GET', url: '/status' })).statusCode).toBe(401);
+    const a = await company('statusreader');
+    const res = await api.request({ method: 'GET', url: '/status', cookie: a.owner.cookie });
     expect(res.statusCode).toBe(200);
     const body = json<{ components: { id: string; state: string }[] }>(res);
     expect(body.components.map((c) => c.id)).toEqual(['api', 'calls', 'webhooks']);

@@ -136,7 +136,7 @@ These come after the core and the SDK. Each one is added to the `pnpm test:clien
 - **Founder inbox:** an admin inbox page, platform admin only, holding chats and emails together, with the context beside each conversation. The founder gets an email and a browser notification for every new customer message.
 - **Self-service first:**
   - the delivery log with "send again", and plain-language error messages;
-  - a public status page (`/status`) showing whether calling works right now, fed by the existing health checks.
+  - a status notice in Get help (signed-in only; `/status` is not public) showing whether calling works right now, fed by the existing health checks.
 - **Built in-house** (founder's request for live chat and email; the in-house build is our call): conversations stay in our database under the same privacy rules, and context is attached automatically. Chat refreshes every few seconds; no constant live connection is needed.
 - **Email:** we need a real sending and receiving service, because today all mail is caught by Mailpit. Our call: Resend (free tier covers expected volume; inbound email webhook for replies). Password-reset and invitation emails start working for real at the same time.
 
@@ -207,7 +207,7 @@ It runs before every deploy. A red run blocks the deploy.
    - tickets + founder inbox
    - live chat
    - Resend email in and out
-   - status page
+   - status notice in Get help (not public)
 6. **Developer docs page** and Settings → Developers.
 7. **Zapier app.**
 8. **Zoho Recruit connector** with the fake Zoho, then one real-trial check.

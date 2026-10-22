@@ -117,9 +117,6 @@ export function SiteFooter() {
       </div>
       <div className={cn(CONTAINER, "flex flex-wrap items-end justify-between gap-6 pb-10")}>
         <SupportChat />
-        <Link href="/status" className={LINK}>
-          Service status
-        </Link>
       </div>
       <div className={CONTAINER}>
         <div className="flex flex-wrap items-center justify-between gap-x-8 gap-y-1 border-t border-site-line py-4 text-[0.8125rem] text-site-fg-3">

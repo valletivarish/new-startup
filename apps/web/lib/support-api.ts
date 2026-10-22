@@ -1,4 +1,4 @@
-/** Support routes: Get help (session), the founder's inbox (platform admin), the website chat and /status. */
+/** Support routes: Get help (session), the founder's inbox (platform admin), the website chat and the status read for Get help. */
 
 import { call } from './api';
 import type { AdminTicket, StatusComponent, SupportMessage, Ticket, TicketStatus } from './support';

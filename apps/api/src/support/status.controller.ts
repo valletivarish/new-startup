@@ -1,5 +1,5 @@
 /**
- * Public status (/status): is calling working right now? Green/amber/red per
+ * Status (/status), for signed-in users only: is calling working right now? Green/amber/red per
  * part, from the same checks /health and the worker rely on. Names no vendor
  * and carries no secret, count or error text.
  */
@@ -7,7 +7,7 @@
 import { Controller, Get, Inject } from '@nestjs/common';
 import { sql, withoutTenantContext, type Database } from '@platform/db';
 
-import { Public } from '../authz/decorators.js';
+import { Authenticated } from '../authz/decorators.js';
 import type { Env } from '../config.js';
 import { WEBHOOK_QUEUE } from '../jobs/queue.js';
 import { DATABASE, ENV } from '../tokens.js';
@@ -55,7 +55,7 @@ export class StatusController {
     @Inject(DATABASE) private readonly database: Database,
   ) {}
 
-  @Public()
+  @Authenticated()
   @Get('status')
   async status() {
     if (this.cached && Date.now() - this.cached.at < CACHE_MS) return this.cached.body;

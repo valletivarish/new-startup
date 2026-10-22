@@ -510,7 +510,7 @@ export default async function DevelopersPage() {
                 </Li>
                 <Li>
                   Calls are placed between 9:00 and 20:00 India time; anyone applying later is told the call comes after
-                  9 am. Numbers on the do-not-disturb list are skipped, and your company’s call limits apply.
+                  9 am. Your company’s call limits apply, and the Do Not Disturb rule above applies too.
                 </Li>
                 <Li>The page never shows answers, scores or results. Those stay in your dashboard and webhooks.</Li>
                 <Li>

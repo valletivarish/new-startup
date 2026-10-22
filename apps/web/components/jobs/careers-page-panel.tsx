@@ -109,8 +109,7 @@ export function CareersPagePanel({
       </div>
       <p className="mb-0 mt-1 max-w-[65ch] text-text-2">
         Paste one line into your careers page and applicants can ask for a screening call right there. They give
-        their own consent, calls go out between 9 am and 8 pm India time, and nobody on the do-not-disturb list is
-        called. Answers and results stay here; nothing about them is shown on your site.
+        their own consent, and calls go out between 9 am and 8 pm India time. Answers and results stay here; nothing about them is shown on your site.
       </p>
 
       <div className="mt-5 grid gap-6">

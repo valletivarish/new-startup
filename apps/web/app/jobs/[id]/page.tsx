@@ -23,6 +23,7 @@ import { Agent } from '@/components/brand/agent';
 import { cleanQuestions, jobReadiness, jobStatusLabel, lineState, readinessLine, sameQuestions } from '@/components/jobs/setup';
 import { requirementsDirty, toForm, type RequirementsForm } from '@/components/jobs/requirements';
 import { RequirementsEditor, RequirementsSummary } from '@/components/jobs/requirements-form';
+import { CareersPagePanel } from '@/components/jobs/careers-page-panel';
 import { JobHeader } from '@/components/shared/job-header';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/components/ui/cn';
@@ -923,6 +924,9 @@ function JobSetup({ publicId }: { publicId: string }) {
                 </div>
               ) : null}
             </SetupCard>
+            {permissions.includes('integrations.read') ? (
+              <CareersPagePanel jobId={jobId} jobTitle={job.title} permissions={permissions} />
+            ) : null}
             {me.data?.isPlatformAdmin && job ? <EngineCard job={job} onChange={setJob} /> : null}
           </div>
 

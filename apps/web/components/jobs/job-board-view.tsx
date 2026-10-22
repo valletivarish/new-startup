@@ -617,7 +617,7 @@ function JobBoardInner({ mode }: { mode: BoardMode }) {
     if (!job?.agentId) {
       setCallNoticeByCandidate((prev) => ({
         ...prev,
-        [candidateId]: { kind: 'err', text: 'This job has no AI hiring agent yet. Add one in Setup, then call.' },
+        [candidateId]: { kind: 'err', text: 'This job has no call setup yet. Add one in Setup, then call.' },
       }));
       return;
     }
@@ -848,7 +848,7 @@ function JobBoardInner({ mode }: { mode: BoardMode }) {
   const questions = job.screeningQuestions?.length ?? 0;
   const asks =
     questions > 0
-      ? `The agent asks your ${questions} must-ask ${questions === 1 ? 'question' : 'questions'}.`
+      ? `Every call asks your ${questions} must-ask ${questions === 1 ? 'question' : 'questions'}.`
       : 'Add must-ask questions in Setup, so every call covers them.';
 
   let readiness: ReactNode;
@@ -859,7 +859,7 @@ function JobBoardInner({ mode }: { mode: BoardMode }) {
   } else if (!job.agentId) {
     readiness = (
       <Readiness icon={CircleAlert} tone="text-status-warning-text">
-        No AI hiring agent on this job yet.{' '}
+        No call setup on this job yet.{' '}
         <Link href={`/jobs/${jobPublicId}/setup`} className={INLINE_LINK}>
           Add one in Set up
         </Link>{' '}
@@ -869,13 +869,13 @@ function JobBoardInner({ mode }: { mode: BoardMode }) {
   } else if (agentPublished === 'unknown') {
     readiness = (
       <Readiness icon={CircleAlert} tone="text-status-warning-text">
-        Couldn’t check whether the AI hiring agent is live. Reload the page to check again.
+        Couldn’t check whether the call setup is ready. Reload the page to check again.
       </Readiness>
     );
   } else if (!agentPublished) {
     readiness = (
       <Readiness icon={CircleAlert} tone="text-status-warning-text">
-        The AI hiring agent isn’t live yet.{' '}
+        The call setup isn’t ready yet.{' '}
         <Link href={`/agents/${toPublicId(job.agentId)}`} className={INLINE_LINK}>
           Publish it
         </Link>{' '}
@@ -885,7 +885,7 @@ function JobBoardInner({ mode }: { mode: BoardMode }) {
   } else if (!canScreen) {
     readiness = (
       <Readiness icon={CircleCheck} tone="text-status-success-text">
-        The AI hiring agent is live for this job.
+        The call setup is ready for this job.
       </Readiness>
     );
   } else if (telephonyFailed) {
@@ -1016,7 +1016,7 @@ function JobBoardInner({ mode }: { mode: BoardMode }) {
             <EmptyState
               agent="idle"
               title={`No ${contactMany} on this job yet`}
-              description={`Add them one at a time, from a resume, or upload a CSV. The AI hiring agent then calls each one and asks your questions.`}
+              description={`Add them one at a time, from a resume, or upload a CSV. Each one then gets a call that asks your questions.`}
               action={canCreate ? addActions : null}
               className="py-16"
             />

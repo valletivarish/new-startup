@@ -78,7 +78,7 @@ export function jobReadiness(
 }
 
 /**
- * The job's "The call" card: whether the call setup is ready (the agent is published), not the
+ * The job's "The call" card: whether the call setup is ready (its caller is published), not the
  * agent's publish state, and no "agent" in the words. badge is null while it isn't known.
  */
 export function callCard(
@@ -118,7 +118,7 @@ export function readinessLine(r: Readiness): string | null {
   const todo: string[] = [];
   if (r.description === 'missing') todo.push('add the job description');
   if (r.description === 'preparing') todo.push('wait for the description file to be read');
-  if (r.agent === 'missing') todo.push('choose the AI hiring agent');
-  if (r.agent === 'not-live') todo.push('publish the AI hiring agent');
+  if (r.agent === 'missing') todo.push('choose who calls');
+  if (r.agent === 'not-live') todo.push('publish the call setup');
   return `Before calling, ${joinAnd(todo)}.`;
 }

@@ -198,7 +198,7 @@ function CreateJobDialog({ open, onOpenChange }: { open: boolean; onOpenChange: 
         <DialogHeader>
           <DialogTitle>Create a {job}</DialogTitle>
           <DialogDescription>
-            Name it. Next you’ll add the description and the questions the agent asks.
+            Name it. Next you’ll add the description and the questions each call asks.
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={onCreate} noValidate className="grid gap-5">
@@ -217,15 +217,15 @@ function CreateJobDialog({ open, onOpenChange }: { open: boolean; onOpenChange: 
               {live ? (
                 <>
                   <span className="font-medium text-text">{live.name}</span> will make the calls. You can change
-                  the agent in setup.
+                  who calls in setup.
                 </>
               ) : agents.data.agents.length > 0 ? (
-                `Your AI hiring agent isn’t live yet. You can create the ${job} now and publish the agent before calling.`
+                `The call setup isn’t ready yet. You can create the ${job} now and publish it before calling.`
               ) : (
                 <>
-                  You’ll need an AI hiring agent before calling.{' '}
+                  You’ll need the call set up before calling.{' '}
                   <Link href="/agents/new" className="font-medium text-accent underline underline-offset-4">
-                    Set up the agent
+                    Set up the call
                   </Link>
                 </>
               )}

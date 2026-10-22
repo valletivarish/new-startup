@@ -1102,7 +1102,17 @@ export interface HiringQueueItem {
 
 /** Home queues: `total` is the true count, `items` the first few rows. */
 export interface HiringSummary {
-  counts: { agents: number; openJobs: number; candidates: number };
+  /** `agents` is null for someone who can't read agents. */
+  counts: { agents: number | null; openJobs: number; candidates: number };
+  /** Jobs in any status. Older backends don't send it. */
+  totals?: { jobs: number };
+  /** Every job with where its people stand (`funnel` null: no permission to read candidates). */
+  jobs?: {
+    jobId: string;
+    jobTitle: string;
+    jobStatus: string;
+    funnel: { total: number; notCalled: number; toReview: number; onHold: number; movedForward: number } | null;
+  }[];
   queues: Record<
     'readyForReview' | 'notConnected' | 'notCalled' | 'onHold',
     { total: number; items: HiringQueueItem[] }
@@ -1111,8 +1121,7 @@ export interface HiringSummary {
 
 /**
  * GET /hiring/summary → HiringSummary, in one request instead of one per job (audit H8).
- * Proposed shape: no backend serves it yet and spec §8 doesn't define it, so the backend owner
- * must confirm it in MIGRATION_STATUS.md. Optional: NotAvailableError until then; load per job.
+ * apps/api serves it (hiring/summary.ts). Optional: NotAvailableError on older backends; load per job.
  */
 export const getHiringSummary = () => call<HiringSummary>('/backend/hiring/summary', undefined, OPTIONAL);
 

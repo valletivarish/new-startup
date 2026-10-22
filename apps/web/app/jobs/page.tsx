@@ -25,7 +25,7 @@ import { PageHeader, PageMain } from '@/components/ui/page-header';
 import { SkeletonPage, SkeletonRows, useHeldLoading } from '@/components/ui/skeleton';
 import { createJob, listAgents } from '@/lib/api';
 import { messageText, toUserMessage } from '@/lib/errors';
-import { hiringPeopleQueryKey, useHomeSnapshot, useHiringPeople } from '@/lib/hiring-people';
+import { hiringPeopleQueryKey, useHomeSnapshot, useJobsOverview } from '@/lib/hiring-people';
 import { toPublicId } from '@/lib/public-id';
 import { useMe } from '@/lib/use-me';
 import { useUseCase } from '@/lib/use-cases';
@@ -68,7 +68,7 @@ function JobsPageInner() {
   const permissions = me.data?.activeOrganization?.permissions ?? [];
   const canRead = permissions.includes('jobs.read');
   const canCreate = permissions.includes('jobs.create');
-  const jobs = useHiringPeople(canRead);
+  const jobs = useJobsOverview(canRead);
   const home = useHomeSnapshot(me.data);
   const can = (permission: string) => permissions.includes(permission);
   // Pending stays true while the query waits on permission; only a fetch in flight is loading.

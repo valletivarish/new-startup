@@ -89,8 +89,35 @@ export interface HiringPeopleSnapshot {
   funnels: Record<string, JobFunnel>;
 }
 
+/**
+ * Each job's funnel from the summary: one request however many jobs there are. A job whose
+ * people the viewer can't read has none. null: this backend has no summary (older backends);
+ * the caller counts from the lists it already loads.
+ */
+async function fetchFunnels(): Promise<Record<string, JobFunnel> | null> {
+  try {
+    const { jobs } = await loadSummary();
+    if (!jobs) return null;
+    const funnels: Record<string, JobFunnel> = {};
+    for (const entry of jobs) if (entry.funnel) funnels[entry.jobId] = entry.funnel;
+    return funnels;
+  } catch (error) {
+    if (error instanceof NotAvailableError) return null;
+    throw error;
+  }
+}
+
+/** The jobs list: every job and its funnel in two requests, whether there is one job or a hundred. */
+export async function fetchJobsOverview(): Promise<Pick<HiringPeopleSnapshot, 'jobs' | 'funnels'>> {
+  const [{ jobs }, summaryFunnels] = await Promise.all([listJobs(), fetchFunnels()]);
+  if (summaryFunnels) return { jobs, funnels: summaryFunnels };
+  // Older backend without the summary: count from each open job's list.
+  const { funnels } = await fetchHiringPeople();
+  return { jobs, funnels };
+}
+
 export async function fetchHiringPeople(q?: string): Promise<HiringPeopleSnapshot> {
-  const { jobs } = await listJobs();
+  const [{ jobs }, summaryFunnels] = await Promise.all([listJobs(), fetchFunnels()]);
   const openJobs = jobs.filter((j) => j.status !== 'closed');
   const qTrim = q?.trim() ?? '';
   const qLower = qTrim.toLowerCase();
@@ -115,11 +142,12 @@ export async function fetchHiringPeople(q?: string): Promise<HiringPeopleSnapsho
   );
 
   const people: HiringPerson[] = [];
-  const funnels: Record<string, JobFunnel> = {};
+  // The summary's funnels cover everyone on the job; counted from rows they'd shrink to a search.
+  const funnels: Record<string, JobFunnel> = summaryFunnels ?? {};
 
   for (const { job, candidates } of batches) {
     if (!candidates) continue;
-    funnels[job.id] = jobFunnel(candidates);
+    if (!summaryFunnels) funnels[job.id] = jobFunnel(candidates);
     for (const row of candidates) {
       people.push({
         candidateId: row.candidateId,
@@ -138,6 +166,16 @@ export async function fetchHiringPeople(q?: string): Promise<HiringPeopleSnapsho
 }
 
 export const hiringPeopleQueryKey = ['hiring-people'] as const;
+
+/** The Jobs page: jobs and funnels only, a fixed number of requests. */
+export function useJobsOverview(enabled = true) {
+  return useQuery({
+    queryKey: [...hiringPeopleQueryKey, { overview: true }],
+    queryFn: fetchJobsOverview,
+    enabled,
+    staleTime: 30_000,
+  });
+}
 
 export function useHiringPeople(enabled = true, q = '') {
   const trimmed = q.trim();
@@ -183,13 +221,7 @@ export function homeQueueOf(stage: string, callStatus: string | null | undefined
   return stage === 'new' && (callStatus ?? 'not_called') === 'not_called' ? 'notCalled' : null;
 }
 
-// The Java summary adds a per-job list; older shapes may not carry it.
-type SummaryWithJobs = HiringSummary & {
-  jobs?: { jobId: string; jobStatus?: string }[];
-  totals?: { jobs?: number };
-};
-
-export function homeSnapshotFromSummary(summary: SummaryWithJobs): HomeSnapshot {
+export function homeSnapshotFromSummary(summary: HiringSummary): HomeSnapshot {
   const jobs = summary.jobs ?? [];
   const first = jobs.find((job) => job.jobStatus === 'open') ?? jobs[0];
   return {
@@ -276,10 +308,19 @@ export function groupQueueByJob(items: readonly HiringQueueItem[]) {
   return [...groups.values()];
 }
 
+let summaryInFlight: Promise<HiringSummary> | null = null;
+/** GET /hiring/summary, shared by whatever asks while one is on its way (Home and the jobs list load together). */
+function loadSummary(): Promise<HiringSummary> {
+  summaryInFlight ??= getHiringSummary().finally(() => {
+    summaryInFlight = null;
+  });
+  return summaryInFlight;
+}
+
 /** One request where the backend has GET /hiring/summary; otherwise the job lists, in parallel (audit H8). */
 export async function fetchHomeSnapshot(can: (permission: string) => boolean): Promise<HomeSnapshot> {
   try {
-    return homeSnapshotFromSummary(await getHiringSummary());
+    return homeSnapshotFromSummary(await loadSummary());
   } catch (error) {
     if (!(error instanceof NotAvailableError)) throw error;
   }

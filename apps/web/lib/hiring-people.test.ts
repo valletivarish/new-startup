@@ -14,6 +14,7 @@ import {
 } from './api';
 import {
   fetchHiringPeople,
+  fetchJobsOverview,
   fetchHomeSnapshot,
   filterPeopleByJob,
   formatJobPeopleSummary,
@@ -246,8 +247,25 @@ describe('fetchHomeSnapshot', () => {
   });
 });
 
+const unavailable = () => new NotAvailableError(404, { code: 'http_error', message: '' });
+const funnelOf = (total: number): JobFunnel => ({ ...empty, total, notCalled: total });
+const summaryOfJobs = (n: number): HiringSummary =>
+  summary({
+    jobs: Array.from({ length: n }, (_, i) => ({
+      jobId: `j${i}`,
+      jobTitle: `Job ${i}`,
+      jobStatus: 'open',
+      funnel: i % 2 ? null : funnelOf(i + 1),
+    })),
+    totals: { jobs: n },
+  });
+const jobsOf = (n: number) => Array.from({ length: n }, (_, i) => job(`j${i}`));
+
 describe('fetchHiringPeople', () => {
-  beforeEach(() => vi.resetAllMocks());
+  beforeEach(() => {
+    vi.resetAllMocks();
+    vi.mocked(getHiringSummary).mockRejectedValue(unavailable());
+  });
 
   it('lists a job whose people it may not read, with no funnel', async () => {
     vi.mocked(listJobs).mockResolvedValue({ jobs: [job('a')] });
@@ -262,5 +280,64 @@ describe('fetchHiringPeople', () => {
     vi.mocked(listJobs).mockResolvedValue({ jobs: [job('a')] });
     vi.mocked(listJobCandidates).mockRejectedValue(failure(500));
     await expect(fetchHiringPeople()).rejects.toBeInstanceOf(ApiClientError);
+  });
+
+  it('takes funnels from the summary, whole even while a search narrows the rows', async () => {
+    vi.mocked(getHiringSummary).mockResolvedValue(summaryOfJobs(1));
+    vi.mocked(listJobs).mockResolvedValue({ jobs: jobsOf(1) });
+    vi.mocked(listJobCandidates).mockResolvedValue({
+      candidates: [row('1', 'new')],
+      nextCursor: null,
+      totals: { all: 0, new: 0, screening: 0, reviewed: 0 },
+    });
+    const { funnels, people } = await fetchHiringPeople('ada');
+    expect(funnels).toEqual({ j0: funnelOf(1) });
+    expect(people).toHaveLength(1);
+  });
+});
+
+describe('fetchJobsOverview: a fixed number of requests (audit H8)', () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+  });
+
+  it.each([1, 30])('makes 2 requests for %i jobs and none per job', async (n) => {
+    vi.mocked(getHiringSummary).mockResolvedValue(summaryOfJobs(n));
+    vi.mocked(listJobs).mockResolvedValue({ jobs: jobsOf(n) });
+    const { jobs, funnels } = await fetchJobsOverview();
+    expect(jobs).toHaveLength(n);
+    expect(listJobs).toHaveBeenCalledTimes(1);
+    expect(getHiringSummary).toHaveBeenCalledTimes(1);
+    expect(listJobCandidates).not.toHaveBeenCalled();
+    // Jobs whose people can't be read have no funnel (null in the summary).
+    expect(Object.keys(funnels)).toHaveLength(Math.ceil(n / 2));
+    expect(funnels['j0']).toEqual(funnelOf(1));
+  });
+
+  it('shares one summary request with Home when both load together', async () => {
+    vi.mocked(getHiringSummary).mockResolvedValue(summaryOfJobs(3));
+    vi.mocked(listJobs).mockResolvedValue({ jobs: jobsOf(3) });
+    await Promise.all([fetchJobsOverview(), fetchHomeSnapshot(() => true)]);
+    expect(getHiringSummary).toHaveBeenCalledTimes(1);
+  });
+
+  it('counts from the lists only where the backend has no summary', async () => {
+    vi.mocked(getHiringSummary).mockRejectedValue(unavailable());
+    vi.mocked(listJobs).mockResolvedValue({ jobs: jobsOf(2) });
+    vi.mocked(listJobCandidates).mockResolvedValue({
+      candidates: [row('1', 'new')],
+      nextCursor: null,
+      totals: { all: 0, new: 0, screening: 0, reviewed: 0 },
+    });
+    const { funnels } = await fetchJobsOverview();
+    expect(listJobCandidates).toHaveBeenCalledTimes(2);
+    expect(funnels['j1']).toEqual(funnelOf(1));
+  });
+
+  it('fails on a real error rather than guessing', async () => {
+    vi.mocked(getHiringSummary).mockRejectedValue(failure(500));
+    vi.mocked(listJobs).mockResolvedValue({ jobs: jobsOf(1) });
+    await expect(fetchJobsOverview()).rejects.toBeInstanceOf(ApiClientError);
+    expect(listJobCandidates).not.toHaveBeenCalled();
   });
 });

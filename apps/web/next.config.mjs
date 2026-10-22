@@ -12,6 +12,16 @@ const nextConfig = {
   outputFileTracingRoot: path.join(__dirname, '../..'),
   // Dev browser often uses 127.0.0.1 while Next binds localhost.
   allowedDevOrigins: ['127.0.0.1', 'localhost'],
+  async headers() {
+    // The careers-page snippet keeps one URL forever: browsers recheck it hourly (ETag), the
+    // CDN keeps it until the next deploy.
+    return [
+      {
+        source: '/embed.js',
+        headers: [{ key: 'Cache-Control', value: 'public, max-age=3600, s-maxage=31536000, stale-while-revalidate=86400' }],
+      },
+    ];
+  },
   async rewrites() {
     // Same-origin API access in development, so the session cookie is
     // first-party and SameSite=Lax works without cross-origin complexity.

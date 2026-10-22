@@ -6,7 +6,7 @@
  *   POST /oauth/v2/token          authorization_code (PKCE S256 checked) and refresh_token grants
  *   POST /oauth/v2/token/revoke   ?token=
  *   GET  /recruit/v2/JobOpenings
- *   GET  /recruit/v2/Applications  If-Modified-Since (inclusive, second precision), sort Modified_Time asc, page/per_page
+ *   GET  /recruit/v2/Applications  If-Modified-Since (inclusive, second precision), sort Last_Activity_Time asc, page/per_page
  *   POST /recruit/v2/Notes         { data: [{ Note_Title, Note_Content, Parent_Id, se_module }] }
  *
  * In memory; helpers add jobs and applications and read the notes back.
@@ -202,13 +202,17 @@ export async function startFakeZoho(port = 0): Promise<FakeZoho> {
         return json(200, {
           data: slice.map((a) => ({
             id: a.id,
-            Modified_Time: a.modifiedTime,
+            // Shape seen on a real India-DC account (22 Oct 2026): no Modified_Time on
+            // applications, plain-string lookups with $-prefixed ids.
+            Last_Activity_Time: a.modifiedTime,
+            Created_Time: a.modifiedTime,
             Application_Status: a.status,
             Full_Name: a.name,
             Mobile: a.mobile,
             Email: a.email ?? null,
-            Job_Opening_Name: { id: a.jobId, name: fake.jobs.find((j) => j.id === a.jobId)?.title ?? '' },
-            Candidate_Name: { id: a.candidateId, name: a.name },
+            Job_Opening_Name: fake.jobs.find((j) => j.id === a.jobId)?.title ?? '',
+            $Job_Opening_Id: a.jobId,
+            $Candidate_Id: a.candidateId,
           })),
           info: { page, per_page: perPage, count: slice.length, more_records: page * perPage < rows.length },
         });

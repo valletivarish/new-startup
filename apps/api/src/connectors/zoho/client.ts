@@ -34,7 +34,7 @@ export const ZOHO_SCOPES = [
   'ZohoRecruit.modules.jobopening.READ',
   'ZohoRecruit.modules.candidate.READ',
   'ZohoRecruit.modules.application.READ',
-  'ZohoRecruit.modules.candidate.CREATE', // Zoho has no notes scope; a note on a candidate needs this
+  'ZohoRecruit.modules.CREATE', // Zoho has no notes scope; module-level CREATE is what /Notes accepts
 ].join(',');
 
 const ZOHO_ACCOUNTS = /^https:\/\/accounts\.zoho\.(com|in|eu|com\.au|jp|com\.cn|ca|sa|uk)$/;
@@ -216,7 +216,7 @@ export function createZohoClient(opts: {
 
     async listApplications(base, accessToken, { modifiedSince, page, perPage = 200 }) {
       const q = new URLSearchParams({
-        sort_by: 'Modified_Time',
+        sort_by: 'Last_Activity_Time',
         sort_order: 'asc',
         page: String(page),
         per_page: String(perPage),

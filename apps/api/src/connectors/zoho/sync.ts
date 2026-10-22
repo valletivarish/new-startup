@@ -84,10 +84,13 @@ const str = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? 
  * the real-account trial).
  */
 export function mapApplication(r: ZohoRecord): MappedApplication | null {
-  const modified = Date.parse(String(r['Modified_Time'] ?? ''));
+  // Real Zoho applications carry no Modified_Time; Last_Activity_Time is what
+  // moves on a change and what If-Modified-Since filters on.
+  const modified = Date.parse(String(r['Last_Activity_Time'] ?? r['Modified_Time'] ?? r['Created_Time'] ?? ''));
   if (!r.id || !Number.isFinite(modified)) return null;
-  const job = r['Job_Opening_Name'] ?? r['Job_Opening'] ?? r['$Job_Opening_Id'] ?? r['Job_Opening_Id'];
-  const cand = r['Candidate_Name'] ?? r['Candidate'] ?? r['$Candidate_Id'] ?? r['Candidate_Id'];
+  // Ids first: on a real account Job_Opening_Name is the title as a plain string.
+  const job = r['$Job_Opening_Id'] ?? (typeof r['Job_Opening_Name'] === 'object' ? r['Job_Opening_Name'] : null) ?? r['Job_Opening'];
+  const cand = r['$Candidate_Id'] ?? (typeof r['Candidate_Name'] === 'object' ? r['Candidate_Name'] : null) ?? r['Candidate'];
   const first = str(r['First_Name']);
   const last = str(r['Last_Name']);
   const fullName =

@@ -24,3 +24,10 @@ export function legacyBoardPath(jobId: string, params: Query): string {
 export function openingPath(jobId: string, status: string | null, params: Query): string {
   return `/jobs/${jobId}/${status ? openingTab(status) : 'people'}${queryString(params)}`;
 }
+
+/** A URLSearchParams as the Query record the helpers above take (repeated keys kept). */
+export function searchRecord(search: URLSearchParams): Query {
+  const out: Record<string, string[]> = {};
+  search.forEach((v, k) => (out[k] ??= []).push(v));
+  return out;
+}

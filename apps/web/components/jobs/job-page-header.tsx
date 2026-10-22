@@ -74,7 +74,17 @@ export function JobPageHeader({
               }
             />
           ) : null}
-          {testOnly ? <Alert kind="info" title={TEST_ONLY_BANNER} /> : null}
+          {testOnly ? (
+            <Alert
+              kind="info"
+              title={TEST_ONLY_BANNER}
+              action={
+                <Button asChild size="sm" variant="secondary">
+                  <Link href="/settings/calling">Set it up</Link>
+                </Button>
+              }
+            />
+          ) : null}
         </div>
       ) : null}
 

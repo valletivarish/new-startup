@@ -20,7 +20,7 @@ import {
 } from 'lucide-react';
 import { AppShell } from '@/components/AppShell';
 import { Agent } from '@/components/brand/agent';
-import { cleanQuestions, jobReadiness, jobStatusLabel, lineState, readinessLine, sameQuestions } from '@/components/jobs/setup';
+import { callCard, cleanQuestions, jobReadiness, jobStatusLabel, lineState, readinessLine, sameQuestions } from '@/components/jobs/setup';
 import { requirementsDirty, toForm, type RequirementsForm } from '@/components/jobs/requirements';
 import { RequirementsEditor, RequirementsSummary } from '@/components/jobs/requirements-form';
 import { CareersPagePanel } from '@/components/jobs/careers-page-panel';
@@ -266,6 +266,7 @@ function JobSetup({ publicId }: { publicId: string }) {
   const telephony = useQuery({ queryKey: ['telephony-status'], queryFn: getTelephonyStatus, enabled: canCheckLine });
   const line = lineState(telephony.data?.outboundPhone, telephony.isError || (me.data != null && !canCheckLine));
   const showSkeleton = useHeldLoading(loading && !job);
+  const card = callCard(Boolean(job?.agentId), agentLive, line);
 
   async function onLinkAgent() {
     if (!linkAgentId) return;
@@ -855,14 +856,12 @@ function JobSetup({ publicId }: { publicId: string }) {
             <SetupCard
               id="agent"
               step={canEdit ? 4 : undefined}
-              title="AI hiring agent"
-              description="Makes the calls for this job, in its own voice."
+              title="The call"
+              description="Who calls, in which voice and language."
               badge={
-                job.agentId && agentLive !== null ? (
-                  <StatusTag domain="agent" value={agentStatus} />
-                ) : !job.agentId ? (
-                  <StatusBadge tone="neutral" icon={Circle}>
-                    Not chosen
+                card.badge ? (
+                  <StatusBadge tone={card.badge === 'Ready' ? 'success' : 'neutral'} icon={card.badge === 'Ready' ? undefined : Circle}>
+                    {card.badge}
                   </StatusBadge>
                 ) : null
               }
@@ -871,44 +870,36 @@ function JobSetup({ publicId }: { publicId: string }) {
                 <Agent size={48} colour="glass" onLight />
                 <div className="min-w-0 flex-1 basis-40">
                   <p className="m-0 truncate font-medium text-text">
-                    {job.agentId ? (linkedAgent?.name ?? 'The agent on this job') : 'No agent chosen yet'}
+                    {job.agentId ? (linkedAgent?.name ?? 'The caller on this job') : 'No caller chosen yet'}
                   </p>
                   <p className="m-0 mt-0.5 text-meta text-text-3">
                     {!job.agentId
                       ? agents === null || agents.length > 0
-                        ? 'Choose which agent calls for this job.'
+                        ? card.text
                         : `Set one up once. It calls ${contacts} for every job you give it.`
                       : agentStatus === 'unknown'
-                        ? 'Couldn’t check this agent. Reload the page to try again.'
-                        : agentLive === null
-                          ? 'Checking the agent…'
-                          : agentLive
-                            ? line === 'connected'
-                              ? 'Ready to call.'
-                              : 'Ready for test calls in your browser.'
-                            : 'Not live yet. Publish it before calling.'}
+                        ? 'Couldn’t check the call setup. Reload the page to try again.'
+                        : card.text}
                   </p>
                 </div>
                 {job.agentId ? (
                   <Button asChild variant="secondary" size="sm">
-                    <Link href={`/agents/${toPublicId(job.agentId)}`}>
-                      {agentLive === false ? 'Publish agent' : 'Agent settings'}
-                    </Link>
+                    <Link href={`/agents/${toPublicId(job.agentId)}`}>Call settings</Link>
                   </Button>
                 ) : agents?.length === 0 ? (
                   <Button asChild size="sm">
-                    <Link href="/agents/new">Set up agent</Link>
+                    <Link href="/agents/new">Set up the call</Link>
                   </Button>
                 ) : null}
               </div>
               {canEdit && agents && (job.agentId ? otherAgents.length > 0 : agents.length > 0) ? (
                 <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-end">
-                  <Field label={job.agentId ? 'Change the agent' : 'Agent for this job'} className="min-w-0 flex-1">
+                  <Field label={job.agentId ? 'Change who calls' : 'Who calls for this job'} className="min-w-0 flex-1">
                     <Select value={linkAgentId} onChange={(e) => setLinkAgentId(e.target.value)}>
                       {agents.map((a) => (
                         <option key={a.id} value={a.id}>
                           {a.name}
-                          {a.status === 'published' ? '' : ' (not live)'}
+                          {a.status === 'published' ? '' : ' (not ready)'}
                         </option>
                       ))}
                     </Select>
@@ -920,7 +911,7 @@ function JobSetup({ publicId }: { publicId: string }) {
                     disabled={!linkAgentId || linkAgentId === job.agentId}
                     onClick={() => void onLinkAgent()}
                   >
-                    Use this agent
+                    Use this one
                   </Button>
                 </div>
               ) : null}

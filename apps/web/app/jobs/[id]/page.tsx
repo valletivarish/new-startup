@@ -1,29 +1,37 @@
-import { cookies } from 'next/headers';
-import { redirect } from 'next/navigation';
-import { openingPath } from '@/components/jobs/job-routes';
+'use client';
+
+import { useEffect } from 'react';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
+import { useQuery } from '@tanstack/react-query';
+import { AppShell } from '@/components/AppShell';
+import { openingPath, searchRecord } from '@/components/jobs/job-routes';
+import { PageMain } from '@/components/ui/page-header';
+import { Skeleton } from '@/components/ui/skeleton';
+import { getJob } from '@/lib/api';
 import { fromPublicId } from '@/lib/public-id';
 
-/** The opening rule: a Draft job opens on Set up, every other job on People. Stateless. */
-export default async function JobPage({
-  params,
-  searchParams,
-}: {
-  params: Promise<{ id: string }>;
-  searchParams: Promise<Record<string, string | string[] | undefined>>;
-}) {
-  const { id } = await params;
-  const query = await searchParams;
-  let status: string | null = null;
-  try {
-    // The same call the browser makes through /backend, with the visitor's session cookie.
-    const api = process.env.API_URL ?? 'http://localhost:3001';
-    const res = await fetch(`${api}/jobs/${fromPublicId(id) ?? id}`, {
-      headers: { cookie: (await cookies()).toString() },
-      cache: 'no-store',
-    });
-    if (res.ok) status = ((await res.json()) as { status?: string }).status ?? null;
-  } catch {
-    // The People tab shows its own load error.
-  }
-  redirect(openingPath(id, status, query));
+/**
+ * The opening rule: a Draft job opens on Set up, every other job on People. It reads the job the
+ * way every other job page does (browser, /backend, retried), so one refused request cannot send
+ * a Draft to People. Stateless.
+ */
+export default function JobPage() {
+  const { id } = useParams<{ id: string }>();
+  const rawId = fromPublicId(id) ?? id;
+  const search = useSearchParams();
+  const router = useRouter();
+  const job = useQuery({ queryKey: ['job', rawId], queryFn: () => getJob(rawId), staleTime: 10_000 });
+  const settled = job.data !== undefined || job.isError;
+  useEffect(() => {
+    // An unreadable job goes to People, which shows its own load error.
+    if (settled) router.replace(openingPath(id, job.data?.status ?? null, searchRecord(search)));
+  }, [settled, job.data, id, search, router]);
+  return (
+    <AppShell profile={null}>
+      <PageMain>
+        <Skeleton className="h-8 w-64" />
+        <Skeleton className="mt-6 h-40 w-full" />
+      </PageMain>
+    </AppShell>
+  );
 }

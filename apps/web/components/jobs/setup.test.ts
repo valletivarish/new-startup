@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { hasJobDescription, jobReadiness, jobStatusLabel, lineState, readinessLine, sameQuestions } from './setup';
+import { callCard, hasJobDescription, jobReadiness, jobStatusLabel, lineState, readinessLine, sameQuestions } from './setup';
 
 const job = {
   description: '',
@@ -49,6 +49,25 @@ describe('job readiness', () => {
 
   it('says nothing while the agent is being checked', () => {
     expect(readinessLine(jobReadiness(job, [], null, 'connected'))).toBeNull();
+  });
+
+  it('the job card shows the call setup, never Live, and says no "agent"', () => {
+    const states = [
+      callCard(true, true, 'connected'),
+      callCard(true, true, 'not-connected'),
+      callCard(true, false, 'connected'),
+      callCard(true, null, 'checking'),
+      callCard(false, null, 'checking'),
+    ];
+    expect(states[0]).toEqual({ badge: 'Ready', text: 'Ready to call.' });
+    expect(states[1]).toEqual({ badge: 'Ready', text: 'Ready for test calls in your browser.' });
+    expect(states[2]?.badge).toBe('Not ready');
+    expect(states[3]?.badge).toBeNull();
+    expect(states[4]?.badge).toBe('Not chosen');
+    for (const s of states) {
+      expect(s.badge).not.toBe('Live');
+      expect(`${s.badge} ${s.text}`).not.toMatch(/agent/i);
+    }
   });
 
   it('compares questions as they will be saved', () => {

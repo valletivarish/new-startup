@@ -20,7 +20,9 @@ import {
 import Link from 'next/link';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
-import { CircleAlert, CircleCheck, Lock, SearchX, Unplug, Upload, UserPlus, type LucideIcon } from 'lucide-react';
+import { CircleAlert, CircleCheck, Lock, SearchX, Upload, UserPlus, type LucideIcon } from 'lucide-react';
+import { noAnswersYet } from '../../features/readiness/next-action';
+import { useJobReadiness } from '../../features/readiness/use-job-readiness';
 import { toast } from 'sonner';
 import { AppShell } from '@/components/AppShell';
 import { AddCandidateDialog, ImportCandidatesDialog } from '@/components/candidates/add-candidates';
@@ -174,6 +176,7 @@ function JobBoardInner({ mode }: { mode: BoardMode }) {
   const { labels, stages } = useUseCase();
   const jobId = fromPublicId(params.id) ?? params.id;
   const jobPublicId = toPublicId(jobId);
+  const { counts } = useJobReadiness(jobPublicId);
   const basePath = `/jobs/${jobPublicId}/${mode}`;
   // Review opens on answered calls nobody has decided on yet; People on everyone.
   const defaultStage: StageFilter = mode === 'review' ? 'new' : 'all';
@@ -892,12 +895,8 @@ function JobBoardInner({ mode }: { mode: BoardMode }) {
       </Readiness>
     );
   } else if (!outboundPhone) {
-    readiness = (
-      <Readiness icon={Unplug} tone="text-text-3">
-        Your workspace’s calling number isn’t connected yet. Until it is, try the agent with a test call in your
-        browser.
-      </Readiness>
-    );
+    // The header's one banner already says test calls only, so no second line here.
+    readiness = null;
   } else {
     readiness = (
       <Readiness icon={CircleCheck} tone="text-status-success-text">
@@ -996,6 +995,20 @@ function JobBoardInner({ mode }: { mode: BoardMode }) {
               icon={<Lock />}
               title={`You don’t have access to ${contactMany}`}
               description="Ask a workspace admin to give you access."
+            />
+          </div>
+        ) : mode === 'review' && !listError && noAnswersYet(counts) ? (
+          <div className="rounded-card border border-border bg-canvas">
+            <EmptyState
+              agent="idle"
+              title="No answers yet"
+              description="People show up here after their screening call."
+              action={
+                <Button asChild>
+                  <Link href={`/jobs/${jobPublicId}/people`}>Go to People</Link>
+                </Button>
+              }
+              className="py-16"
             />
           </div>
         ) : nobodyYet && !listError ? (

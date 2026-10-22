@@ -3,17 +3,27 @@ import { cn } from '../ui/cn';
 import { OpenChatButton } from './chat';
 import { CONTAINER, SECTION, siteButton } from './kit';
 
-/** Six questions. The pilot's steps live in How it works, so they are not repeated here. */
+/** Eight questions. The pilot's steps live in How it works, so they are not repeated here. */
 export const FAQ = [
   {
-    question: 'Does the agent decide who gets hired?',
+    question: 'Does HRVoice decide who gets hired?',
     answer:
-      'No. It asks your questions and reports the answers, with the transcript and the recording. A person on your team moves each candidate forward or not.',
+      'No. It has the conversation and reports what was said, with the transcript and the recording, so you can see who fits. A person on your team moves each candidate forward or not.',
+  },
+  {
+    question: 'What does the call actually sound like?',
+    answer:
+      'Like a conversation, not a form. It speaks in a natural voice, picks up on what the candidate says and follows up, for example “What’s behind the eighteen?”, and stops to answer when a candidate cuts in. The 84-second sample call on this page is the proof: press play and judge for yourself.',
+  },
+  {
+    question: 'Will candidates know it’s automated?',
+    answer:
+      'If a candidate asks, it tells them plainly that it is an automated screening assistant for the hiring team, then carries on. The call opens by saying who it is calling for and why, and it never claims to be a person.',
   },
   {
     question: 'Which languages does it speak?',
     answer:
-      'English today. If your candidates need another language, tell us when you start your pilot and we will tell you plainly whether it is ready.',
+      'English today. A natural call in the candidate’s own language matters to us. If yours need another, tell us when you start your pilot and we will say plainly whether it is ready.',
   },
   {
     question: 'Do I need a calling number to start?',
@@ -50,7 +60,7 @@ export function FaqSection() {
             Questions, answered
           </h2>
           <p className="m-0 mt-5 max-w-[30ch] text-[1.0625rem] leading-relaxed text-site-fg-2 max-sm:hidden">
-            How calls work, what candidates hear, who decides and who sees what.
+            How the call sounds, what candidates hear, who decides and who sees what.
           </p>
           <p className="m-0 mt-6 text-[0.9375rem] md:mt-10 leading-relaxed text-site-fg-2">
             Not on the list? Ask in your own words.

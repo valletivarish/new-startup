@@ -121,7 +121,7 @@ const ENTRIES: readonly Entry[] = [
       'asked',
     ],
     answer:
-      'Add a job and the questions every candidate must answer. HRVoice, an AI voice agent, phones each candidate, asks your questions, answers their questions from your job description, and sends you the recording, transcript and answers. You decide who moves forward.',
+      'Add a job and the questions every candidate must answer. HRVoice phones each candidate and talks it through like a good recruiter: a natural voice, your questions in your order, follow-ups on what they say, and answers to their questions from your job description. You get the recording, transcript and answers, and you decide who moves forward.',
     link: { href: '#sample-call-card', label: 'Hear a sample call' },
   },
   {
@@ -184,7 +184,15 @@ const ENTRIES: readonly Entry[] = [
     ask: 'Does it decide who gets hired?',
     words: ['decide', 'decision', 'hire', 'reject', 'select', 'shortlist', 'score', 'rank', 'judge', 'filter', 'bias', 'fair'],
     answer:
-      'No. It asks your questions and reports the answers, with the transcript and the recording. A person on your team moves each candidate forward or not.',
+      'No. It has the conversation and reports what was said, with the transcript and the recording, so you can see who fits. A person on your team moves each candidate forward or not.',
+  },
+  {
+    id: 'natural',
+    ask: 'Does it sound natural?',
+    words: ['natural', 'sound', 'sounds', 'voice', 'robotic', 'robot', 'real', 'conversation', 'interrupt', 'follow up', 'follow-up'],
+    answer:
+      'That is what we built it for: a natural voice, follow-ups like “What’s behind the eighteen?”, and it stops to answer when a candidate cuts in. Play the 84-second sample call and judge for yourself.',
+    link: { href: '#sample-call-card', label: 'Hear a sample call' },
   },
   {
     id: 'language',
@@ -208,7 +216,7 @@ const ENTRIES: readonly Entry[] = [
       'multilingual',
     ],
     answer:
-      'English today. If your candidates need another language, tell us when you start your pilot and we will tell you plainly whether it is ready.',
+      'English today. A natural call in the candidate’s own language matters to us. If yours need another, tell us when you start your pilot and we will say plainly whether it is ready.',
   },
   {
     id: 'line',
@@ -249,9 +257,9 @@ const ENTRIES: readonly Entry[] = [
   {
     id: 'person',
     ask: 'Can a call go to a person?',
-    words: ['person', 'human', 'transfer', 'recruiter', 'talk to', 'speak to', 'escalate', 'manager'],
+    words: ['person', 'human', 'transfer', 'recruiter', 'talk to', 'speak to', 'escalate', 'manager', 'automated', 'machine', 'bot'],
     answer:
-      'Yes. Add phone numbers for people on your team. If a candidate asks to speak to a person, the agent transfers the call.',
+      'Yes. Add phone numbers for people on your team. If a candidate asks to speak to a person, the call is transferred. And if a candidate asks whether they are talking to a person, it says plainly that it is an automated screening assistant.',
   },
   {
     id: 'data',

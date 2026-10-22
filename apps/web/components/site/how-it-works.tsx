@@ -62,7 +62,7 @@ function TestCallPreview() {
     <Panel title="Test call in your browser" meta="You are the candidate">
       <div className="flex flex-col items-center py-2 text-center">
         <Agent colour="pearl" size={56} state="speaking" />
-        <p className="m-0 mt-3 text-[0.75rem] text-white/60">AI hiring agent</p>
+        <p className="m-0 mt-3 text-[0.75rem] text-white/60">Hiring team call</p>
         <p className="m-0 mt-1.5 max-w-[30ch] text-[0.875rem] leading-snug">{first?.text}</p>
         <span className="mt-4 inline-flex h-9 items-center gap-2 rounded-full bg-white px-4 text-[0.8125rem] font-medium text-site-black">
           <Mic strokeWidth={2} className="size-4" />
@@ -132,12 +132,12 @@ const STEPS: readonly { title: string; body: string; preview: ReactNode }[] = [
   },
   {
     title: 'Try a test call in your browser',
-    body: 'You play the candidate and hear exactly what they will hear. This works on day one, before any calling number is set up.',
+    body: 'You play the candidate and hear how natural the call feels, exactly as they will. This works on day one, before any calling number is set up.',
     preview: <TestCallPreview />,
   },
   {
     title: 'We connect your calling number. HRVoice phones each candidate.',
-    body: 'Calls to phones need your company’s own calling number, and the phone carrier runs a KYC check on it first. We go through it with you and agree the price per completed call. Then it phones each candidate, spots voicemail, and hands the call to your team if a candidate asks for a person.',
+    body: 'Calls to phones need your company’s own calling number, and the phone carrier runs a KYC check on it first. We go through it with you and agree the price per completed call. Then it phones each candidate and talks it through naturally, spots voicemail, and hands the call to your team if a candidate asks for a person.',
     preview: <QueuePreview />,
   },
 ];

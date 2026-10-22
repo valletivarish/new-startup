@@ -207,7 +207,7 @@ export function LiveCall({ className }: { className?: string }) {
         variant="glass"
         bare
         label="Sample call"
-        agentLabel="AI agent"
+        agentLabel="HRVoice"
         // Lines stack up from the Listening bar; older ones slide up under the top fade.
         className="flex max-h-none min-h-0 flex-1 flex-col justify-end overflow-hidden [mask-image:linear-gradient(to_bottom,transparent,var(--text)_4rem)]"
       />
@@ -219,12 +219,12 @@ export function LiveCall({ className }: { className?: string }) {
     <div ref={scope} className={cn('relative flex min-h-0 flex-col', className)}>
       <div className="sr-only">
         <p>
-          Sample call: the AI hiring agent phones {FIRST_NAME} about the {SAMPLE_JOB.title.toLowerCase()} job.
+          Sample call: HRVoice phones {FIRST_NAME} about the {SAMPLE_JOB.title.toLowerCase()} job.
         </p>
         <ol>
           {HERO_TURNS.map((turn, i) => (
             <li key={i}>
-              {turn.speaker === 'agent' ? 'AI agent' : turn.name}: {turn.text}
+              {turn.speaker === 'agent' ? 'HRVoice' : turn.name}: {turn.text}
             </li>
           ))}
         </ol>
@@ -242,7 +242,7 @@ export function LiveCall({ className }: { className?: string }) {
         {/* Room on the right for the pause button, which sits over the card but outside it. */}
         <div className="flex items-center gap-3 px-14 pb-3 pt-12 text-center">
           <div className="min-w-0 flex-1">
-            <p className="m-0 truncate text-[0.9375rem] font-medium tracking-[-0.01em]">AI hiring agent</p>
+            <p className="m-0 truncate text-[0.9375rem] font-medium tracking-[-0.01em]">HRVoice, for the hiring team</p>
             <p className="m-0 line-clamp-2 text-[0.75rem] text-white/70">
               Calling {FIRST_NAME} about the {SAMPLE_JOB.title.toLowerCase()} job
             </p>

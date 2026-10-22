@@ -25,8 +25,8 @@ const moment = (words: string, label: string) => {
 };
 const MOMENTS = [
   moment('thirty days', 'Notice period: thirty days, can be shortened'),
-  moment('can I pick which three days', 'She cuts in with a question'),
-  moment('good jump from thirteen', 'It asks why eighteen lakh'),
+  moment('can I pick which three days', 'She cuts in, and it answers and carries on'),
+  moment('good jump from thirteen', 'It follows up: what’s behind the eighteen?'),
 ] as const;
 
 // The turn each moment starts on, so a chip lights up while its turn is spoken.
@@ -38,7 +38,7 @@ const COVERAGE = answerCoverage(SAMPLE_CALL.answers);
 const FACTS = `${SAMPLE_JOB.title}, ${SAMPLE_JOB.location} · ${clock(DURATION)} · ${COVERAGE.answered} of ${COVERAGE.total} answered`;
 
 /** Three plain facts under the card, true of every call. */
-const POINTS = ['Same questions, every call', 'Every answer links to its second', 'It never recommends hire or reject'] as const;
+const POINTS = ['Natural voice, same questions every call', 'Every answer links to its second', 'It never recommends hire or reject'] as const;
 
 // A picture of the recording's loudness for the scrubber: fixed, so server and client agree.
 const BARS = Array.from({ length: 72 }, (_, i) => {
@@ -162,7 +162,7 @@ export function SampleCallSection({ className }: SampleCallSectionProps) {
         <div data-reveal className="flex flex-col items-center text-center">
           <Tag>Sample call</Tag>
           <h2 id="sample-call-title" className="site-h2 m-0 mt-5 text-white">
-            Review a call <Italic>without&nbsp;replaying&nbsp;it</Italic>
+            Hear how natural it is. <Italic>Then&nbsp;skim&nbsp;the&nbsp;answers.</Italic>
           </h2>
         </div>
 
@@ -296,7 +296,7 @@ export function SampleCallSection({ className }: SampleCallSectionProps) {
                       )}
                     >
                       <p className="m-0 flex items-baseline gap-2 text-[0.75rem] text-site-fg-3">
-                        <span className="font-medium text-site-fg-2">{turn.speaker === 'agent' ? 'AI hiring agent' : FIRST_NAME}</span>
+                        <span className="font-medium text-site-fg-2">{turn.speaker === 'agent' ? 'Hiring team call' : FIRST_NAME}</span>
                         <span className="tabular-nums">{clock(turn.at)}</span>
                       </p>
                       <p className="m-0 mt-1 text-[0.9375rem] leading-relaxed text-white">{turn.text}</p>

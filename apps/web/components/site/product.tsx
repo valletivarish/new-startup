@@ -19,7 +19,7 @@ const EXCERPT = SAMPLE_CALL.turns.filter((turn) => turn.at >= 18 && turn.at < 25
 
 /** What each part of the record is for: beside the panel on laptops, under it on phones. */
 const POINTS = [
-  { title: 'Asks your questions', body: 'The questions you set for the job, in the same words on every call.' },
+  { title: 'Talks it through naturally', body: 'Your questions, in your order, with follow-ups on what the candidate says. It handles interruptions.' },
   { title: 'Answers from your job description', body: 'Candidates ask about the job. It answers from what you uploaded and passes on the rest.' },
   { title: 'Hands you the full record', body: 'Summary first, then the answers, transcript and recording. Nothing is decided for you.' },
 ] as const;
@@ -61,7 +61,7 @@ function RecordPanel() {
               >
                 <span className="tabular-nums text-white/55">{clock(turn.at)}</span>
                 <span>
-                  <span className="block text-[0.6875rem] text-white/60">{turn.speaker === 'agent' ? 'AI agent' : FIRST_NAME}</span>
+                  <span className="block text-[0.6875rem] text-white/60">{turn.speaker === 'agent' ? 'HRVoice' : FIRST_NAME}</span>
                   {turn.text}
                 </span>
               </li>
@@ -134,8 +134,8 @@ export function ProductSection() {
             </h2>
           </div>
           <p className="m-0 max-w-[30rem] text-[1.0625rem] leading-relaxed text-site-fg-2 max-sm:hidden lg:col-span-5 lg:justify-self-end">
-            You read what was said, then decide who moves forward. HRVoice reports. It never recommends hire or
-            reject.
+            You read what was said and see who fits, then decide who moves forward. HRVoice reports. It never
+            recommends hire or reject.
           </p>
         </div>
 

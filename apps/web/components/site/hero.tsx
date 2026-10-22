@@ -81,7 +81,7 @@ export function SiteHero() {
           className="site-display site-rise m-0 mt-6 text-white [text-shadow:0_1px_24px_rgb(9_27_46/0.25)]"
           style={rise(0.18)}
         >
-          <span className="block">It calls every candidate.</span>
+          <span className="block">A screening call that sounds natural.</span>
           <span className="block">
             You decide <Italic>who&rsquo;s&nbsp;next.</Italic>
           </span>
@@ -90,8 +90,9 @@ export function SiteHero() {
           className="site-rise m-0 mt-6 max-w-[34rem] text-[1.0625rem] leading-relaxed text-white/90 [text-shadow:0_1px_12px_rgb(9_27_46/0.35)] lg:max-w-[40rem]"
           style={rise(0.3)}
         >
-          Add a job and your must-ask questions. HRVoice, an AI voice agent, phones each candidate and sends
-          you the recording, transcript and answers.
+          Add a job and your must-ask questions. HRVoice phones each candidate and talks it through like a good
+          recruiter: a natural voice, real follow-ups, room to interrupt. You get the recording, transcript and
+          answers. An AI phone screener that sounds like your team.
         </p>
         <div className="site-rise mt-9 flex flex-wrap justify-center gap-3" style={rise(0.4)}>
           <Link href={SIGNUP_HREF} className={siteButton('paper')}>

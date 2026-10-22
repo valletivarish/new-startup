@@ -39,6 +39,7 @@ import {
   type StageTotals,
 } from '@/components/candidates/decisions';
 import { PersonStateTag } from '@/components/candidates/person-state';
+import { getStateMeta } from '@/lib/status-labels';
 import { FIT_LANES, isFitLane, LANE_LABEL, laneCount, requirementLines } from '@/components/candidates/fit';
 import { FitChips } from '@/components/candidates/fit-chips';
 import { JobPageHeader } from '@/components/jobs/job-page-header';
@@ -105,9 +106,9 @@ type Decision = { candidateId: string; status: CandidateStage; previous: Candida
 const CALL_FILTERS: { value: CallFilter; label: string }[] = [
   { value: 'all', label: 'Any call status' },
   { value: 'not_called', label: 'Not called yet' },
-  { value: 'calling', label: 'Calling now' },
-  { value: 'completed', label: 'Call ended' },
-  { value: 'failed', label: 'Call didn’t connect' },
+  { value: 'calling', label: getStateMeta('call', 'calling').label },
+  { value: 'completed', label: 'Answered' },
+  { value: 'failed', label: getStateMeta('call', 'failed').label },
 ];
 
 // The words a bulk decision of 24 or more is typed out with.
@@ -1091,7 +1092,7 @@ function JobBoardInner({ mode }: { mode: BoardMode }) {
                 <Link href={`/jobs/${jobPublicId}/setup#requirements`} className={INLINE_LINK}>
                   Add requirements to sort candidates
                 </Link>{' '}
-                into Meets all, Check and Doesn’t meet after each call.
+                into Meets all, Needs a look and Doesn’t meet after each call.
               </p>
             )}
 
@@ -1196,11 +1197,8 @@ function JobBoardInner({ mode }: { mode: BoardMode }) {
                       />
                       {hasRequirements ? (
                         <ListCell>
-                          {row.fit ? (
-                            <FitChips fit={row.fit} />
-                          ) : (
-                            <span className="text-meta text-text-3">{LANE_LABEL.not_screened}</span>
-                          )}
+                          {/* No fit yet means no chip: nothing to say until there are answers. */}
+                          {row.fit ? <FitChips fit={row.fit} /> : null}
                         </ListCell>
                       ) : null}
                       {pii ? (

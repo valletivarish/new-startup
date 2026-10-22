@@ -9,7 +9,7 @@ import { Breadcrumb } from '../ui/breadcrumb';
 import { Button } from '../ui/button';
 import { Alert } from '../ui/notice';
 import { StatusTag } from '../ui/state-tag';
-import { TEST_ONLY_BANNER } from './job-copy';
+import { TEST_ONLY_BANNER } from '@/lib/status-labels';
 import { JobTabs } from './job-tabs';
 import { jobStatusLabel } from './setup';
 

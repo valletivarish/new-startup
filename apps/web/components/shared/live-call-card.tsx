@@ -140,7 +140,7 @@ export function LiveCallCard({
           ) : null}
         </div>
         <div className="flex min-h-9 flex-wrap items-center justify-between gap-2">
-          {/* Atomic, so each change reads whole: "Priya Sharma: No answer". */}
+          {/* Atomic, so each change reads whole: "Priya Sharma: Rang out". */}
           <span ref={status} tabIndex={-1} role="status" className="inline-flex max-w-full rounded-xs">
             <span className="sr-only">{name}: </span>
             <StatusTag domain="call" value={shown} stamped={shown ?? undefined} />

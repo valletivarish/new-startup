@@ -292,7 +292,7 @@ const ENTRIES: readonly Entry[] = [
       'call back',
     ],
     answer:
-      'The call is marked with what happened, such as No answer or Reached voicemail, so you know it didn’t reach them. You can call them again from their page.',
+      'The call is marked with what happened, such as Rang out or Voicemail, so you know it didn’t reach them. You can call them again from their page.',
   },
   {
     id: 'accuracy',

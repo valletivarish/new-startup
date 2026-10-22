@@ -1,4 +1,5 @@
 import type { CandidateStage } from '../../lib/api';
+import { getStateMeta } from '../../lib/status-labels';
 
 /** A candidate's stage on a job: undecided ('new') first, then the three decisions. */
 export const STAGES = ['new', 'screening', 'reviewed', 'declined'] as const satisfies readonly CandidateStage[];
@@ -41,20 +42,12 @@ export function moveTotals(totals: StageTotals, moves: readonly { from: Candidat
   return next;
 }
 
-// Why the latest call never connected, as a recruiter would say it.
-const NO_CONNECT: Record<string, string> = {
-  no_answer: 'Didn’t answer',
-  busy: 'Number busy',
-  voicemail: 'Went to voicemail',
-  invalid_number: 'Number not valid',
-  line_not_connected: 'Calling number not set up',
-};
-
 /**
- * The reason, in plain words, when the latest call never connected: nothing was said, so there
+ * The reason, in the call map's words ("Didn't connect · Rang out"), when the latest call never connected: nothing was said, so there
  * is no evidence to decide on. null when it did connect, or there was no call.
  */
 export function noConnectReason(callStatus: string | null | undefined, failureReason: string | null | undefined): string | null {
   if (callStatus !== 'failed') return null;
-  return (failureReason && NO_CONNECT[failureReason]) || 'Couldn’t connect';
+  const reason = getStateMeta('call', failureReason);
+  return (reason.family === 'failed' ? reason : getStateMeta('call', 'failed')).label;
 }

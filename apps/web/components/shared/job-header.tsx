@@ -18,7 +18,7 @@ export interface JobHeaderProps {
   title: string;
   /** Raw job status: draft, open or closed. */
   status: string | null | undefined;
-  /** The workspace has no calling number yet: an open job shows "Open · test calls only". */
+  /** The workspace has no calling number yet: an open job stays Active and shows the test-calls-only banner. */
   testCallsOnly?: boolean;
   /** The page this header sits on. */
   current: JobTab;

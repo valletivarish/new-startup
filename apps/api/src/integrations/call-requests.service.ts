@@ -24,7 +24,7 @@ export interface CallActor {
   readonly userId: string;
 }
 
-export type CallSource = 'api' | 'dashboard' | 'link' | 'zoho';
+export type CallSource = 'api' | 'dashboard' | 'link' | 'zoho' | 'embed';
 
 export interface V1CallRequest {
   id: string;

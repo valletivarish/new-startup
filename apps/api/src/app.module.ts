@@ -70,6 +70,7 @@ import {
   API_KEYS_SERVICE,
   CALL_REQUESTS_SERVICE,
   CANDIDATE_LINKS_SERVICE,
+  CAREERS_EMBED_SERVICE,
   WEBHOOKS_SERVICE,
   USAGE_SERVICE,
   SUPPORT_SERVICE,
@@ -127,12 +128,14 @@ import {
   V1CandidateLinksController,
 } from './integrations/candidate-links.controller.js';
 import { createCandidateLinksService } from './integrations/candidate-links.service.js';
+import { CareersPageController, PublicEmbedController } from './integrations/careers-embed.controller.js';
+import { createCareersEmbedService } from './integrations/careers-embed.service.js';
 import { V1UsageController } from './integrations/v1-usage.controller.js';
 import { createUsageService } from './integrations/usage.service.js';
 import { V1WebhooksController } from './integrations/v1-webhooks.controller.js';
 import { emitCallEvent } from './integrations/events.js';
 import { createWebhooksService } from './integrations/webhooks.service.js';
-import { createCallRequestsService } from './integrations/call-requests.service.js';
+import { createCallRequestsService, defaultCallClock } from './integrations/call-requests.service.js';
 import {
   CALL_QUEUE,
   SUPPORT_QUEUE,
@@ -225,6 +228,8 @@ export class AppModule {
         V1UsageController,
         V1CandidateLinksController,
         PublicCandidateLinksController,
+        CareersPageController,
+        PublicEmbedController,
         V1WebhooksController,
         SupportController,
         V1TicketsController,
@@ -559,6 +564,22 @@ export class AppModule {
             candidates: ReturnType<typeof createCandidatesService>,
             calls: ReturnType<typeof createCallRequestsService>,
           ) => createCandidateLinksService({ database: deps.database, candidates, calls }),
+        },
+        {
+          provide: CAREERS_EMBED_SERVICE,
+          inject: [AUDIT_SERVICE, CANDIDATES_SERVICE, CALL_REQUESTS_SERVICE],
+          useFactory: (
+            audit: ReturnType<typeof createAuditService>,
+            candidates: ReturnType<typeof createCandidatesService>,
+            calls: ReturnType<typeof createCallRequestsService>,
+          ) =>
+            createCareersEmbedService({
+              database: deps.database,
+              audit,
+              candidates,
+              calls,
+              now: defaultCallClock(),
+            }),
         },
         {
           // The API process runs the call worker: placing a call needs the

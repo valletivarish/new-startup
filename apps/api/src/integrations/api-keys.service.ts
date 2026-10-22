@@ -127,7 +127,7 @@ export function createApiKeysService(
           select id, name, prefix, mode, scopes, created_by_user_id,
                  last_used_at, revoked_at, created_at
           from api_keys
-          where organization_id = ${actor.organizationId}
+          where organization_id = ${actor.organizationId} and kind = 'secret'
           order by created_at desc
         `),
       );
@@ -148,7 +148,7 @@ export function createApiKeysService(
       const rows = await withTenantContext(database.db, actor, (tx) =>
         tx.execute<{ id: string; prefix: string; mode: string; scopes: string[] }>(sql`
           update api_keys set revoked_at = coalesce(revoked_at, now())
-          where id = ${id} and organization_id = ${actor.organizationId}
+          where id = ${id} and organization_id = ${actor.organizationId} and kind = 'secret'
           returning id, prefix, mode, scopes
         `),
       );

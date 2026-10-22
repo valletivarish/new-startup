@@ -46,3 +46,6 @@ export const SUPPORT_SERVICE = Symbol('SUPPORT_SERVICE');
 
 /** Zoho Recruit connector. */
 export const ZOHO_SERVICE = Symbol('ZOHO_SERVICE');
+
+/** Careers-page embed: publishable keys and the public form routes. */
+export const CAREERS_EMBED_SERVICE = Symbol('CAREERS_EMBED_SERVICE');

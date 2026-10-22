@@ -1,5 +1,5 @@
 /**
- * Client integrations (migration 0032): API keys, idempotency, call requests,
+ * Client integrations (migration 0032; publishable keys 0038): API keys, idempotency, call requests,
  * per-company limits, outbound webhooks and candidate links.
  * Plain tenant RLS; api_keys and candidate_links also have hash-lookup
  * policies reached through resolve_api_key() / resolve_candidate_link().
@@ -47,10 +47,21 @@ export const apiKeys = pgTable(
     lastUsedAt: tstz('last_used_at'),
     revokedAt: tstz('revoked_at'),
     createdAt: tstz('created_at').notNull().defaultNow(),
+    // Migration 0038: publishable (careers-page) keys belong to one job.
+    kind: text('kind').notNull().default('secret'),
+    jobId: uuid('job_id').references(() => jobs.id, { onDelete: 'cascade' }),
+    allowedOrigins: text('allowed_origins').array().notNull().default(sql`'{}'`),
+    publicKey: text('public_key').unique(),
   },
   (t) => [
     check('api_keys_mode_check', sql`${t.mode} in ('live', 'test')`),
+    check('api_keys_kind_check', sql`${t.kind} in ('secret', 'publishable')`),
+    check(
+      'api_keys_publishable_check',
+      sql`(${t.kind} = 'publishable') = (${t.jobId} is not null) and (${t.kind} = 'publishable') = (${t.publicKey} is not null)`,
+    ),
     index('api_keys_org_idx').on(t.organizationId, t.createdAt),
+    index('api_keys_job_idx').on(t.organizationId, t.jobId).where(sql`${t.jobId} is not null`),
   ],
 );
 
@@ -97,7 +108,7 @@ export const callRequests = pgTable(
     updatedAt: tstz('updated_at').notNull().defaultNow(),
   },
   (t) => [
-    check('call_requests_source_check', sql`${t.source} in ('api', 'dashboard', 'link', 'zoho')`),
+    check('call_requests_source_check', sql`${t.source} in ('api', 'dashboard', 'link', 'zoho', 'embed')`),
     check(
       'call_requests_status_check',
       sql`${t.status} in ('queued', 'scheduled', 'placing', 'placed', 'skipped', 'failed')`,

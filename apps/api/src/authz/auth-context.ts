@@ -122,10 +122,12 @@ export function createAuthContextService(
         mode: ApiKeyMode;
         scopes: string[];
         revoked_at: unknown;
+        kind: string;
       }>(sql`select * from resolve_api_key(${hashKey(key)})`);
       return rows[0] ?? null;
     });
-    if (!found || found.revoked_at !== null) return null;
+    // A publishable (careers-page) key is never a bearer key, whatever its format.
+    if (!found || found.revoked_at !== null || found.kind !== 'secret') return null;
 
     keyLimiter.check(found.id);
 

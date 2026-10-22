@@ -55,6 +55,10 @@ import {
 } from '../src/integrations/candidate-links.controller.js';
 import { V1WebhooksController } from '../src/integrations/v1-webhooks.controller.js';
 import {
+  CareersPageController,
+  PublicEmbedController,
+} from '../src/integrations/careers-embed.controller.js';
+import {
   AdminSupportController,
   InboundEmailController,
   PublicSupportController,
@@ -95,6 +99,8 @@ const CONTROLLERS = [
   V1WebhooksController,
   V1CandidateLinksController,
   PublicCandidateLinksController,
+  CareersPageController,
+  PublicEmbedController,
   SupportController,
   V1TicketsController,
   AdminSupportController,
@@ -194,6 +200,12 @@ describe('every route declares its authorization requirement', () => {
       'OpenApiController.get',
       'PublicCandidateLinksController.get',
       'PublicCandidateLinksController.submit',
+      // Careers-page form: publishable key + exact allowed origin, per-key and per-IP limits,
+      // one job only, candidate's own consent.
+      'PublicEmbedController.apply',
+      'PublicEmbedController.describe',
+      'PublicEmbedController.preflightApply',
+      'PublicEmbedController.preflightForm',
       // Logged-out chat: per-IP rate limits, email required, unassigned tickets only.
       'PublicSupportController.create',
       'PublicSupportController.get',

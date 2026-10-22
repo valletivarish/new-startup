@@ -67,47 +67,48 @@ export interface SampleAnswer {
 
 /**
  * One complete sample screening call, start to finish, as heard in the sample recording
- * (public/audio/sample-call.mp3). It follows the real hiring agent: the same opening line,
- * one question at a time from the job's six, and only those. Priya cuts in once while the
+ * (public/audio/sample-call.mp3). It follows the real hiring agent: the same opening line
+ * (the hiring team calling about the role, asking for a couple of minutes), one question at a
+ * time from the job's six, and only those. Priya cuts in once while the
  * agent explains the office days; it stops, answers, and picks the question back up. A line
  * that was cut off ends in a dash. Each turn's text is what the
  * recording says, fillers included, and its `at` is its first word.
  */
 export const SAMPLE_CALL = {
   candidate: 'Priya Raghunathan',
-  durationSeconds: 84,
+  durationSeconds: 83,
   language: 'English',
   turns: [
-    { speaker: 'agent', at: 0, text: `Hi, this is the hiring agent from ${SAMPLE_COMPANY}. I’m calling about the software engineer role you applied for. Is now a good time to talk for a few minutes?` },
-    { speaker: 'contact', at: 8.4, text: 'Yeah, sure, now is fine.' },
-    { speaker: 'agent', at: 9.84, text: 'Great, thanks, Priya. So, how long have you been working as a software engineer?' },
-    { speaker: 'contact', at: 14.29, text: 'It’s been about four years now. Mostly web applications, in Java and Python.' },
-    { speaker: 'agent', at: 18.68, text: 'Nice. And what’s your notice period at the moment?' },
-    { speaker: 'contact', at: 21.73, text: 'It’s thirty days. But it can be shortened if needed, I think.' },
-    { speaker: 'agent', at: 25.48, text: 'Okay, that’s helpful. So this role is hybrid, three days a week from our Pune office, and the other two days you can work—' },
-    { speaker: 'contact', at: 32.23, text: 'Sorry, just one thing, can I pick which three days?' },
-    { speaker: 'agent', at: 35.35, text: 'Good question. I’ll check that with the hiring team and they’ll confirm. So, do three office days a week work for you?' },
-    { speaker: 'contact', at: 41.68, text: 'Yes, that’s fine. I live in Pune, so it’s easy for me.' },
-    { speaker: 'agent', at: 44.95, text: 'Good to hear. And what’s your current salary, and what are you expecting?' },
-    { speaker: 'contact', at: 48.95, text: 'Right now I’m at about thirteen lakh a year, and I’m expecting around eighteen lakh.' },
-    { speaker: 'agent', at: 54, text: 'That’s a good jump from thirteen. What’s behind the eighteen?' },
-    { speaker: 'contact', at: 57.41, text: 'I’m leading a small team now, and I have an offer at around seventeen, so eighteen felt fair. There’s some flexibility for the right role, though.' },
-    { speaker: 'agent', at: 64.77, text: 'That’s helpful, thanks. Would you be free for a technical interview next week?' },
-    { speaker: 'contact', at: 68.77, text: 'Yes, Tuesday or Wednesday afternoon works for me. Actually, is the first round online?' },
-    { speaker: 'agent', at: 73.3, text: 'Yes, the first round is a video call. So that’s everything from my side, Priya. The hiring team will review this call and, uh, get back to you soon.' },
-    { speaker: 'contact', at: 81.22, text: 'Okay, thank you so much. Bye!' },
-    { speaker: 'agent', at: 82.74, text: 'Bye, have a nice day!' },
+    { speaker: 'agent', at: 0, text: `Hi, I’m calling from the ${SAMPLE_COMPANY} hiring team about the software engineer role you applied for. Do you have a couple of minutes for a quick chat?` },
+    { speaker: 'contact', at: 7.2, text: 'Yeah, sure, now is fine.' },
+    { speaker: 'agent', at: 8.56, text: 'Great, thanks, Priya. So, how long have you been working as a software engineer?' },
+    { speaker: 'contact', at: 12.38, text: 'It’s been about four years now. Mostly web applications, in Java and Python.' },
+    { speaker: 'agent', at: 16.61, text: 'Nice. And what’s your notice period at the moment?' },
+    { speaker: 'contact', at: 19.34, text: 'It’s thirty days. But it can be shortened if needed, I think.' },
+    { speaker: 'agent', at: 23.09, text: 'Okay, that’s helpful. So this role is hybrid, three days a week from our Pune office, and the other two days you can work—' },
+    { speaker: 'contact', at: 29.63, text: 'Sorry, just one thing, can I pick which three days?' },
+    { speaker: 'agent', at: 32.43, text: 'Good question. I’ll check that with the hiring team and they’ll confirm. So, do three office days a week work for you?' },
+    { speaker: 'contact', at: 38.62, text: 'Yes, that’s fine. I live in Pune, so it’s easy for me.' },
+    { speaker: 'agent', at: 41.49, text: 'Good to hear. And what’s your current salary, and what are you expecting?' },
+    { speaker: 'contact', at: 45.73, text: 'Right now I’m at about thirteen lakh a year, and I’m expecting around eighteen lakh.' },
+    { speaker: 'agent', at: 51.41, text: 'That’s a good jump from thirteen. What’s behind the eighteen?' },
+    { speaker: 'contact', at: 54.51, text: 'I’m leading a small team now, and I have an offer at around seventeen, so eighteen felt fair. There’s some flexibility for the right role, though.' },
+    { speaker: 'agent', at: 62.83, text: 'That’s helpful, thanks. Would you be free for a technical interview next week?' },
+    { speaker: 'contact', at: 66.99, text: 'Yes, Tuesday or Wednesday afternoon works for me. Actually, is the first round online?' },
+    { speaker: 'agent', at: 72.65, text: 'Yes, the first round is a video call. So that’s everything from my side, Priya. The hiring team will review this call and get back to you soon.' },
+    { speaker: 'contact', at: 80.08, text: 'Okay, thank you so much. Bye!' },
+    { speaker: 'agent', at: 81.84, text: 'Bye, have a nice day!' },
   ] satisfies SampleTurn[],
   // The job's six questions, in the order the agent asks them, then what she raised herself.
   answers: [
-    { question: 'Software engineering experience', answer: 'About four years, mostly Java and Python', at: 14.29 },
-    { question: 'Notice period', answer: 'Thirty days, can be shortened', at: 21.73 },
-    { question: 'Hybrid, three office days a week in Pune', answer: 'Works for her. Lives in Pune', at: 41.68 },
-    { question: 'Current salary', answer: 'About ₹13 lakh a year', at: 48.95 },
-    { question: 'Expected salary', answer: 'About ₹18 lakh a year. She leads a small team and has an offer at about ₹17 lakh; some flexibility for the right role', at: 48.95 },
-    { question: 'Technical interview next week', answer: 'Free Tuesday or Wednesday afternoon', at: 68.77 },
-    { question: 'Asked about office days', answer: 'Wants to know if she can choose which three days she comes in. Passed to the hiring team', at: 32.23, extra: true },
-    { question: 'Asked about the first round', answer: 'Told it’s a video call', at: 68.77, extra: true },
+    { question: 'Software engineering experience', answer: 'About four years, mostly Java and Python', at: 12.38 },
+    { question: 'Notice period', answer: 'Thirty days, can be shortened', at: 19.34 },
+    { question: 'Hybrid, three office days a week in Pune', answer: 'Works for her. Lives in Pune', at: 38.62 },
+    { question: 'Current salary', answer: 'About ₹13 lakh a year', at: 45.73 },
+    { question: 'Expected salary', answer: 'About ₹18 lakh a year. She leads a small team and has an offer at about ₹17 lakh; some flexibility for the right role', at: 45.73 },
+    { question: 'Technical interview next week', answer: 'Free Tuesday or Wednesday afternoon', at: 66.99 },
+    { question: 'Asked about office days', answer: 'Wants to know if she can choose which three days she comes in. Passed to the hiring team', at: 29.63, extra: true },
+    { question: 'Asked about the first round', answer: 'Told it’s a video call', at: 66.99, extra: true },
   ] satisfies SampleAnswer[],
   summary:
     'Priya has about four years as a software engineer, mostly building web applications in Java and Python, and a thirty-day notice period that can be shortened. She lives in Pune and is fine with three office days a week. She earns about ₹13 lakh a year now and expects about ₹18 lakh, because she leads a small team and has another offer at about ₹17 lakh; she has some flexibility for the right role. She is free for a technical interview on Tuesday or Wednesday afternoon, and asked whether the first round is online. She also asked if she can choose which three days she comes to the office; the agent said it would check with the hiring team.',

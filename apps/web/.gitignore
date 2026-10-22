@@ -1,2 +1,3 @@
 # Built from embed/ by scripts/build-embed.mjs (dev and build run it).
 public/embed.js
+.next-clients/

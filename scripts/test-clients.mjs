@@ -8,6 +8,8 @@
  * itself is started on :4100 inside the vitest run, because check 8 stops
  * and restarts its webhook listener. The fake Zoho Recruit
  * (apps/acme/src/fake-zoho.ts) is started on :4200 there too; the API points at it.
+ * The web app runs too (next dev on :3012, its own build dir) so Acme's careers page on :4101
+ * loads /embed.js and posts through the real /backend proxy, as on nexstopp.com.
  *
  * Exotel and ElevenLabs settings are never passed to the API: nothing can
  * dial a real phone from this run.
@@ -19,7 +21,7 @@
 
 import { spawn, spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { closeSync, mkdtempSync, existsSync, openSync, readFileSync } from 'node:fs';
+import { closeSync, mkdtempSync, existsSync, openSync, readFileSync, writeFileSync } from 'node:fs';
 import { createConnection } from 'node:net';
 import { homedir, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -31,6 +33,7 @@ const VOICE_CONTAINER = 'platform-voice-clients-test';
 const ADMIN_EMAIL = 'clients-admin@example.test';
 // CLIENTS_API_PORT moves the API off 3001 when a dev API is already running there.
 const API_PORT = process.env.CLIENTS_API_PORT ?? '3001';
+const WEB_PORT = '3012';
 const PG = { app: 'app_local_dev', migrator: 'migrator_local_dev' };
 const appUrl = `postgresql://platform_app:${process.env.POSTGRES_APP_PASSWORD ?? PG.app}@localhost:5434/${DB}`;
 const migrationUrl = `postgresql://platform_migrator:${process.env.POSTGRES_MIGRATOR_PASSWORD ?? PG.migrator}@localhost:5434/${DB}`;
@@ -45,6 +48,10 @@ function run(cmd, args, opts = {}) {
   return r;
 }
 
+// next dev with its own build dir rewrites these two files; put them back as they were.
+const nextOwned = ['apps/web/tsconfig.json', 'apps/web/next-env.d.ts'].map((f) => join(root, f));
+const nextOwnedText = nextOwned.map((f) => readFileSync(f, 'utf8'));
+
 function teardown() {
   for (const child of children) {
     // Detached: the negative pid kills pnpm/tsx and everything under them.
@@ -56,6 +63,9 @@ function teardown() {
     closeSync(fd);
     spawnSync('docker', ['rm', '-f', VOICE_CONTAINER], { stdio: 'ignore' });
   }
+  nextOwned.forEach((f, i) => {
+    try { writeFileSync(f, nextOwnedText[i]); } catch { /* leave it */ }
+  });
 }
 process.on('exit', teardown);
 for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => process.exit(130));
@@ -97,7 +107,7 @@ function tail(name, lines = 40) {
 }
 
 async function main() {
-  for (const port of [Number(API_PORT), 4100, 4200, 8765]) {
+  for (const port of [Number(API_PORT), Number(WEB_PORT), 4100, 4101, 4200, 8765]) {
     if (!(await portFree(port))) throw new Error(`port ${port} is in use; stop whatever is on it first`);
   }
 
@@ -190,7 +200,16 @@ async function main() {
   console.log(`· api + worker (logs: ${logDir})`);
   start('api', ['--filter', '@platform/api', 'exec', 'tsx', 'src/main.ts'], apiEnv);
   start('worker', ['--filter', '@platform/api', 'exec', 'tsx', 'src/jobs/worker.ts'], apiEnv);
+  console.log('· web (embed.js + /backend proxy)');
+  run('node', ['apps/web/scripts/build-embed.mjs'], { stdio: ['ignore', 'ignore', 'inherit'] });
+  start('web', ['--filter', '@platform/web', 'exec', 'next', 'dev', '--port', WEB_PORT], {
+    ...base,
+    API_URL: `http://localhost:${API_PORT}`,
+    NEXT_DIST_DIR: '.next-clients',
+    NEXT_TELEMETRY_DISABLED: '1',
+  });
   await waitFor(`http://localhost:${API_PORT}/health`, 'api');
+  await waitFor(`http://localhost:${WEB_PORT}/embed.js`, 'web');
   await waitFor('http://localhost:8765/health', 'voice');
 
   console.log('· vitest apps/acme/test');
@@ -201,6 +220,8 @@ async function main() {
       ...process.env,
       HRVOICE_API_URL: `http://localhost:${API_PORT}`,
       ACME_PORT: '4100',
+      ACME_CAREERS_PORT: '4101',
+      CLIENTS_WEB_URL: `http://localhost:${WEB_PORT}`,
       FAKE_ZOHO_PORT: '4200',
       CLIENTS_ADMIN_EMAIL: ADMIN_EMAIL,
       CLIENTS_TEST_DB: DB,
@@ -209,6 +230,7 @@ async function main() {
   if (vitest.status !== 0) {
     tail('api');
     tail('worker');
+    tail('web', 20);
     spawnSync('docker', ['logs', '--tail', '40', VOICE_CONTAINER], { stdio: 'inherit' });
   }
   return vitest.status ?? 1;

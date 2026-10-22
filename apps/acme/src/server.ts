@@ -6,6 +6,7 @@
  *   GET  /jobs/:id          applicants for a job
  *   GET  /applicants/:id    one applicant and their screen result
  *   POST /hrvoice/webhook   HR Voice events (HRVoice-Signature verified)
+ *   GET  /careers/:id       the public careers page for a job, with the HR Voice embed snippet
  *
  * Run alone: HRVOICE_API_KEY=hrv_test_... node src/server.ts
  */
@@ -70,6 +71,8 @@ export function createAcme(hrvoice: HRVoice) {
   const jobs = new Map<string, AcmeJob>();
   const applicants = new Map<string, AcmeApplicant>();
   const events: AcmeEvent[] = [];
+  /** Acme job id → the snippet HR Voice gave for it (publishable key + where embed.js lives). */
+  const careers = new Map<string, { publicKey: string; embedSrc: string }>();
   let webhookSecret: string | null = null;
   let rejected = 0;
 
@@ -111,6 +114,21 @@ export function createAcme(hrvoice: HRVoice) {
       return onEvent(await readBody(req), String(req.headers['hrvoice-signature'] ?? ''), res);
     }
     if (req.method !== 'GET') return void res.writeHead(405).end();
+    const career = /^\/careers\/([^/]+)$/.exec(path);
+    if (career && careers.has(career[1]!)) {
+      const j = jobs.get(career[1]!)!;
+      const c = careers.get(career[1]!)!;
+      // Deliberately hostile site CSS: the form's Shadow DOM must keep it out.
+      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+      return void res.end(`<!doctype html><html lang="en"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Careers · Acme Hiring</title>
+<style>body{font-family:Georgia,serif;background:#1d2433;color:#e8e8e8;margin:0;padding:32px 16px}
+main{max-width:720px;margin:0 auto}input,button,label{all:unset;color:hotpink!important;font-size:9px!important}
+button{background:red!important}h2{text-transform:uppercase}</style>
+<main><h1>Careers at Acme</h1><h2>${esc(j.title)}</h2><p>Bengaluru · Full time. We reply to every applicant.</p>
+<div data-hrvoice-apply></div></main>
+<script src="${esc(c.embedSrc)}" data-key="${esc(c.publicKey)}" data-accent="#0B6E4F" async></script>`);
+    }
     if (path === '/') {
       const items = [...jobs.values()].map((j) => `<li><a href="/jobs/${esc(j.id)}">${esc(j.title)}</a></li>`);
       return page(res, 'Jobs', `<ul>${items.join('')}</ul>`);
@@ -143,6 +161,7 @@ export function createAcme(hrvoice: HRVoice) {
   return {
     jobs,
     applicants,
+    careers,
     events,
     get rejected() {
       return rejected;
@@ -199,6 +218,11 @@ export function createAcme(hrvoice: HRVoice) {
       const call = await hrvoice.startCall(j.hrvoiceJobId, a.hrvoiceCandidateId, idempotencyKey ? { idempotencyKey } : {});
       if (!a.callIds.includes(call.id)) a.callIds.push(call.id);
       return call;
+    },
+
+    /** Puts the HR Voice "Apply with a quick call" form on /careers/:jobId. */
+    setCareersForm(jobId: string, publicKey: string, embedSrc: string): void {
+      careers.set(jobId, { publicKey, embedSrc });
     },
 
     /** An "ask the candidate" link for a person Acme has no phone number for yet. */

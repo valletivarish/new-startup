@@ -22,6 +22,11 @@ describe('old job URLs', () => {
     expect(openingPath('j1', null, {})).toBe('/jobs/j1/people');
   });
 
+  it('keeps the #hash, so a link to a section of the job still lands on it', () => {
+    expect(openingPath('j1', 'draft', {}, '#agent')).toBe('/jobs/j1/setup#agent');
+    expect(openingPath('j1', 'open', { c: 'p9' }, '#x')).toBe('/jobs/j1/people?c=p9#x');
+  });
+
   it('carries the incoming query to the opening tab, repeated keys included', () => {
     const q = searchRecord(new URLSearchParams('c=p9&tag=a&tag=b'));
     expect(openingPath('j1', 'draft', q)).toBe('/jobs/j1/setup?c=p9&tag=a&tag=b');

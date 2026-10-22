@@ -24,7 +24,7 @@ export default function JobPage() {
   const settled = job.data !== undefined || job.isError;
   useEffect(() => {
     // An unreadable job goes to People, which shows its own load error.
-    if (settled) router.replace(openingPath(id, job.data?.status ?? null, searchRecord(search)));
+    if (settled) router.replace(openingPath(id, job.data?.status ?? null, searchRecord(search), window.location.hash));
   }, [settled, job.data, id, search, router]);
   return (
     <AppShell profile={null}>

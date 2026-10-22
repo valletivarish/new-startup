@@ -165,7 +165,7 @@ function useCallAction() {
       open={open}
       onOpenChange={setOpen}
       title={`Call ${request.item.fullName} ${request.again ? 'again' : 'now'}?`}
-      body={`This places a real phone call. The agent asks ${request.item.fullName} the questions you set for ${request.item.jobTitle}.`}
+      body={`This places a real phone call. HRVoice asks ${request.item.fullName} the questions you set for ${request.item.jobTitle}.`}
       confirmLabel={request.again ? 'Call again' : 'Call now'}
       tone="real-world"
       busy={busy}

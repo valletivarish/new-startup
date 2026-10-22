@@ -216,8 +216,7 @@ function CreateJobDialog({ open, onOpenChange }: { open: boolean; onOpenChange: 
             <p className="m-0 text-meta text-text-2">
               {live ? (
                 <>
-                  <span className="font-medium text-text">{live.name}</span> will make the calls. You can change
-                  who calls in setup.
+                  Your published call setup will make the calls. You can change who calls in setup.
                 </>
               ) : agents.data.agents.length > 0 ? (
                 `The call setup isn’t ready yet. You can create the ${job} now and publish it before calling.`

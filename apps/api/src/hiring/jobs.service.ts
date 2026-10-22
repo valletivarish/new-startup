@@ -152,6 +152,8 @@ export interface JobsService {
       status?: string;
       q?: string;
       fit?: FitLane;
+      /** Latest phone call's state, derived exactly as `callStatus` on each row. */
+      call?: CallStatus;
     },
   ): Promise<{
     candidates: readonly JobCandidateRow[];
@@ -263,6 +265,15 @@ type JobCandidateRecord = {
   fit: unknown;
   created_at: string;
 };
+
+export const CALL_STATUSES = ['completed', 'failed', 'calling', 'not_called'] as const;
+export type CallStatus = (typeof CALL_STATUSES)[number];
+
+/** deriveCallFlags in SQL, over the latest phone call's status (`vs.status`). */
+const CALL_STATUS_SQL = sql`case when vs.status = 'ended' then 'completed'
+  when vs.status = 'failed' then 'failed'
+  when vs.status in ('pending', 'active') then 'calling'
+  else 'not_called' end`;
 
 function deriveCallFlags(phoneCallStatus: string | null): {
   callStatus: JobCandidateRow['callStatus'];
@@ -757,6 +768,8 @@ export function createJobsService(database: Database): JobsService {
           : null;
       const fitFilter =
         opts?.fit && (FIT_LANES as readonly string[]).includes(opts.fit) ? opts.fit : null;
+      const callFilter =
+        opts?.call && (CALL_STATUSES as readonly string[]).includes(opts.call) ? opts.call : null;
       const after = opts?.cursor ? decodeCursor(opts.cursor) : null;
       const qRaw = opts?.q?.trim() ?? '';
       const q =
@@ -851,6 +864,7 @@ export function createJobsService(database: Database): JobsService {
                   : sql``
               }
               ${fitFilter ? sql`and ${FIT_LANE} = ${fitFilter}` : sql``}
+              ${callFilter ? sql`and ${CALL_STATUS_SQL} = ${callFilter}` : sql``}
               ${
                 qLike
                   ? sql`and (

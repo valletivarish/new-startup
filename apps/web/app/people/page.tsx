@@ -255,7 +255,7 @@ function People({
       <EmptyState
         icon={<UsersRound />}
         title="No candidates yet"
-        description="Candidates belong to a job. Create one, then add the people you want the agent to call."
+        description="Candidates belong to a job. Create one, then add the people you want HRVoice to call."
         action={
           canCreateJob ? (
             <Button asChild>

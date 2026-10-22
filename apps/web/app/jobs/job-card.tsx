@@ -6,6 +6,7 @@ import type { Job } from '../../lib/api';
 import { formatWhen } from '../../lib/format';
 import { formatJobPeopleSummary, type JobFunnel } from '../../lib/hiring-people';
 import { toPublicId } from '../../lib/public-id';
+import { openingPath } from '../../components/jobs/job-routes';
 
 interface Noun {
   one: string;
@@ -35,7 +36,7 @@ export function JobCard({
     .join(' · ');
   return (
     <ListRow>
-      <ListRowPrimary title={job.title} meta={meta || undefined} href={`/jobs/${toPublicId(job.id)}`} />
+      <ListRowPrimary title={job.title} meta={meta || undefined} href={openingPath(toPublicId(job.id), job.status, {})} />
       {/* Unknown people (no access) stay empty, never "No people yet". */}
       <ListCell className="max-md:hidden">{formatJobPeopleSummary(funnel, contact)}</ListCell>
       <ListCell className="text-text">

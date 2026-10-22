@@ -110,7 +110,7 @@ export function AddCandidateDialog({
         <DialogHeader>
           <DialogTitle>Add a candidate</DialogTitle>
           <DialogDescription>
-            They join {jobTitle}. The AI hiring agent calls the mobile number you add here.
+            They join {jobTitle}. HRVoice calls the mobile number you add here.
           </DialogDescription>
         </DialogHeader>
         <form id={formId} noValidate onSubmit={(e) => void submit(e)} className="grid gap-4">

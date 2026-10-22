@@ -33,6 +33,18 @@ export function callStatusLabel(status: string | null | undefined): string {
   return trimmed || 'Call';
 }
 
+/**
+ * Whether to ask the server for this call's recording at all. Only a call that finished and ran
+ * for some time has audio; asking for any other would be a 404 in the console.
+ */
+export function hasPlayableRecording(session: {
+  recordingAvailable?: boolean;
+  status: string | null;
+  durationSeconds?: number | null;
+}): boolean {
+  return Boolean(session.recordingAvailable) && session.status === 'ended' && (session.durationSeconds ?? 0) > 0;
+}
+
 export function sessionListMeta(
   session: {
     status: string | null;

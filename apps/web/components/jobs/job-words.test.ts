@@ -4,7 +4,11 @@ import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 
 /** The job pages talk about the call and who calls, never "the agent". */
-const ROOTS = [__dirname, join(__dirname, '../../app/jobs')];
+const ROOTS = ['components/jobs', 'app/jobs', 'app/people', 'components/home', 'components/settings', 'components/candidates', 'components/shared'].map(
+  (d) => join(__dirname, '../..', d),
+);
+// Developer-facing: the agent is the thing being configured there.
+const DEVELOPER_FILES = /(advanced|developer|api-keys|webhooks)/i;
 const AGENT = /\bagents?\b/i;
 
 function files(dir: string): string[] {
@@ -12,7 +16,7 @@ function files(dir: string): string[] {
     e.isDirectory()
       ? files(join(dir, e.name))
       : /\.tsx?$/.test(e.name) && !/\.test\.tsx?$/.test(e.name)
-        ? [join(dir, e.name)]
+        ? DEVELOPER_FILES.test(e.name) ? [] : [join(dir, e.name)]
         : [],
   );
 }
@@ -23,6 +27,11 @@ function agentCopy(file: string): string[] {
   const hits: string[] = [];
   const visit = (n: ts.Node) => {
     if (ts.isImportDeclaration(n) || ts.isExportDeclaration(n)) return;
+    // A lookup key (`'Agent Manager': 'agent_manager'`) is the server's word, not copy.
+    if (ts.isPropertyAssignment(n)) {
+      visit(n.initializer);
+      return;
+    }
     if (
       ts.isJsxText(n) ||
       ts.isStringLiteral(n) ||

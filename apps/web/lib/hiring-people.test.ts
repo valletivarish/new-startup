@@ -63,7 +63,7 @@ const row = (
 
 const failure = (status: number) => new ApiClientError(status, { code: 'http_error', message: '' });
 
-const empty: JobFunnel = { total: 0, notCalled: 0, toReview: 0, onHold: 0, movedForward: 0 };
+const empty: JobFunnel = { total: 0, notCalled: 0, notConnected: 0, toReview: 0, onHold: 0, movedForward: 0 };
 
 describe('jobFunnel', () => {
   it('sorts people by Home’s rules: called and undecided is to review, never "not called"', () => {
@@ -76,14 +76,14 @@ describe('jobFunnel', () => {
         row('5', 'reviewed', 'completed'),
         row('6', 'declined'),
       ]),
-    ).toEqual({ total: 6, notCalled: 1, toReview: 1, onHold: 1, movedForward: 1 });
+    ).toEqual({ total: 6, notCalled: 1, notConnected: 1, toReview: 1, onHold: 1, movedForward: 1 });
   });
 });
 
 describe('formatJobPeopleSummary', () => {
   it('leads with a named total, then the parts that wait on you, skipping zeros', () => {
     expect(formatJobPeopleSummary({ ...empty, total: 1, notCalled: 1 })).toBe('1 candidate: 1 not called yet');
-    expect(formatJobPeopleSummary({ total: 6, notCalled: 2, toReview: 1, onHold: 1, movedForward: 1 })).toBe(
+    expect(formatJobPeopleSummary({ total: 6, notCalled: 2, notConnected: 0, toReview: 1, onHold: 1, movedForward: 1 })).toBe(
       '6 candidates: 1 ready for review, 2 not called yet, 1 on hold, 1 moved forward',
     );
     expect(formatJobPeopleSummary({ ...empty, total: 2 })).toBe('2 candidates');

@@ -155,16 +155,16 @@ export function CandidateDetailSheet({
   // Why a phone call can't go out now; null when it can.
   const blocker: ReactNode = !job.agentId ? (
     <>
-      This job has no AI hiring agent yet.{' '}
-      <Link href={`/jobs/${toPublicId(job.id)}`} className="font-medium text-text underline underline-offset-4">
+      This job has no call setup yet.{' '}
+      <Link href={`/jobs/${toPublicId(job.id)}/setup`} className="font-medium text-text underline underline-offset-4">
         Add one in Setup
       </Link>
     </>
   ) : !agentPublished ? (
     <>
-      The AI hiring agent isn’t live yet.{' '}
+      The call setup isn’t live yet.{' '}
       <Link href={`/agents/${toPublicId(job.agentId)}`} className="font-medium text-text underline underline-offset-4">
-        Open the agent
+        Open the call settings
       </Link>
     </>
   ) : !outboundPhone ? (
@@ -343,7 +343,7 @@ export function CandidateDetailSheet({
                       Phone call
                     </h3>
                     <p className="mb-0 mt-1 text-body text-text-2">
-                      The AI hiring agent calls {first}
+                      HRVoice calls {first}
                       {masked ? ` on ${masked}` : ''} and asks{' '}
                       {questions > 0
                         ? `the ${questions === 1 ? 'question' : `${questions} questions`} you set for this job.`
@@ -380,9 +380,9 @@ export function CandidateDetailSheet({
                 />
               ) : canScreen && !can('calls.initiate') ? (
                 <p className="m-0 text-body text-text-2">
-                  Test calls work once this job has an AI hiring agent.{' '}
+                  Test calls work once this job has a call setup.{' '}
                   <Link
-                    href={`/jobs/${toPublicId(job.id)}`}
+                    href={`/jobs/${toPublicId(job.id)}/setup`}
                     className="font-medium text-text underline underline-offset-4"
                   >
                     Add one in Setup
@@ -600,7 +600,7 @@ export function CandidateDetailSheet({
           open={confirmCall}
           onOpenChange={setConfirmCall}
           title={`Call ${name} now?`}
-          body={`This places a real phone call${masked ? ` to ${masked}` : ''}. The AI hiring agent asks ${
+          body={`This places a real phone call${masked ? ` to ${masked}` : ''}. HRVoice asks ${
             questions > 0 ? `the ${questions === 1 ? 'question' : `${questions} questions`} you set` : 'about the job'
           } for ${job.title}.`}
           confirmLabel="Call now"

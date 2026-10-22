@@ -18,7 +18,7 @@ export interface SettingsSection {
 export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
   { slug: 'company', label: 'Company' },
   { slug: 'calling', label: 'Calling' },
-  { slug: 'team', label: 'Team', visible: (c) => c.can('users.read') || c.can('users.invite') },
+  { slug: 'team', label: 'Team', visible: (c) => c.can('users.read') || c.can('users.invite') || c.can('roles.read') },
   { slug: 'sources', label: 'Sources', permission: 'integrations.read', visible: (c) => c.sourcesAvailable },
   { slug: 'activity', label: 'Activity', permission: 'audit.read' },
   { slug: 'account', label: 'Your account' },
@@ -32,6 +32,9 @@ export function visibleSections(ctx: SettingsContext): SettingsSection[] {
     return (!s.permission || ctx.can(s.permission)) && (!s.visible || s.visible(ctx));
   });
 }
+
+/** Where someone without a workspace lands: the one part of Settings that is theirs, never a blank body. */
+export const settingsFallbackSlug = (ctx: SettingsContext): string => (visibleSections(ctx)[0]?.slug ?? 'account');
 
 /** Old /settings?section= values to the page that now holds them. */
 export const LEGACY_SECTION: Record<string, string> = {

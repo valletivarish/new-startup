@@ -176,6 +176,14 @@
     text-rendering: optimizeLegibility;
   }
 
+  /* The app scrolls inside #main-content. A focused field or an anchor keeps clear of the sticky
+     bulk bar (stacked, about 9rem on a phone) and of the top edge, so nothing sits under a bar. */
+  html,
+  #main-content {
+    scroll-padding-top: 4rem;
+    scroll-padding-bottom: 9rem;
+  }
+
   /* App body: 14px on the ground. rem stays 16px. */
   body {
     min-height: 100dvh;

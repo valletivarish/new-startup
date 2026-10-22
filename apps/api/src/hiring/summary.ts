@@ -12,6 +12,8 @@ type Queue = (typeof QUEUES)[number];
 export interface SummaryFunnel {
   total: number;
   notCalled: number;
+  /** Calls that failed on people nobody has decided on yet. */
+  notConnected: number;
   toReview: number;
   onHold: number;
   movedForward: number;
@@ -186,6 +188,7 @@ export async function loadHiringSummary(
             ? {
                 total: n(r['total']),
                 notCalled: n(r['q_not_called']),
+                notConnected: n(r['q_not_connected']),
                 toReview: n(r['to_review']),
                 onHold: n(r['on_hold']),
                 movedForward: n(r['moved']),

@@ -7,8 +7,8 @@
  */
 
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
-import type { ReactNode } from 'react';
+import { usePathname, useRouter } from 'next/navigation';
+import { useEffect, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { House, Lock } from 'lucide-react';
 import { AppShell } from '@/components/AppShell';
@@ -30,6 +30,7 @@ import { useSettings } from './use-settings';
 export default function SettingsLayout({ children }: { children: ReactNode }) {
   const { me, profile, hasOrg, can } = useSettings();
   const pathname = usePathname();
+  const router = useRouter();
   const online = useOnline();
   const loading = useHeldLoading(me.isPending);
   // Sources exists only when a hiring system can be connected on this server (or one already is).
@@ -47,6 +48,12 @@ export default function SettingsLayout({ children }: { children: ReactNode }) {
   // Wait for the status before judging /settings/sources, so a deep link doesn't flash "no access".
   const waitingOnSources = current === 'sources' && hasOrg && can('integrations.read') && zoho.isPending;
 
+  // No workspace: /settings/company and the rest have nothing to show; Your account is theirs.
+  const needsAccountPage = Boolean(profile) && !hasOrg && !sections.some((s) => s.slug === current);
+  useEffect(() => {
+    if (needsAccountPage) router.replace('/settings/account');
+  }, [needsAccountPage, router]);
+
   let body: ReactNode = null;
   if (me.isError) {
     if (!online) body = <ErrorState variant="offline" onRetry={() => void me.refetch()} retrying={me.isFetching} />;
@@ -54,7 +61,7 @@ export default function SettingsLayout({ children }: { children: ReactNode }) {
       const m = toUserMessage(me.error, 'load your settings');
       body = <ErrorState title={m.title} cause={m.detail} onRetry={() => void me.refetch()} retrying={me.isFetching} />;
     }
-  } else if (!profile || loading || waitingOnSources || current === '') {
+  } else if (!profile || loading || waitingOnSources || current === '' || needsAccountPage) {
     // Bare /settings is redirected to Company (next.config); never judge it "not shared".
     body = <SkeletonCard />;
   } else if (sections.some((s) => s.slug === current)) {

@@ -1,12 +1,10 @@
 import { useQuery } from '@tanstack/react-query';
 import { jobReadiness, lineState, type Readiness } from '../../components/jobs/setup';
-import { getAgent, getJob, getTelephonyStatus, listJobCandidates, listJobKnowledge, type Job } from '../../lib/api';
+import { getAgent, getJob, getTelephonyStatus, listJobKnowledge, type Job } from '../../lib/api';
+import { fetchJobFunnel } from '../../lib/hiring-people';
 import { fromPublicId, toPublicId } from '../../lib/public-id';
 import { useMe } from '../../lib/use-me';
-import { COUNT_PAGE, nextAction, type JobCounts, type NextAction } from './next-action';
-
-// ponytail: counts come from the first COUNT_PAGE people (the API has no "answered" total yet);
-// the server readiness slice replaces this with one call.
+import { nextAction, type JobCounts, type NextAction } from './next-action';
 
 /**
  * One definition of "is this job ready, and what is next": the existing pure `jobReadiness`
@@ -39,19 +37,8 @@ export function useJobReadiness(jobId: string): {
     staleTime: 10_000,
   });
   const telephony = useQuery({ queryKey: ['telephony-status'], queryFn: getTelephonyStatus, enabled: canCheckLine });
-  const people = useQuery({
-    queryKey: ['job-people-counts', id],
-    queryFn: async (): Promise<JobCounts> => {
-      const r = await listJobCandidates(id, { limit: COUNT_PAGE });
-      const answered = r.candidates.filter((c) => c.callStatus === 'completed');
-      return {
-        people: r.totals.all,
-        answered: answered.length,
-        undecided: answered.filter((c) => c.status === 'new').length,
-      };
-    },
-    staleTime: 10_000,
-  });
+  // The same per-job funnel the job cards read (GET /hiring/summary): exact, never a capped page.
+  const people = useQuery({ queryKey: ['job-funnel', id], queryFn: () => fetchJobFunnel(id), staleTime: 10_000 });
 
   const loading = job.isLoading || me.isLoading;
   if (!job.data) return { readiness: undefined, next: undefined, counts: people.data, job: undefined, isLoading: loading };

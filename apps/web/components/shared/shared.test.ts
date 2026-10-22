@@ -90,6 +90,14 @@ describe('transcript times', () => {
     expect(html(h(Transcript, { turns: untimed, contactLabel: 'Applicant' }))).toContain('>Applicant</span>');
   });
 
+  it('labels the screener HRVoice and the candidate by the name given, never "Agent"', () => {
+    const turns = toTranscriptTurns([{ role: 'agent', message: 'Hello' }, { role: 'user', message: 'Hi' }], 'Priya');
+    const out = html(h(Transcript, { turns }));
+    expect(out).toContain('>HRVoice</span>');
+    expect(out).toContain('>Priya</span>');
+    expect(out).not.toMatch(/>Agent</);
+  });
+
   it('frames a card on canvas or glass, with no box inside the card', () => {
     const turns = [{ speaker: 'agent' as const, at: 0, text: 'Hello.' }];
     const canvas = html(h(TranscriptCard, { title: 'Hiring agent', turns }));

@@ -34,6 +34,8 @@ export interface JobFunnel {
   total: number;
   /** No decision and never called. */
   notCalled: number;
+  /** No decision, and their last call didn't connect. */
+  notConnected: number;
   /** No decision, and their call ended: answers to read. */
   toReview: number;
   onHold: number;
@@ -42,12 +44,13 @@ export interface JobFunnel {
 
 /** The job's people in one funnel, by the same rules as Home's queues. */
 export function jobFunnel(rows: readonly { status: string; callStatus?: string | null }[]): JobFunnel {
-  const funnel: JobFunnel = { total: rows.length, notCalled: 0, toReview: 0, onHold: 0, movedForward: 0 };
+  const funnel: JobFunnel = { total: rows.length, notCalled: 0, notConnected: 0, toReview: 0, onHold: 0, movedForward: 0 };
   for (const row of rows) {
     if (row.status === 'reviewed') funnel.movedForward += 1;
     else if (row.status === 'screening') funnel.onHold += 1;
     const queue = homeQueueOf(row.status, row.callStatus);
     if (queue === 'notCalled') funnel.notCalled += 1;
+    else if (queue === 'notConnected') funnel.notConnected += 1;
     else if (queue === 'readyForReview' && row.status === 'new') funnel.toReview += 1;
   }
   return funnel;
@@ -99,12 +102,17 @@ async function fetchFunnels(): Promise<Record<string, JobFunnel> | null> {
     const { jobs } = await loadSummary();
     if (!jobs) return null;
     const funnels: Record<string, JobFunnel> = {};
-    for (const entry of jobs) if (entry.funnel) funnels[entry.jobId] = entry.funnel;
+    for (const entry of jobs) if (entry.funnel) funnels[entry.jobId] = { notConnected: 0, ...entry.funnel };
     return funnels;
   } catch (error) {
     if (error instanceof NotAvailableError) return null;
     throw error;
   }
+}
+
+/** One job's funnel from the summary: exact however many people it has. undefined: not readable, or no summary. */
+export async function fetchJobFunnel(jobId: string): Promise<JobFunnel | undefined> {
+  return (await fetchFunnels())?.[jobId];
 }
 
 /** The jobs list: every job and its funnel in two requests, whether there is one job or a hundred. */

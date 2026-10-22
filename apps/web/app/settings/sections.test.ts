@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { LEGACY_SECTION, SETTINGS_SECTIONS, visibleSections, type SettingsContext } from './sections';
+import { LEGACY_SECTION, SETTINGS_SECTIONS, settingsFallbackSlug, visibleSections, type SettingsContext } from './sections';
 
 const ctx = (perms: string[], over: Partial<SettingsContext> = {}): SettingsContext => ({
   hasOrg: true,
@@ -32,6 +32,16 @@ describe('settings sections', () => {
     expect(slugs(ctx(['users.invite']))).toContain('team');
     expect(slugs(ctx(['audit.read']))).toContain('activity');
     expect(slugs(ctx(['users.read', 'audit.read', 'integrations.read'], { hasOrg: false }))).toEqual(['account']);
+  });
+
+  it('shows Team to anyone who can read levels, invite or see people', () => {
+    expect(slugs(ctx(['roles.read']))).toContain('team');
+    expect(slugs(ctx(['users.read']))).toContain('team');
+  });
+
+  it('sends someone without a workspace to Your account, everyone else to the first part they have', () => {
+    expect(settingsFallbackSlug(ctx([], { hasOrg: false }))).toBe('account');
+    expect(settingsFallbackSlug(ctx([]))).toBe('company');
   });
 
   it('maps the old ?section= values', () => {

@@ -31,6 +31,7 @@ import {
 import type { AuditService } from '../audit/audit.service.js';
 import type { KnowledgeService } from '../knowledge/knowledge.service.js';
 import {
+  CALL_STATUSES,
   CANDIDATE_STAGES,
   FIT_LANES,
   SCREENING_LANGUAGES,
@@ -511,6 +512,7 @@ export class JobsController {
       status: z.enum(CANDIDATE_STAGES).optional(),
       q: z.string().trim().min(1).max(120).optional(),
       fit: z.enum(FIT_LANES).optional(),
+      call: z.enum(CALL_STATUSES).optional(),
     });
     const q = parse(ListQuery, query ?? {});
     const allowTranscript = canReadTranscript(req);
@@ -520,6 +522,7 @@ export class JobsController {
       status: q.status,
       q: q.q,
       fit: q.fit,
+      call: q.call,
     });
     return {
       candidates: page.candidates.map((row) => ({

@@ -75,14 +75,17 @@ export function createAcme(hrvoice: HRVoice) {
   const careers = new Map<string, { publicKey: string; embedSrc: string }>();
   let webhookSecret: string | null = null;
   let rejected = 0;
+  /** Why each rejected delivery failed, so a red test says what went wrong. */
+  const rejections: string[] = [];
 
   async function onEvent(raw: string, signature: string, res: ServerResponse) {
     let evt: HRVoiceEvent;
     try {
       if (!webhookSecret) throw new Error('no webhook registered');
       evt = await verifyWebhook(raw, signature, webhookSecret);
-    } catch {
+    } catch (error) {
       rejected += 1;
+      rejections.push(`${error instanceof Error ? error.message : String(error)} (t=${/t=(\d+)/.exec(signature)?.[1] ?? '?'}, now=${Math.floor(Date.now() / 1000)})`);
       res.writeHead(400).end('bad signature');
       return;
     }
@@ -166,6 +169,7 @@ button{background:red!important}h2{text-transform:uppercase}</style>
     get rejected() {
       return rejected;
     },
+    rejections,
 
     start(port: number): Promise<void> {
       return new Promise((ok, fail) => {

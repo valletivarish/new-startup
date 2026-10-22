@@ -178,7 +178,7 @@ describe('Acme Hiring on HR Voice /v1', () => {
       expect(r.answers.length).toBeGreaterThan(0);
     }
     // Acme stores only events whose HRVoice-Signature verified.
-    expect(acme.rejected).toBe(0);
+    expect(acme.rejected, acme.rejections.join('; ')).toBe(0);
     for (const c of calls) expect(completedFor(c.id)?.isTest).toBe(true);
 
     const stored = JSON.stringify({ applicants: [...acme.applicants.values()], events: acme.events });

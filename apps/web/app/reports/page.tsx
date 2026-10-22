@@ -84,7 +84,7 @@ export default function ReportsPage() {
   );
 }
 
-const TITLE = { title: 'Reports', accent: 'from real calls' } as const;
+const TITLE = { title: 'Reports', accent: 'on your calls' } as const;
 
 function AnalyticsContent({ me }: { me: UseQueryResult<Me> }) {
   const loading = useHeldLoading(me.isPending);
@@ -96,11 +96,11 @@ function AnalyticsContent({ me }: { me: UseQueryResult<Me> }) {
           <PageHeader {...TITLE} />
           <EmptyState
             icon={<Lock />}
-            title="Open a workspace first"
-            description="Analytics counts the calls in a workspace. Choose one on Home."
+            title="Choose a workspace first"
+            description="Reports count the calls in a workspace. Choose one from the account menu."
             action={
               <Button asChild variant="secondary">
-                <Link href="/jobs">Go to Home</Link>
+                <Link href="/jobs">Go to Jobs</Link>
               </Button>
             }
           />
@@ -113,8 +113,8 @@ function AnalyticsContent({ me }: { me: UseQueryResult<Me> }) {
           <PageHeader {...TITLE} />
           <EmptyState
             icon={<Lock />}
-            title="Analytics isn’t shared with you"
-            description="Ask a workspace admin to add you to the people who can see it."
+            title="Reports aren’t shared with you"
+            description="Ask a workspace admin to give you access."
           />
         </>
       );
@@ -171,7 +171,7 @@ function Workspace({ orgId, permissions }: { orgId: string; permissions: string[
       {...TITLE}
       // The filters need the room: beside the title from xl, under it before that.
       className="md:flex-col md:items-start xl:flex-row xl:items-center"
-      description={`Calls the agent made in ${period.label}${job ? ` for ${job.title}` : ''}, and where your ${labels.contact.many.toLowerCase()} are now.`}
+      description={`Calls HRVoice made in ${period.label}${job ? ` for ${job.title}` : ''}, and where your ${labels.contact.many.toLowerCase()} are now.`}
       actions={
         data ? (
           <>
@@ -227,7 +227,7 @@ function Workspace({ orgId, permissions }: { orgId: string; permissions: string[
       {query.isRefetchError ? (
         <Alert
           kind="warning"
-          title="Couldn’t refresh Analytics"
+          title="Couldn’t refresh Reports"
           action={
             <Button variant="secondary" size="sm" loading={query.isFetching} onClick={() => void query.refetch()}>
               Retry
@@ -282,7 +282,7 @@ function Report({
       <EmptyState
         agent="idle"
         title="Nothing to count yet"
-        description={`Create a ${labels.workItem.one.toLowerCase()}, add ${contacts} and let the agent call them. Analytics fills in from those calls.`}
+        description={`Create a ${labels.workItem.one.toLowerCase()}, add ${contacts} and have HRVoice call them. Reports fill in from those calls.`}
         action={
           jobs ? (
             <Button asChild>
@@ -326,7 +326,7 @@ function Report({
             description={
               noneLoaded
                 ? `Only the latest ${SESSION_LIST_LIMIT} calls load here, and they all came after ${month}.`
-                : 'Calls the agent places, on the phone or as a test in your browser, show up here by day.'
+                : 'Calls HRVoice makes, on the phone or as a test in your browser, show up here by day.'
             }
             className="py-10"
           />
@@ -368,7 +368,7 @@ function Report({
           {showStages ? (
             <section aria-labelledby="analytics-stages" className={cn(CARD, !showOutcomes && 'xl:col-span-2')}>
             <CardTitle id="analytics-stages" title={`Where ${contacts} are now`}>
-              Today’s stage on each {labels.workItem.one.toLowerCase()}, whenever they were added.
+              Each person’s current decision on each {labels.workItem.one.toLowerCase()}, whenever they were added.
             </CardTitle>
               {data.stages ? (
                 <StageBars
@@ -571,7 +571,7 @@ function ByJob({
         <p className="mb-0 mt-1 text-text-2">
           {[
             showCalls ? `Calls, minutes and calls that didn’t connect in ${month}.` : null,
-            stages ? `${labels.contact.many} is everyone on the ${work} today.` : null,
+            stages ? `${labels.contact.many}: everyone on the ${work} today.` : null,
           ]
             .filter(Boolean)
             .join(' ')}

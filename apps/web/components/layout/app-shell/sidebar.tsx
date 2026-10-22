@@ -158,7 +158,7 @@ function InviteCard({ contactLabel }: { contactLabel: string }) {
         href="/settings/team?invite=1"
         className={cn(buttonVariants({ variant: 'secondary', size: 'sm' }), 'mt-3 shadow-xs')}
       >
-        Invite people
+        Invite a teammate
       </Link>
     </div>
   );

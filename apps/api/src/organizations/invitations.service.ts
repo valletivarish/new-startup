@@ -107,10 +107,10 @@ export function createInvitationsService(
   async function sendInviteEmail(email: string, company: string, acceptUrl: string) {
     await notifications.sendEmail({
       to: email,
-      subject: `Join ${company}`,
+      subject: `You’re invited to join ${company} on HRVoice`,
       text:
-        `You've been invited to ${company}.\n\n` +
-        `Open this link to join (expires in ${INVITATION_TTL_HOURS} hours):\n` +
+        `You’ve been invited to join ${company} on HRVoice.\n\n` +
+        `Open this link to join. It works for ${INVITATION_TTL_HOURS} hours:\n` +
         `${acceptUrl}\n\n` +
         `If the link asks you to sign in, use this same email address.`,
     });

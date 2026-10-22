@@ -178,7 +178,7 @@ describe('status badges', () => {
 
   it('words a test call from the one map', () => {
     const out = html(h(StatusIndicator, { status: 'speaking' }));
-    expect(out).toContain('Agent speaking');
+    expect(out).toContain('Speaking');
     expect(out).toContain('aria-live="polite"');
   });
 });

@@ -157,7 +157,7 @@ export function CandidateDetailSheet({
     <>
       This job has no call setup yet.{' '}
       <Link href={`/jobs/${toPublicId(job.id)}/setup`} className="font-medium text-text underline underline-offset-4">
-        Add one in Setup
+        Add one in Set up
       </Link>
     </>
   ) : !agentPublished ? (
@@ -385,7 +385,7 @@ export function CandidateDetailSheet({
                     href={`/jobs/${toPublicId(job.id)}/setup`}
                     className="font-medium text-text underline underline-offset-4"
                   >
-                    Add one in Setup
+                    Add one in Set up
                   </Link>
                 </p>
               ) : null}

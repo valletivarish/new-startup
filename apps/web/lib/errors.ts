@@ -179,7 +179,7 @@ export function toUserMessage(error: unknown, context?: string): UserMessage {
     return say('That didn’t go through', 'Try again. If it keeps happening, reload the page.', 'retry', false);
   }
   if (error instanceof NotAvailableError) {
-    return say('This isn’t available yet', 'This part of the product isn’t switched on yet.', null, false);
+    return say('This isn’t available yet', 'This feature isn’t turned on yet.', null, false);
   }
 
   const known = Object.hasOwn(KNOWN_CODES, error.code) ? KNOWN_CODES[error.code] : undefined;

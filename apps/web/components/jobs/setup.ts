@@ -86,7 +86,7 @@ export function callCard(
   agentLive: boolean | null,
   line: Readiness['line'],
 ): { badge: 'Ready' | 'Not ready' | 'Not chosen' | null; text: string } {
-  if (!hasAgent) return { badge: 'Not chosen', text: 'Choose who calls for this job.' };
+  if (!hasAgent) return { badge: 'Not chosen', text: 'Choose a call setup for this job.' };
   if (agentLive === null) return { badge: null, text: 'Checking the call setup…' };
   if (!agentLive) return { badge: 'Not ready', text: 'Not ready yet. Publish it in the call settings before calling.' };
   return { badge: 'Ready', text: line === 'connected' ? 'Ready to call.' : 'Ready for test calls in your browser.' };
@@ -124,7 +124,7 @@ export function readinessLine(r: Readiness): string | null {
   const todo: string[] = [];
   if (r.description === 'missing') todo.push('add the job description');
   if (r.description === 'preparing') todo.push('wait for the description file to be read');
-  if (r.agent === 'missing') todo.push('choose who calls');
+  if (r.agent === 'missing') todo.push('choose a call setup');
   if (r.agent === 'not-live') todo.push('publish the call setup');
   return `Before calling, ${joinAnd(todo)}.`;
 }

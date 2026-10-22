@@ -158,14 +158,14 @@ export function TeamSettings({
         <section aria-labelledby="team-people">
           <SectionHead
             id="team-people"
-            title="People"
+            title="Team members"
             count={people.data ? memberRows.length : undefined}
             description={`Everyone who can sign in to ${workspace}, and what each of them can see and do.`}
             actions={
               canInvite ? (
                 <Button onClick={() => setDialog({ step: 'form' })}>
                   <UserPlus aria-hidden strokeWidth={1.5} />
-                  Invite people
+                  Invite a teammate
                 </Button>
               ) : null
             }
@@ -183,12 +183,12 @@ export function TeamSettings({
       ) : canInvite ? (
         <SectionHead
           id="team-people"
-          title="Invite people"
-          description={`Bring in the people who work with you in ${workspace}.`}
+          title="Invite a teammate"
+          description={`Add the people who work with you in ${workspace}.`}
           actions={
             <Button onClick={() => setDialog({ step: 'form' })}>
               <UserPlus aria-hidden strokeWidth={1.5} />
-              Invite people
+              Invite a teammate
             </Button>
           }
         />

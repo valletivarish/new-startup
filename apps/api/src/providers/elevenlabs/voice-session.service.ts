@@ -1311,7 +1311,7 @@ export function createVoiceSessionService(
             throw ApiError.validation([
               {
                 field: 'phone',
-                message: 'Add a phone number for this candidate before placing a call.',
+                message: 'Add a mobile number for this candidate before calling.',
               },
             ]);
           }
@@ -1320,7 +1320,7 @@ export function createVoiceSessionService(
             throw ApiError.validation([
               {
                 field: 'phone',
-                message: 'Candidate phone must be a valid mobile number (India 10-digit or +91…).',
+                message: 'That mobile number doesn’t look right. Use a 10-digit Indian mobile number, or one that starts with +91.',
               },
             ]);
           }

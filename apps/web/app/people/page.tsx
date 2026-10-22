@@ -124,7 +124,7 @@ export default function PeoplePage() {
               <Button asChild>
                 <Link href={addHref}>
                   <UserPlus aria-hidden strokeWidth={1.5} />
-                  Add candidates
+                  Add people
                 </Link>
               </Button>
             ) : undefined
@@ -268,13 +268,13 @@ function People({
       <EmptyState
         icon={<UsersRound />}
         title="No candidates yet"
-        description="Add candidates to a job one at a time, from a spreadsheet or from resumes. Everyone shows up here."
+        description="Add people to a job one at a time, from a spreadsheet or from resumes. Everyone shows up here."
         action={
           addHref ? (
             <Button asChild>
               <Link href={addHref}>
                 <UserPlus aria-hidden strokeWidth={1.5} />
-                Add candidates
+                Add people
               </Link>
             </Button>
           ) : undefined
@@ -345,13 +345,13 @@ function People({
           <EmptyState
             icon={<UsersRound />}
             title="Nobody on this job yet"
-            description="Add candidates on the job and they show up here."
+            description="Add people to the job and they’ll show up here."
             action={
               addHref ? (
                 <Button asChild>
                   <Link href={addHref}>
                     <UserPlus aria-hidden strokeWidth={1.5} />
-                    Add candidates
+                    Add people
                   </Link>
                 </Button>
               ) : undefined

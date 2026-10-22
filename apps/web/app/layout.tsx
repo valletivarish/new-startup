@@ -25,11 +25,11 @@ const accentSerif = Instrument_Serif({
 
 export const metadata: Metadata = {
   title: {
-    default: `Voice agents that make your business calls | ${BRAND.name}`,
+    default: `${BRAND.name} | AI phone screening for hiring teams`,
     template: `%s | ${BRAND.name}`,
   },
   description:
-    'Give it a job. It phones every candidate, asks your questions, and returns the transcript for you to decide.',
+    'Add a job and your must-ask questions. HRVoice phones each candidate and sends you the recording, transcript and answers. You decide who moves forward.',
 };
 
 // Direction contract for design review. Ships in the HTML as a comment, never rendered.

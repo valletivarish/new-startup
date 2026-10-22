@@ -2,7 +2,7 @@ import { ImageResponse } from 'next/og';
 import { BRAND } from '../lib/brand';
 import { WORDMARK } from '../components/site/kit';
 
-export const alt = 'Voice agents that make your business calls and show their work.';
+export const alt = 'AI phone screening for hiring teams. You get the recording, transcript and answers.';
 export const size = { width: 1200, height: 630 };
 export const contentType = 'image/png';
 
@@ -68,7 +68,7 @@ export default function OpengraphImage() {
               ...bold(2),
             }}
           >
-            Voice agents that make your business calls and show their work.
+            AI phone screening for hiring teams. You get the recording, transcript and answers.
           </div>
         </div>
         <div style={{ fontSize: 28, color: INK_2 }}>{BRAND.tagline}</div>

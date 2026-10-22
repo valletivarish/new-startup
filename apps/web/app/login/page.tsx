@@ -74,10 +74,10 @@ function LoginForm() {
       other: ['New here?', 'Create an account', 'register'],
     },
     register: {
-      title: joiningViaInvite ? 'Join your company' : 'Start your pilot',
+      title: joiningViaInvite ? 'Join your company' : 'Create your account',
       lead: joiningViaInvite
         ? INVITE_LEAD
-        : 'Create your account and add one real job. Try a test call in your browser right away. Before anyone calls real candidates, we set up your calling number with you and agree the price per call.',
+        : 'Add a job and try a test call in your browser right away. Before HRVoice calls real candidates, we set up your calling number with you and agree the price per call.',
       action: 'Create account',
       other: ['Already have an account?', 'Sign in', 'login'],
     },

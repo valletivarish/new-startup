@@ -151,11 +151,11 @@ export function AutoAdvance({ canEdit }: { canEdit: boolean }) {
       queryClient.setQueryData(['organization-settings'], next);
       toast.success(
         next.autoAdvanceMeetsAll
-          ? 'Auto-advance is on. Candidates who meet all requirements move forward on their own.'
-          : 'Auto-advance is off. Every candidate waits for you.',
+          ? 'Turned on. Candidates who meet all requirements now move forward on their own.'
+          : 'Turned off. Every candidate waits for your decision.',
       );
     } catch (e) {
-      toast.error(messageText(toUserMessage(e, 'change auto-advance')));
+      toast.error(messageText(toUserMessage(e, 'change this setting')));
     } finally {
       setBusy(false);
     }
@@ -189,7 +189,7 @@ export function AutoAdvance({ canEdit }: { canEdit: boolean }) {
       <>
         <div className="flex min-h-11 items-center justify-between gap-4">
           <span id={labelId} className="text-label font-medium text-text">
-            Auto-advance candidates who meet all requirements
+            Move candidates forward automatically when they meet all requirements
           </span>
           <span className="ml-auto text-label text-text-2" aria-hidden>
             {on ? 'On' : 'Off'}
@@ -227,7 +227,7 @@ export function AutoAdvance({ canEdit }: { canEdit: boolean }) {
   }
 
   return (
-    <SettingsCard title="Auto-advance" description={AUTO_ADVANCE_HELP}>
+    <SettingsCard title="Move forward automatically" description={AUTO_ADVANCE_HELP}>
       {body}
     </SettingsCard>
   );

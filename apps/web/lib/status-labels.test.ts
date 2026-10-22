@@ -42,7 +42,7 @@ const SPEC: [StateDomain, string, string, string, string][] = [
   ['call', 'unknown', "Didn't connect", 'failed', 'TriangleAlert'],
   ['voice', 'connecting', 'Connecting', 'live', 'PhoneOutgoing'],
   ['voice', 'listening', 'Listening', 'live', 'Ear'],
-  ['voice', 'speaking', 'Agent speaking', 'live', 'LiveBars'],
+  ['voice', 'speaking', 'Speaking', 'live', 'LiveBars'],
   ['voice', 'completed', 'Call ended', 'decided', 'PhoneOff'],
   ['voice', 'failed', "Didn't connect", 'failed', 'TriangleAlert'],
   ['job', 'draft', 'Draft', 'decided', 'PenLine'],

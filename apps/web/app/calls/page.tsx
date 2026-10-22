@@ -270,7 +270,7 @@ function CallsPageInner() {
 
   async function onEnd(session: VoiceSession) {
     if (!session.agentId) {
-      toast.error('Couldn’t end this call', { description: 'It isn’t linked to an agent. Reload the page, then try again.' });
+      toast.error('Couldn’t end this call', { description: 'Reload the page, then try again.' });
       return;
     }
     setBusyId(session.id);
@@ -502,10 +502,10 @@ function AllCalls({
       <EmptyState
         agent="idle"
         title="No calls yet"
-        description="Calls show up here the moment the agent places one. Open any candidate to start with a test call in your browser."
+        description="Calls show up here as soon as HRVoice places one. Open any candidate to start with a test call in your browser."
         action={
           <Button asChild variant="secondary">
-            <Link href="/people">Go to candidates</Link>
+            <Link href="/people">Go to People</Link>
           </Button>
         }
       />

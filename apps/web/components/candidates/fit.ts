@@ -21,18 +21,20 @@ import type { StatusTone } from "../ui/notice";
   an icon and a word (never colour alone). Mirrors apps/api/src/hiring/requirements.ts.
 */
 
+/** The lanes the dashboard shows. "not_screened" is still stored; it has no lane or chip in the UI. */
 export const FIT_LANES: readonly FitLane[] = [
   "meets_all",
   "check",
   "doesnt_meet",
-  "not_screened",
 ];
+
+const STORED_LANES: readonly FitLane[] = [...FIT_LANES, "not_screened"];
 
 export const LANE_LABEL: Record<FitLane, string> = {
   meets_all: "Meets all",
-  check: "Check",
+  check: "Needs a look",
   doesnt_meet: "Doesn’t meet",
-  not_screened: "Not screened",
+  not_screened: "", // no answers, no chip: nothing to say
 };
 
 export const isFitLane = (v: unknown): v is FitLane =>
@@ -46,7 +48,7 @@ export interface Look {
 
 export const OVERALL: Record<FitOverall, Look> = {
   meets_all: { label: "Meets all", tone: "success", icon: CircleCheck },
-  check: { label: "Check", tone: "warning", icon: CircleHelp },
+  check: { label: "Needs a look", tone: "warning", icon: CircleHelp },
   doesnt_meet: { label: "Doesn’t meet", tone: "danger", icon: CircleX },
 };
 
@@ -63,7 +65,7 @@ export function laneCount(
 ): number | null {
   if (!totals) return null;
   if (lane === "all")
-    return FIT_LANES.reduce((n, l) => n + (totals[l] ?? 0), 0);
+    return STORED_LANES.reduce((n, l) => n + (totals[l] ?? 0), 0);
   return totals[lane] ?? 0;
 }
 

@@ -30,7 +30,7 @@ describe('personState', () => {
     expect(tag('new', 'completed')).not.toContain('Not called yet');
     expect(tag('screening', 'not_called')).toContain('On hold');
     expect(tag('reviewed', 'completed')).toContain('Moved forward');
-    expect(tag('new', 'failed')).toContain('Call didn’t connect');
-    expect(tag('new', 'failed', 'no_answer')).toContain('No answer');
+    expect(tag('new', 'failed')).toContain("Didn&#x27;t connect");
+    expect(tag('new', 'failed', 'no_answer')).toContain("Didn&#x27;t connect · Rang out");
   });
 });

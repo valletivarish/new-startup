@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { Mail, MessageCircle } from 'lucide-react';
 import closingPhoto from '../../public/images/site/closing.jpg';
 import { CONTACT } from './contact';
+import { SampleCallButton } from './sample-call-button';
 import { CONTAINER, Italic, SIGNUP_HREF, siteButton } from './kit';
 
 /** The pilot's terms in one plain line. Text, not chips: lime stays off the photo. */
@@ -38,9 +39,7 @@ export function ClosingSection() {
           <Link href={SIGNUP_HREF} className={siteButton('paper')}>
             Create account
           </Link>
-          <a href="#sample-call-card" className={siteButton('frost')}>
-            Hear a sample call
-          </a>
+          <SampleCallButton />
         </div>
         <p className="m-0 mt-6 max-w-[36rem] text-[0.9375rem] leading-relaxed text-white [text-shadow:0_1px_10px_rgb(9_27_46/0.6)]">
           {TERMS.join(' · ')}

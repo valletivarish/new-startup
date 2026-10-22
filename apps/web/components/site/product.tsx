@@ -117,7 +117,7 @@ function Point({ title, body, className }: { title: string; body: string; classN
 
 /**
  * Website section 3 (#product): what comes back from a screen. One photograph with one glass
- * panel at its centre (Terra), holding the same sample call as the player above, so the two
+ * panel at its centre (Terra), holding the same sample call as the player, so the two
  * connect. On laptops the three points float beside the panel in light sans; on phones they
  * list under the photograph.
  */

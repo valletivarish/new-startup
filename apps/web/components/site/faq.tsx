@@ -13,7 +13,7 @@ export const FAQ = [
   {
     question: 'What does the call actually sound like?',
     answer:
-      'Like a short chat, not a form. It asks one question at a time and follows up on what the candidate says, for example “What’s behind the eighteen?” If the candidate cuts in, it stops and answers. Play the 83-second sample call on this page and judge for yourself.',
+      'Like a short chat, not a form. It asks one question at a time and follows up on what the candidate says, for example “What’s behind the eighteen?” If the candidate cuts in, it stops and answers. Play the 83-second sample call and judge for yourself.',
   },
   {
     question: 'Will candidates know it’s automated?',
@@ -51,6 +51,9 @@ export const FAQ = [
   },
 ] as const;
 
+/** The question whose answer ends with a link that opens the sample-call player. */
+const SAMPLE_QUESTION = 'What does the call actually sound like?';
+
 /**
  * Website section 6 (#faq), after Margin's FAQ: the heading on the left, the questions on the right as native
  * details, so they open by keyboard with no script. The plus turns to a cross in 200ms. The
@@ -85,7 +88,19 @@ export function FaqSection() {
                   <Plus strokeWidth={1.5} className="size-4" />
                 </span>
               </summary>
-              <p className="m-0 max-w-[62ch] pb-6 text-[1rem] leading-relaxed text-site-fg-2 md:pr-14">{answer}</p>
+              <p className="m-0 max-w-[62ch] pb-6 text-[1rem] leading-relaxed text-site-fg-2 md:pr-14">
+                {question === SAMPLE_QUESTION ? (
+                  <>
+                    {answer.replace(' Play the 83-second sample call and judge for yourself.', '')}{' '}
+                    <a href="#sample-call" className="text-white underline decoration-white/40 underline-offset-4 hover:decoration-white">
+                      Play the 83-second sample call
+                    </a>{' '}
+                    and judge for yourself.
+                  </>
+                ) : (
+                  answer
+                )}
+              </p>
             </details>
           ))}
         </div>

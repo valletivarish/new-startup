@@ -5,6 +5,7 @@ import { cn } from '../ui/cn';
 import heroPhoto from '../../public/images/site/hero.jpg';
 import heroMeta from '../../public/images/site/hero.json';
 import heroPortrait from '../../public/images/site/hero-portrait.jpg';
+import { SampleCallButton } from './sample-call-button';
 import { CONTAINER, Italic, SIGNUP_HREF, Tag, siteButton } from './kit';
 import { LiveCall } from './live-call';
 
@@ -41,8 +42,8 @@ function HeroPhoto() {
  * Levito sky hero sits: a small tag, the two-line headline with the page's first italic phrase,
  * one line, Create account and Hear a sample call, and a quiet line under them. The live call
  * card is the glass object in the scene (Lodge's glass panel), rising out of the grass and
- * across the fold into the black (Apogee). Phones leave it out: the playable sample call
- * follows straight after. The photo settles and the words rise on load (CSS, so the first paint is never blank),
+ * across the fold into the black (Apogee). Phones leave it out. Hear a sample call is a glass
+ * audio button that opens the player in a dialog. The photo settles and the words rise on load (CSS, so the first paint is never blank),
  * then the photo drifts on scroll (site motion). Its foot fades into the black of the next
  * section. A top scrim keeps the white text at 4.5:1 or more over the sky.
  */
@@ -98,9 +99,7 @@ export function SiteHero() {
           <Link href={SIGNUP_HREF} className={siteButton('paper')}>
             Create account
           </Link>
-          <a href="#sample-call-card" className={siteButton('frost')}>
-            Hear a sample call
-          </a>
+          <SampleCallButton />
         </div>
         <p
           className="site-rise m-0 mt-5 max-w-[30rem] text-[0.875rem] leading-relaxed text-white [text-shadow:0_1px_10px_rgb(9_27_46/0.55)]"

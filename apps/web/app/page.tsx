@@ -10,7 +10,7 @@ import { SiteMotion } from '../components/site/motion';
 import { LiquidNav } from '../components/site/nav-liquid';
 import { PricingSection } from '../components/site/pricing';
 import { ProductSection } from '../components/site/product';
-import { SampleCallSection } from '../components/site/sample-call';
+import { SampleCallDialog } from '../components/site/sample-call';
 
 const TITLE = `${WORDMARK} | AI screening calls to your job applicants`;
 // The hero's line under the headline.
@@ -29,10 +29,12 @@ export const metadata: Metadata = {
 };
 
 /*
-  The website, styled after Oripio's Synergos. Seven bands: the sky hero, the playable sample
-  call, what comes back, how it works (the one telling of the pilot), pricing, the FAQ, and the
-  dusk band that closes the page and carries the footer. Server-rendered; the live call card,
-  the sample-call player, the pricing slider, the menu and the scroll motion hydrate in place.
+  The website, styled after Oripio's Synergos. Six bands: the sky hero, what comes back, how it
+  works (the one telling of the pilot), pricing, the FAQ, and the dusk band that closes the page
+  and carries the footer. The sample call is not a band: "Hear a sample call" opens its player in
+  a dialog (SampleCallDialog), from the hero, the closing band, the chat and `/#sample-call`.
+  Server-rendered; the live call card, the pricing slider, the menu and the scroll motion hydrate
+  in place.
 */
 export default function HomePage() {
   return (
@@ -46,7 +48,6 @@ export default function HomePage() {
       <LiquidNav sections={HEADER_LINKS} />
       <main id="main-content">
         <SiteHero />
-        <SampleCallSection />
         <ProductSection />
         <HowItWorksSection />
         <PricingSection />
@@ -54,6 +55,7 @@ export default function HomePage() {
         <ClosingSection />
       </main>
       <SiteFooter />
+      <SampleCallDialog />
       <SiteChat />
       <SiteMotion />
     </div>

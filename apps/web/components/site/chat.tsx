@@ -122,7 +122,7 @@ const ENTRIES: readonly Entry[] = [
     ],
     answer:
       'Add a job, the questions every candidate must answer and your requirements. HRVoice phones each candidate between 9 am and 8 pm IST and asks your questions in your order. It follows up on what they say and answers their questions from your job description. You get the recording, the transcript and each candidate marked Meets all, Needs a look or Doesn’t meet. You decide who moves forward.',
-    link: { href: '#sample-call-card', label: 'Hear a sample call' },
+    link: { href: '#sample-call', label: 'Hear a sample call' },
   },
   {
     id: 'cost',
@@ -192,7 +192,7 @@ const ENTRIES: readonly Entry[] = [
     words: ['natural', 'sound', 'sounds', 'voice', 'robotic', 'robot', 'real', 'conversation', 'interrupt', 'follow up', 'follow-up'],
     answer:
       'Like a short chat, not a form. It asks one question at a time and follows up on what the candidate says, for example “What’s behind the eighteen?” If the candidate cuts in, it stops and answers. Play the 83-second sample call and judge for yourself.',
-    link: { href: '#sample-call-card', label: 'Hear a sample call' },
+    link: { href: '#sample-call', label: 'Hear a sample call' },
   },
   {
     id: 'language',

@@ -96,7 +96,7 @@ export function Tag({
   );
 }
 
-/** The serif-italic phrase. Three on the whole page: the hero, the sample call and the closing band. */
+/** The serif-italic phrase. Two on the whole page: the hero and the closing band. */
 export function Italic({ children }: { children: ReactNode }) {
   return <span className="site-italic">{children}</span>;
 }

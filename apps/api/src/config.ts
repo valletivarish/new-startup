@@ -43,6 +43,8 @@ const EnvSchema = z.object({
     .transform((v) => v === 'true'),
 
   RATE_LIMIT_MAX: z.coerce.number().int().min(1).default(600),
+  /** Per signed-in session / API key, per window. Anonymous traffic uses RATE_LIMIT_MAX per IP. */
+  RATE_LIMIT_USER_MAX: z.coerce.number().int().min(1).default(1200),
   RATE_LIMIT_WINDOW_MS: z.coerce.number().int().min(1000).default(60_000),
 
   /**

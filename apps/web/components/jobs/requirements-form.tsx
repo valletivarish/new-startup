@@ -284,7 +284,7 @@ export function RequirementsEditor({
       <div className="border-t border-border pt-5">
         <Field
           label="Reply within, working days"
-          hint="The agent closes each call by saying the team will get back within this time."
+          hint="Each call closes by saying the team will get back within this time."
           error={errors.replyWithin}
           announce={false}
           className="sm:w-64"

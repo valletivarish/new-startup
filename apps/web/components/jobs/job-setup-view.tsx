@@ -273,8 +273,8 @@ function JobSetup({ publicId }: { publicId: string }) {
     setLinking(true);
     await run(
       () => updateJob(jobId, { agentId: linkAgentId }),
-      job?.agentId ? 'Agent changed for this job.' : 'Agent chosen for this job.',
-      'Couldn’t change the agent. Try again.',
+      job?.agentId ? 'Caller changed for this job.' : 'Caller chosen for this job.',
+      'Couldn’t change who calls. Try again.',
     );
     setLinking(false);
   }
@@ -293,7 +293,7 @@ function JobSetup({ publicId }: { publicId: string }) {
         withDescription
           ? 'Description, questions and language saved.'
           : cleaned.length === 0
-            ? 'Saved. Calls use the questions set on the agent.'
+            ? 'Saved. Calls use the questions set in the call settings.'
             : 'Questions and language saved.',
       );
       await reload();
@@ -413,7 +413,7 @@ function JobSetup({ publicId }: { publicId: string }) {
     setJdError(null);
     try {
       await saveJobDescriptionText(jobId, text);
-      toast.success('Description saved. The agent uses it on every call for this job.');
+      toast.success('Description saved. Used on every call for this job.');
       const refreshed = await getJob(jobId);
       setJob(refreshed);
       setJdText(text);
@@ -530,7 +530,7 @@ function JobSetup({ publicId }: { publicId: string }) {
               id="job-description"
               step={canEdit ? 1 : undefined}
               title="Job description"
-              description="The agent uses it on every call for this job."
+              description="Used on every call for this job."
               badge={
                 canEdit && jdDirty ? (
                   <UnsavedBadge />
@@ -666,7 +666,7 @@ function JobSetup({ publicId }: { publicId: string }) {
               id="questions"
               step={canEdit ? 2 : undefined}
               title="Must-ask questions"
-              description="The agent asks each of these on every call. Leave the list empty and it asks the questions set on the agent."
+              description="Asked on every call. Leave the list empty and calls use the questions set in the call settings."
               badge={
                 canEdit && questionsDirty ? (
                   <UnsavedBadge />
@@ -777,7 +777,7 @@ function JobSetup({ publicId }: { publicId: string }) {
                   <div className="mt-5 flex flex-col gap-4 border-t border-border pt-5 sm:flex-row sm:items-end sm:justify-between">
                     <Field
                       label="Call language"
-                      hint="The agent speaks this on calls for this job."
+                      hint="Spoken on calls for this job."
                       className="sm:w-64"
                     >
                       <Select
@@ -815,7 +815,7 @@ function JobSetup({ publicId }: { publicId: string }) {
                 </>
               ) : (
                 <p className="m-0 text-text-2">
-                  No must-ask questions. The agent asks the questions set on the agent.
+                  No must-ask questions. Calls use the questions set in the call settings.
                 </p>
               )}
             </SetupCard>
@@ -924,7 +924,6 @@ function JobSetup({ publicId }: { publicId: string }) {
 
           <ReadyPanel
             readiness={readiness}
-            agentName={linkedAgent?.name}
             peopleTotal={peopleTotal}
             contact={labels.contact}
             boardHref={`/jobs/${toPublicId(jobId)}/people`}
@@ -1100,7 +1099,6 @@ function Documents({ sources }: { sources: JobKnowledgeSource[] }) {
 
 function ReadyPanel({
   readiness: r,
-  agentName,
   peopleTotal,
   contact,
   boardHref,
@@ -1109,7 +1107,6 @@ function ReadyPanel({
   onStatus,
 }: {
   readiness: ReturnType<typeof jobReadiness>;
-  agentName?: string;
   peopleTotal: number | null;
   contact: { one: string; many: string };
   boardHref: string;
@@ -1140,11 +1137,11 @@ function ReadyPanel({
     },
     {
       anchor: 'agent',
-      label: 'AI hiring agent',
+      label: 'The call',
       done: r.agent === 'live',
       detail: {
-        live: agentName ? `${agentName}, live` : 'Live',
-        'not-live': 'Not live yet',
+        live: 'Ready',
+        'not-live': 'Not ready yet',
         missing: 'Not chosen yet',
         checking: 'Checking…',
       }[r.agent],

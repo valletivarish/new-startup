@@ -40,10 +40,10 @@ describe('job readiness', () => {
 
   it('names every missing step', () => {
     expect(readinessLine(jobReadiness({ ...job, agentId: null }, [], null, 'connected'))).toBe(
-      'Before calling, add the job description and choose the AI hiring agent.',
+      'Before calling, add the job description and choose who calls.',
     );
     expect(readinessLine(jobReadiness(job, [{ readyDocs: 0, pendingDocs: 1 }], false, 'connected'))).toBe(
-      'Before calling, wait for the description file to be read and publish the AI hiring agent.',
+      'Before calling, wait for the description file to be read and publish the call setup.',
     );
   });
 

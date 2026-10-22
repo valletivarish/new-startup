@@ -13,6 +13,7 @@ import { formatApiError } from '@/lib/api';
 import { formatWhen } from '@/lib/format';
 import { CUSTOMER_STATUS, POLL_MS, relatedFromLocation, type Ticket } from '@/lib/support';
 import { closeTicket, createTicket, getTicket, listMyTickets, replyTicket } from '@/lib/support-api';
+import { StatusNotice } from './status-notice';
 import { Composer, Thread } from './thread';
 
 const ticketsKey = ['support', 'mine'] as const;
@@ -70,6 +71,7 @@ function Home({ related, onOpen }: { related: { jobId?: string; candidateId?: st
         <SheetDescription>Write to the HRVoice team. Replies show up here and come to you by email.</SheetDescription>
       </SheetHeader>
       <SheetBody className="grid content-start gap-8">
+        <StatusNotice />
         <section aria-labelledby="help-start" className="grid gap-3">
           <h2 id="help-start" className="m-0 text-title font-medium text-text">
             Start a chat

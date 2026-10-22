@@ -215,7 +215,6 @@ describe('every route declares its authorization requirement', () => {
       'PublicSupportController.create',
       'PublicSupportController.get',
       'PublicSupportController.reply',
-      'StatusController.status',
       'VoiceWebhookController.webhook',
     ]);
   });

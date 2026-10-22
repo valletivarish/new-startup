@@ -18,6 +18,8 @@ export function staticRedirects(): Redirect[] {
     { source: '/analytics', destination: '/reports', permanent: false },
     { source: '/knowledge', destination: '/settings/company', permanent: false },
     { source: '/tools', destination: '/jobs', permanent: false },
+    // The public status page is gone; status shows inside the app (Get help).
+    { source: '/status', destination: '/', permanent: false },
     // /settings used to be one page with ?section= tabs. Real redirects, so they work before any
     // client code runs; other params (?invite=1, ?zoho=…) travel with the request. Next cannot drop
     // the matched ?section= itself; the Settings pages ignore it.

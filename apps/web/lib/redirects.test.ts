@@ -11,6 +11,7 @@ describe('staticRedirects', () => {
       '/analytics': '/reports',
       '/knowledge': '/settings/company',
       '/tools': '/jobs',
+      '/status': '/',
     });
     expect(staticRedirects().every((r) => r.permanent === false)).toBe(true);
   });

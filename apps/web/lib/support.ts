@@ -1,6 +1,6 @@
 /**
  * Support: shared shapes and pure helpers for Get help, the website chat, the founder's inbox
- * and the status page. The fetch calls live in support-api.ts.
+ * and the in-app status notice. The fetch calls live in support-api.ts.
  */
 
 import { fromPublicId } from './public-id';

@@ -375,7 +375,7 @@ function CallsPageInner() {
                 {historyJobId ? (
                   <Button asChild>
                     <Link
-                      href={`/jobs/${toPublicId(historyJobId)}/candidates?c=${encodeURIComponent(toPublicId(filterCandidateId))}`}
+                      href={`/jobs/${toPublicId(historyJobId)}/people?c=${encodeURIComponent(toPublicId(filterCandidateId))}`}
                     >
                       Open on their job
                     </Link>
@@ -505,7 +505,7 @@ function AllCalls({
         description="Calls show up here the moment the agent places one. Open any candidate to start with a test call in your browser."
         action={
           <Button asChild variant="secondary">
-            <Link href="/candidates">Go to candidates</Link>
+            <Link href="/people">Go to candidates</Link>
           </Button>
         }
       />

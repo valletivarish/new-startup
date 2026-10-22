@@ -136,7 +136,7 @@ function Palette({ onDone }: { onDone: () => void }) {
               <CommandItem
                 key={job.id}
                 value={`${job.title} ${job.id}`}
-                onSelect={() => goTo(`/jobs/${toPublicId(job.id)}/candidates`)}
+                onSelect={() => goTo(`/jobs/${toPublicId(job.id)}/people`)}
               >
                 <BriefcaseBusiness aria-hidden strokeWidth={1.5} />
                 <span className="min-w-0 truncate">{job.title}</span>
@@ -152,7 +152,7 @@ function Palette({ onDone }: { onDone: () => void }) {
                 value={`${person.fullName} ${person.jobTitle} ${person.jobId}-${person.candidateId}`}
                 onSelect={() =>
                   goTo(
-                    `/jobs/${toPublicId(person.jobId)}/candidates?c=${encodeURIComponent(toPublicId(person.candidateId))}`,
+                    `/jobs/${toPublicId(person.jobId)}/people?c=${encodeURIComponent(toPublicId(person.candidateId))}`,
                   )
                 }
               >

@@ -32,7 +32,7 @@ import { Field, Input, PasswordInput } from '@/components/ui/input';
 import { Alert } from '@/components/ui/notice';
 
 // A full load into the workspace, so nothing cached from before the join carries over.
-const enterWorkspace = () => window.location.assign('/dashboard');
+const enterWorkspace = () => window.location.assign('/jobs');
 
 /** Title and lead of every state, in the auth pages' geometry. */
 function Heading({ title, children }: { title: ReactNode; children?: ReactNode }) {

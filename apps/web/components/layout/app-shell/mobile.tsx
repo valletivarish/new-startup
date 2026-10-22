@@ -20,7 +20,7 @@ import { PLACEHOLDER } from './parts';
 export function MobileTopBar({ profile, actions }: { profile: Me | null; actions?: ReactNode }) {
   return (
     <header className="flex h-14 shrink-0 items-center gap-1 pl-3 pr-2 md:hidden">
-      <BrandLink href="/dashboard" className="mr-auto" />
+      <BrandLink href="/jobs" className="mr-auto" />
       {actions}
       <IconButton label="Search" onClick={() => openCommandMenu()}>
         <Search strokeWidth={1.5} />

@@ -547,7 +547,7 @@ function ByJob({
       id: j.id,
       title: j.title,
       meta: JOB_STATUS_LABEL[j.status] ?? 'Unknown',
-      href: `/jobs/${toPublicId(j.id)}/candidates`,
+      href: `/jobs/${toPublicId(j.id)}/people`,
       cells: [...(stages ? [people ?? ('' as const)] : []), ...callCells(use)],
       phone: [...(people === undefined ? [] : [countOf(people, contact.one, contact.many)]), ...callLine(use)].join(' · '),
     };

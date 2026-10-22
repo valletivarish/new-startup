@@ -155,7 +155,7 @@ function InviteCard({ contactLabel }: { contactLabel: string }) {
       <p className="mb-0 mt-3 text-label font-semibold text-text">Invite your team</p>
       <p className="mb-0 mt-1 text-meta text-text-2">Bring in the people who review {contactLabel} with you.</p>
       <Link
-        href="/settings?section=team&invite=1"
+        href="/settings/team?invite=1"
         className={cn(buttonVariants({ variant: 'secondary', size: 'sm' }), 'mt-3 shadow-xs')}
       >
         Invite people
@@ -262,7 +262,7 @@ export function Sidebar({
         >
           {/* 64px tall from the canvas's 12px top margin, so it lines up with the canvas header. */}
           <div className="mt-3 flex h-16 shrink-0 items-center justify-between gap-1 [@media(pointer:coarse)]:group-data-[rail=on]/side:h-auto [@media(pointer:coarse)]:group-data-[rail=on]/side:flex-col [@media(pointer:coarse)]:group-data-[rail=on]/side:py-2.5 [@media(pointer:coarse)]:max-lg:group-data-[rail=auto]/side:h-auto [@media(pointer:coarse)]:max-lg:group-data-[rail=auto]/side:flex-col [@media(pointer:coarse)]:max-lg:group-data-[rail=auto]/side:py-2.5">
-            <BrandLink href="/dashboard" className="px-1" labelClassName={RAIL.srOnly} />
+            <BrandLink href="/jobs" className="px-1" labelClassName={RAIL.srOnly} />
             {/* With a mouse the rail opens on hover, so its toggle only shows once open ("Keep open"). */}
             <span className="shrink-0 [@media(pointer:fine)]:group-data-[rail=on]/side:hidden [@media(pointer:fine)]:max-lg:group-data-[rail=auto]/side:hidden">
               <IconButton

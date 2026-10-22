@@ -5,6 +5,6 @@ export default defineConfig({
   esbuild: { jsx: 'automatic' },
   test: {
     environment: 'node',
-    include: ['lib/**/*.test.ts', 'components/**/*.test.ts', 'features/**/*.test.ts', 'embed/**/*.test.ts', 'app/**/*.test.ts'],
+    include: ['lib/**/*.test.{ts,tsx}', 'components/**/*.test.{ts,tsx}', 'features/**/*.test.{ts,tsx}', 'embed/**/*.test.ts', 'app/**/*.test.{ts,tsx}'],
   },
 });

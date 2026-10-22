@@ -171,7 +171,7 @@ describe('with data', () => {
     await call(owner, agentId, main, names['Cal Calling']!, 'active');
 
     for (let i = 1; i <= 12; i += 1) await candidate(owner, bulk, `Bulk ${String(i).padStart(2, '0')}`);
-    await candidate(owner, closed, 'Cleo Closed');
+    names['Cleo Closed'] = await candidate(owner, closed, 'Cleo Closed');
   }, 120_000);
 
   it('puts each person in the one queue homeQueueOf gives them', async () => {
@@ -201,8 +201,10 @@ describe('with data', () => {
 
   it('keeps true totals while capping items at 8', async () => {
     const { queues } = await summaryOf(owner);
-    // Nora + 12 bulk + the closed job's Cleo.
-    expect(queues.notCalled.total).toBe(14);
+    // Nora + 12 bulk. A closed job asks nothing of anyone, so Cleo is in no queue.
+    expect(queues.notCalled.total).toBe(13);
+    const everyone = Object.values(queues).flatMap((q) => q.items.map((i) => i.candidateId));
+    expect(everyone).not.toContain(names['Cleo Closed']);
     expect(queues.notCalled.items).toHaveLength(8);
     expect(queues.readyForReview.total).toBe(2);
   });

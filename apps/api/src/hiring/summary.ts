@@ -115,7 +115,10 @@ export async function loadHiringSummary(
 
       const n = (v: string | null | undefined) => Number(v) || 0;
       const total: Record<Queue, number> = { readyForReview: 0, notConnected: 0, onHold: 0, notCalled: 0 };
+      // Closed and archived jobs keep their funnel on the jobs list but ask nothing of anyone.
+      const ACTIONABLE = new Set(['draft', 'open']);
       for (const r of jobRows) {
+        if (!ACTIONABLE.has(String(r['status']))) continue;
         total.readyForReview += n(r['q_ready']);
         total.notConnected += n(r['q_not_connected']);
         total.onHold += n(r['q_on_hold']);
@@ -148,7 +151,7 @@ export async function loadHiringSummary(
                    ) as rn
             from (${CLASSIFIED(org)}) k
             join jobs j on j.id = k.job_id and j.organization_id = ${org}
-            where k.queue is not null
+            where k.queue is not null and j.status in ('draft', 'open')
           ) ranked
           where rn <= ${HOME_QUEUE_LIMIT}
           order by rn`);

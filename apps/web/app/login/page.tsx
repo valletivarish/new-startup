@@ -77,7 +77,7 @@ function LoginForm() {
       title: joiningViaInvite ? 'Join your company' : 'Create your account',
       lead: joiningViaInvite
         ? INVITE_LEAD
-        : 'Add a job and try a test call in your browser right away. Before HRVoice calls real candidates, we set up your calling number with you and agree the price per call.',
+        : 'Add a job and try a test call in your browser right away. Before HRVoice calls real candidates, we set up your calling number with you. You pay ₹20 plus GST per completed call; test calls are free.',
       action: 'Create account',
       other: ['Already have an account?', 'Sign in', 'login'],
     },

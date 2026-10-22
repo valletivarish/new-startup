@@ -3,7 +3,7 @@ import { cn } from '../ui/cn';
 import { OpenChatButton } from './chat';
 import { CONTAINER, SECTION, siteButton } from './kit';
 
-/** Eight questions. The pilot's steps live in How it works, so they are not repeated here. */
+/** Nine questions. The pilot's steps live in How it works, so they are not repeated here. */
 export const FAQ = [
   {
     question: 'Does HRVoice decide who gets hired?',
@@ -29,6 +29,11 @@ export const FAQ = [
     question: 'Do I need a calling number to start?',
     answer:
       'No. You can make a test call in your browser today. To call candidates’ real phones, your company needs its own calling number. The phone company runs a KYC check on your company first, and we help you with it.',
+  },
+  {
+    question: 'What does it cost?',
+    answer:
+      '₹20 per completed call, plus 18% GST. A call is completed when the candidate answered and talked with HRVoice. Calls that don’t connect (no answer, busy, voicemail, unreachable number) cost nothing, and test calls in your browser are free. There is no fee per user, no lock-in and no monthly minimum. Calls run about 4 to 6 minutes, and the price is per call, not per minute.',
   },
   {
     question: 'What does the candidate need to do?',

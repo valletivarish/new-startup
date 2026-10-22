@@ -5,14 +5,16 @@ import Link from 'next/link';
 import { Check } from 'lucide-react';
 import { cn } from '../ui/cn';
 import { CONTAINER, SECTION, SIGNUP_HREF, siteButton } from './kit';
+import { RECRUITER_SCREEN_COST, formatInr, monthlyTotal, recruiterTimeEstimate, withGst } from './pricing-math';
 
-/** What the pilot includes. No numbers and no tiers anywhere in this section. */
+/** What every completed call comes with. */
 export const INCLUDED = [
-  'Test calls in your browser',
-  'Calls to candidates’ phones, once your calling number is set up',
-  'A recording, transcript, summary and answers for every call',
+  'A recording of the call',
+  'The transcript',
+  'A summary',
+  'Answers to your questions',
+  'Meets all, Needs a look or Doesn’t meet, against your requirements',
   'Your whole team can log in. You choose who can hear recordings.',
-  'Each candidate’s call status, such as Rang out or Voicemail',
 ] as const;
 
 const MIN = 20;
@@ -33,13 +35,12 @@ const RANGE =
   '[&:focus-visible::-moz-range-thumb]:[box-shadow:0_0_0_2px_#050505,0_0_0_4px_#fff]';
 
 /**
- * Website section 5 (#pricing): usage pricing without a published price. Relay's calculator
- * idea, turned round: the slider sets how many candidates you screen a month and shows what
- * comes back, never a rupee figure. Beside it, what the pilot includes. The pilot's steps are
- * told once, in How it works.
+ * Website section 5 (#pricing): the published price, ₹20 per completed call plus GST. The slider sets
+ * how many calls you make a month and shows the bill, and what the same screens cost in recruiter time.
  */
 export function PricingSection() {
-  const [candidates, setCandidates] = useState(200);
+  const [candidates, setCandidates] = useState(100);
+  const total = monthlyTotal(candidates);
   const pct = ((candidates - MIN) / (MAX - MIN)) * 100;
 
   return (
@@ -47,10 +48,12 @@ export function PricingSection() {
       <div className={CONTAINER}>
         <div data-reveal className="max-w-[40rem]">
           <h2 id="pricing-title" className="site-h2 m-0 text-white">
-            Pay per completed call, not per user
+            ₹20 per completed call
           </h2>
           <p className="m-0 mt-5 text-[1.0625rem] leading-relaxed text-site-fg-2">
-            We agree the price per completed call with you before any call goes out.
+            Plus 18% GST. A call is completed when the candidate answered and talked with HRVoice. Calls that
+            don’t connect cost nothing, and neither do test calls in your browser. No fee per user, no lock-in,
+            no monthly minimum.
           </p>
         </div>
 
@@ -69,7 +72,7 @@ export function PricingSection() {
               max={MAX}
               step={10}
               value={candidates}
-              aria-valuetext={`${count(candidates)} candidates a month`}
+              aria-valuetext={`${count(candidates)} candidates a month, ${formatInr(total)} plus GST`}
               onChange={(e) => setCandidates(Number(e.currentTarget.value))}
               style={{ '--pct': `${pct}%` } as CSSProperties}
               className={cn(RANGE, 'mt-5')}
@@ -82,10 +85,19 @@ export function PricingSection() {
 
             <output htmlFor="pricing-candidates" className="mt-6 block rounded-[18px] bg-white/[0.05] p-4 text-[0.9375rem] sm:p-5 sm:text-[1rem] leading-relaxed text-site-fg-2">
               <span className="block text-[1.125rem] tracking-[-0.01em] text-white">
-                Up to {count(candidates)} screening calls a month
+                {count(candidates)} completed calls = <span className="whitespace-nowrap">{formatInr(total)} + GST</span>
               </span>
-              Each completed call gives you the recording, transcript, summary and answers. You pay only for
-              completed calls. No fee per user.
+              {formatInr(withGst(total))} with GST. Calls run about 4 to 6 minutes. The price is per call, not per
+              minute.
+              <span className="mt-4 block border-t border-white/10 pt-4">
+                The same screens by phone take about{' '}
+                <span className="text-white">{formatInr(recruiterTimeEstimate(candidates))}</span> of recruiter time
+                (estimate).
+              </span>
+              <span className="mt-1 block text-[0.8125rem] text-site-fg-3">
+                Assumes a 15-minute phone screen at a ₹3 lakh salary, about {formatInr(RECRUITER_SCREEN_COST)} a screen,
+                before calls that go unanswered.
+              </span>
             </output>
 
             <Link href={SIGNUP_HREF} className={cn(siteButton('paper'), 'mt-7')}>
@@ -94,7 +106,7 @@ export function PricingSection() {
           </div>
 
           <div data-reveal className="rounded-[26px] border border-site-line p-6 sm:p-9 lg:col-span-5">
-            <h3 className="m-0 text-[1.0625rem] font-medium text-white">What you get</h3>
+            <h3 className="m-0 text-[1.0625rem] font-medium text-white">What you get for every call</h3>
             <ul role="list" className="m-0 mt-4 grid list-none gap-2.5 p-0 sm:gap-3.5">
               {INCLUDED.map((item) => (
                 <li key={item} className="flex gap-3 text-[1rem] leading-relaxed text-site-fg-2">

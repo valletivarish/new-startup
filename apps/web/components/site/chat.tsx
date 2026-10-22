@@ -153,7 +153,7 @@ const ENTRIES: readonly Entry[] = [
       'free',
     ],
     answer:
-      'You pay for each completed screening call, and there are no fees per user. You start by adding one real job and making test calls in your browser. We agree the price per call with you before any real candidate is called.',
+      '₹20 per completed call, plus 18% GST. A call is completed when the candidate answered and talked with HRVoice. Calls that don’t connect cost nothing, and test calls in your browser are free. No fee per user, no lock-in and no monthly minimum. For example, 100 completed calls is ₹2,000 plus GST.',
     link: { href: SIGNUP_HREF, label: 'Create account' },
   },
   {

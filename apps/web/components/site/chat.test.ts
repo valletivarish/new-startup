@@ -2,6 +2,13 @@ import { describe, expect, it } from 'vitest';
 import { afterWake, answerFor } from './chat';
 
 describe('answerFor', () => {
+  it('states the published price', () => {
+    const cost = answerFor('How much does it cost?')?.answer ?? '';
+    expect(cost).toContain('₹20 per completed call');
+    expect(cost).toContain('18% GST');
+    expect(cost).not.toMatch(/agree the price/i);
+  });
+
   it('sends typed questions to the answer a visitor expects', () => {
     const cases: [string, string | null][] = [
       ['How does it work?', 'how'],

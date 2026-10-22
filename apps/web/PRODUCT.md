@@ -40,7 +40,7 @@ Not a generic voice API, not a cheaper clone of a competitor, not a wrapper arou
 - Live today: hiring module (jobs, candidates, browser and phone screens, recordings, transcripts, summaries, must-ask answers, review, team roles, analytics from real data).
 - Not built yet: other use cases (support, sales, appointments, reminders), customer webhooks, MCP/embedding, billing. The engine is being generalised so these become configurations; until one is live it appears on the website only as clearly labelled later work.
 - Known product gaps found in the audit are in scope to fix, not only visual issues.
-- Pricing: usage-based per completed screen, no per-seat fees, pilot by conversation. No published prices.
+- Pricing: usage-based per completed screen, no per-seat fees, ₹20 per completed call plus 18% GST (founder decision, Oct 2026). Calls that don't connect and browser test calls are free; no lock-in or monthly minimum. Billing is per call, agreed manually; no plans, packs, discounts or self-serve billing.
 - Stack: Next.js 15 App Router, Tailwind, shadcn/ui on Radix, Lucide, Motion, GSAP + ScrollTrigger, Lenis (landing only), TanStack Query. Backend moving from NestJS to Java Spring AI behind the same API contract.
 - Terminology: Job, Candidate, Screen (a call against a job), Hiring voice (the configured agent), Workspace (organization).
 - Open: overall product name; languages beyond English to claim publicly.

@@ -6,7 +6,7 @@ import { CONTACT } from './contact';
 import { CONTAINER, Italic, SIGNUP_HREF, siteButton } from './kit';
 
 /** The pilot's terms in one plain line. Text, not chips: lime stays off the photo. */
-const TERMS = ['Test calls in your browser', 'Pay per completed call', 'A recording of every call'] as const;
+const TERMS = ['Test calls in your browser', '₹20 per completed call', 'A recording of every call'] as const;
 
 /**
  * The closing band (Levito's dusk sky, Margin's centred close): green hills under open sky,

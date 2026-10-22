@@ -68,19 +68,17 @@ export async function mountForm(el: HTMLElement, opts: MountOptions): Promise<vo
     message(root, 'Loading…');
     try {
       const res = await fetch(`${opts.api}/public/embed/${encodeURIComponent(opts.key)}`);
-      if (!res.ok) {
-        console.warn(
-          res.status === 403
-            ? `HRVoice: ${location.origin} isn’t on this form’s list of websites. Add it on the job page in HRVoice.`
-            : `HRVoice: this form’s key doesn’t work (${res.status}). It may have been revoked.`,
-        );
-        return message(root, 'This form isn’t taking applications right now.');
-      }
+      if (!res.ok) throw new Error(String(res.status));
       const d = (await res.json()) as { companyName: string; jobTitle: string; open: boolean };
       if (!d.open) return message(root, 'This job isn’t taking applications any more.');
       job = d;
     } catch {
-      return message(root, 'This form couldn’t load. Please refresh the page to try again.');
+      // A refusal carries no CORS header, so the browser reports it like a network failure.
+      console.warn(
+        `HRVoice: the form didn’t load. Check that ${location.origin} is on this form’s list of websites ` +
+          'on the job page in HRVoice, and that the form hasn’t been turned off.',
+      );
+      return message(root, 'This form isn’t taking applications right now.');
     }
   }
   renderForm(root, job, opts);
@@ -140,6 +138,16 @@ function renderForm(root: ShadowRoot, job: { companyName: string; jobTitle: stri
     card(root).innerHTML = `<h2>Application sent</h2><p class="sub done" role="status" tabindex="-1">${esc(confirmation(fullName, callAfter))}</p>`;
     (root.querySelector('.done') as HTMLElement).focus();
   }
+
+  // A field's error goes as soon as the person changes that field.
+  form.addEventListener('input', (event) => {
+    const el = event.target as HTMLInputElement;
+    const err = root.getElementById(`${el.id}-err`);
+    if (!err || err.hidden) return;
+    err.hidden = true;
+    el.removeAttribute('aria-invalid');
+    el.removeAttribute('aria-describedby');
+  });
 
   form.addEventListener('submit', async (event) => {
     event.preventDefault();

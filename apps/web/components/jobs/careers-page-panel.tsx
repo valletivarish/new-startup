@@ -24,7 +24,7 @@ import { messageText, toUserMessage } from '@/lib/errors';
 import { formatWhen } from '@/lib/format';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm';
-import { Field, Input, Textarea } from '@/components/ui/input';
+import { Field, Textarea } from '@/components/ui/input';
 import { Alert } from '@/components/ui/notice';
 import { Skeleton } from '@/components/ui/skeleton';
 import { StatusBadge } from '@/components/ui/state-tag';
@@ -167,11 +167,17 @@ export function CareersPagePanel({
             ) : null}
 
             <div className="grid gap-3">
-              <div className="flex flex-wrap items-end justify-between gap-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
                 <h3 className="m-0 text-label font-medium text-text">What applicants see</h3>
-                <Field label="Button colour" className="w-40">
-                  <Input type="color" value={accent} onChange={(e) => setAccent(e.target.value)} className="h-11 p-1" />
-                </Field>
+                <label className="inline-flex min-h-11 items-center gap-3 text-meta text-text-2">
+                  Button colour
+                  <input
+                    type="color"
+                    value={accent}
+                    onChange={(e) => setAccent(e.target.value)}
+                    className="size-11 cursor-pointer rounded-input border border-border-input bg-canvas p-1"
+                  />
+                </label>
               </div>
               <Preview companyName={companyName} jobTitle={jobTitle} accent={accent} />
               <p className="m-0 text-meta text-text-3">A preview: nothing you type here is sent.</p>

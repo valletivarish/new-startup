@@ -168,6 +168,33 @@ describe('POST /invitations/accept-new', () => {
     expect(JSON.parse((await get(`/invitations/${token}`)).body).status).toBe('pending');
   });
 
+  it('two parallel accept-new for one token make exactly one account and one membership', async () => {
+    const owner = await ownerWithOrg('Accept Race');
+    const email = fresh('race');
+    const token = await inviteAndCaptureToken(api, owner, email, 'viewer');
+    const results = await Promise.all(
+      [1, 2, 3].map((i) =>
+        api.request({
+          method: 'POST',
+          url: '/invitations/accept-new',
+          remoteAddress: '10.9.0.1', // the route has its own per-IP limit; keep clear of the shared one
+          payload: { token, name: `Racer ${i}`, password: 'a-good-password-1' },
+        }),
+      ),
+    );
+    expect(results.filter((r) => r.statusCode === 201 || r.statusCode === 200)).toHaveLength(1);
+    const su = superDatabase();
+    try {
+      const users = await su.db.execute(sql`select id from users where lower(email) = ${email}`);
+      const members = await su.db.execute(sql`
+        select m.id from organization_memberships m join users u on u.id = m.user_id where lower(u.email) = ${email}`);
+      expect(users).toHaveLength(1);
+      expect(members).toHaveLength(1);
+    } finally {
+      await su.close();
+    }
+  });
+
   it('validates name and password, and rejects unknown tokens', async () => {
     const owner = await ownerWithOrg('Accept Validate');
     const token = await inviteAndCaptureToken(api, owner, fresh('val'), 'viewer');
@@ -198,16 +225,37 @@ describe('POST /organization/invitations/:id/resend', () => {
     const before = api.outbox.length;
     const res = await resend(owner, id);
     expect(res.statusCode).toBe(201);
-    const { acceptUrl } = JSON.parse(res.body) as { acceptUrl: string };
-    const newToken = /token=([\w-]+)/.exec(acceptUrl)![1]!;
+    expect(JSON.parse(res.body)).toEqual({ id });
+    expect(res.body).not.toMatch(/token|http/i);
+    const mailed = api.outbox.slice(before).find((m) => m.to === email)?.text ?? '';
+    const newToken = /token=([\w-]+)/.exec(mailed)![1]!;
     expect(newToken).not.toBe(oldToken);
-    expect(api.outbox.slice(before).find((m) => m.to === email)?.text).toContain(newToken);
 
     expect((await get(`/invitations/${oldToken}`)).statusCode).toBe(404);
     expect(JSON.parse((await get(`/invitations/${newToken}`)).body).status).toBe('pending');
 
     const audit = await api.request({ method: 'GET', url: '/audit?eventType=invitation.resent', cookie: owner.cookie });
     expect(audit.body).toContain(id);
+  });
+
+  it('an Admin cannot resend an Owner invite (403, token untouched); an Owner can', async () => {
+    const owner = await ownerWithOrg('Resend Escalation');
+    const admin = await registerUser(api, 'rs-admin');
+    const aToken = await inviteAndCaptureToken(api, owner, admin.email, 'administrator');
+    await api.request({ method: 'POST', url: '/invitations/accept', cookie: admin.cookie, payload: { token: aToken } });
+    const email = fresh('own');
+    const ownerToken = await inviteAndCaptureToken(api, owner, email, 'owner');
+    const id = await invitationId(owner, email);
+
+    const before = api.outbox.length;
+    expect((await resend(admin, id)).statusCode).toBe(403);
+    expect(api.outbox.length).toBe(before);
+    expect(JSON.parse((await get(`/invitations/${ownerToken}`)).body).status).toBe('pending');
+
+    const ok = await resend(owner, id);
+    expect(ok.statusCode).toBe(201);
+    expect(ok.body).not.toMatch(/token|http/i);
+    expect((await get(`/invitations/${ownerToken}`)).statusCode).toBe(404);
   });
 
   it('refuses accepted and revoked invitations with 409', async () => {

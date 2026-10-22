@@ -3,7 +3,7 @@
  *
  * Token model: 32 random bytes, base64url-encoded. The database holds only
  * the SHA-256 hash. The raw token is revealed once at create time (email +
- * API acceptUrl for copy) and never stored. Acceptance requires BOTH the
+ * create response for the web's copy-link; resend never returns it) and never stored. Acceptance requires BOTH the
  * unguessable token AND an authenticated session whose email matches.
  *
  * Abuse cases covered:
@@ -81,7 +81,7 @@ export interface InvitationsService {
   resend(
     actor: Actor,
     invitationId: string,
-  ): Promise<{ readonly id: string; readonly acceptUrl: string }>;
+  ): Promise<{ readonly id: string }>;
 }
 
 export interface InvitationPreview {
@@ -396,10 +396,10 @@ export function createInvitationsService(
         throw ApiError.conflict('An account already exists for this email. Sign in to join.');
       }
 
-      // ponytail: sign-up and the membership insert are two transactions (Better
-      // Auth owns its own connection). The invitation is claimed atomically with
-      // the membership in accept(); a failure between them leaves a plain account
-      // that can sign in and use the link again.
+      // Sign-up and the claim+membership are two transactions (Better Auth owns its
+      // own connection, and the membership needs the user id), so the claim cannot
+      // come first. Instead, if the claim loses (revoked, resent, expired, raced),
+      // the just-created account, which has no memberships yet, is deleted.
       let created;
       try {
         created = await auth.api.signUpEmail({
@@ -420,7 +420,13 @@ export function createInvitationsService(
       const sessionToken = created.response.token;
       if (!sessionToken) throw new Error('sign-up returned no session');
 
-      const { organizationId } = await this.accept({ token, userId, userEmail: preview.email });
+      let organizationId: string;
+      try {
+        ({ organizationId } = await this.accept({ token, userId, userEmail: preview.email }));
+      } catch (error) {
+        await (await auth.$context).internalAdapter.deleteUser(userId);
+        throw error;
+      }
       return {
         organizationId,
         userId,
@@ -435,6 +441,21 @@ export function createInvitationsService(
         database.db,
         { organizationId: actor.organizationId, userId: actor.userId },
         async (tx) => {
+          // Same rule as create(): you may only re-issue an invite for a role you could grant.
+          const found = await tx.execute<{ role_key: string }>(sql`
+            select r.key as role_key from organization_invitations i
+            join roles r on r.id = i.role_id
+            where i.id = ${invitationId} and i.organization_id = ${actor.organizationId}
+          `);
+          const inviteRole = found[0]?.role_key;
+          if (
+            inviteRole !== undefined &&
+            (!isSystemRole(actor.roleKey) ||
+              !isSystemRole(inviteRole) ||
+              !canAssignRole(actor.roleKey, inviteRole))
+          ) {
+            throw ApiError.forbidden('Only an Owner can invite an Owner');
+          }
           try {
             const rows = await tx.execute<{ email: string }>(sql`
               update organization_invitations
@@ -471,7 +492,8 @@ export function createInvitationsService(
         resourceType: 'invitation',
         resourceId: invitationId,
       });
-      return { id: invitationId, acceptUrl };
+      // The link goes only to the invited mailbox; never back to the caller.
+      return { id: invitationId };
     },
   };
 }

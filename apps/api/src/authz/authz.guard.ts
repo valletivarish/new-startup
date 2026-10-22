@@ -31,6 +31,7 @@ import {
 } from '@platform/permissions';
 
 import { ApiError } from '../errors.js';
+import { markKeyValidated } from '../rate-limit-key.js';
 import {
   AUTHZ_ANY_PERMISSIONS,
   AUTHZ_MODE,
@@ -95,6 +96,7 @@ export class AuthzGuard implements CanActivate {
     // Keys reach the public client API only, and only through a permission
     // check — never account, org-switching, invitation or admin routes.
     if (ctx.apiKey) {
+      markKeyValidated(request.headers.authorization);
       const path = (request.url ?? '').split('?')[0] ?? '';
       if (!path.startsWith('/v1/') || mode !== 'permission') {
         throw ApiError.forbidden();

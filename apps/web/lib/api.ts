@@ -277,10 +277,10 @@ export interface Invitation {
 export const invitations = () =>
   call<{ invitations: Invitation[] }>('/backend/organization/invitations');
 
-/** Create and resend answer the same shape. Say "We emailed them" only when emailDelivery is 'sent'. */
+/** Create answers with the copyable link; resend answers `{ id }` only (the link is emailed, never returned). Say "We emailed them" only when emailDelivery is 'sent'. */
 export interface InviteResult {
   id: string;
-  acceptUrl: string;
+  acceptUrl?: string;
   /** Newer backends: the stored invite, the copyable link (same as acceptUrl) and email outcome. */
   invitation?: Invitation;
   inviteUrl?: string;

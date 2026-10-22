@@ -6,7 +6,7 @@
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { registerUser, startApi, type ApiHarness, type TestActor } from './setup/api-harness.js';
+import { createOrganization, registerUser, startApi, type ApiHarness, type TestActor } from './setup/api-harness.js';
 
 const IP_MAX = 5;
 const USER_MAX = 8;
@@ -59,6 +59,29 @@ describe('global rate limit keyed by who is asking', () => {
     // A real session from that IP is unaffected.
     const carol = await registerUser(api, 'carol');
     expect((await me('10.3.0.1', carol.cookie)).statusCode).toBe(200);
+  });
+
+  it('counts forged Bearer keys against the IP bucket, and a real key keeps its own budget', async () => {
+    const dave = await registerUser(api, 'dave');
+    await createOrganization(api, dave, 'Limit Co');
+    const created = await api.request({
+      method: 'POST',
+      url: '/organization/api-keys',
+      cookie: dave.cookie,
+      payload: { name: 'k', mode: 'test', scopes: ['jobs'] },
+    });
+    const { key } = JSON.parse(created.body) as { key: string };
+    const ping = (k: string, ip: string) =>
+      api.request({ method: 'GET', url: '/v1/ping', remoteAddress: ip, headers: { authorization: `Bearer ${k}` } });
+    expect((await ping(key, '10.6.0.1')).statusCode).toBe(200); // validated, now keyed by itself
+
+    let n = 0;
+    const forged = () => ping(`hrv_test_${String(n++).padStart(32, 'A')}`, '10.6.0.1');
+    let served = 0;
+    for (; served < 50; served += 1) if ((await forged()).statusCode === 429) break;
+    expect(served).toBe(IP_MAX - 1); // the real key's first, pre-validation request spent one; rotating fake keys never mint fresh buckets
+    // The real key from that same blocked IP is unaffected.
+    expect((await ping(key, '10.6.0.1')).statusCode).toBe(200);
   });
 
   it('keeps sign-in IP-limited whatever cookie rides along', async () => {

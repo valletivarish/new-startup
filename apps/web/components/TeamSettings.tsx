@@ -618,11 +618,13 @@ function InviteLink({
   onAnother?: () => void;
   onDone: () => void;
 }) {
+  // Resend never returns the link (it goes only to the invited mailbox); create returns it for copying.
   const link = result.inviteUrl ?? result.acceptUrl;
   const expires = formatWhen(result.invitation?.expiresAt);
   // Say "we emailed them" only when the server says the email went out.
-  const delivery =
-    result.emailDelivery === 'sent'
+  const delivery = !link
+    ? `We emailed ${email} a new link to join ${workspace}.`
+    : result.emailDelivery === 'sent'
       ? `We emailed ${email} a link to join ${workspace}.`
       : result.emailDelivery === 'not_configured'
         ? 'Email isn’t switched on for this workspace yet, so copy the link and send it to them yourself.'
@@ -637,7 +639,7 @@ function InviteLink({
           {renewed ? ' The old link no longer works.' : ''}
         </DialogDescription>
       </DialogHeader>
-      <CopyField label="Invite link" value={link} />
+      {link ? <CopyField label="Invite link" value={link} /> : null}
       <p className="m-0 -mt-2 text-meta text-text-3">
         {expires ? `It works until ${expires}.` : 'It works for 72 hours.'} It only works for {email}.
       </p>

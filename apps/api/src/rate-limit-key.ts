@@ -5,9 +5,10 @@
  *   `<token>.<base64 HMAC-SHA256(secret, token)>`, so we verify the signature locally
  *   with the auth secret: no DB hit, and a forged/garbled cookie fails here and falls
  *   back to the IP bucket (it cannot mint fresh buckets).
- * - `Authorization: Bearer hrv_…` -> that key ("k:<hash>"). Can't be validated without
- *   the DB, so a made-up key gets its own bucket; auth still rejects it, and a 190-bit
- *   key can't be guessed. (ponytail: if forged-key DB load matters, add an IP cap on /v1.)
+ * - `Authorization: Bearer hrv_…` -> that key ("k:<hash>") ONLY once the auth guard has
+ *   validated it (see markKeyValidated, short sliding TTL). Unvalidated or forged keys use
+ *   the IP bucket, so rotating fake keys neither dodges the limit nor grows the limiter.
+ *   A real key's first request after the TTL lapses is counted against its IP bucket.
  * - Everything else, `/api/auth/*` (sign-in/up brute force) and routes with their own
  *   stricter `rateLimit` config -> client IP.
  */
@@ -17,6 +18,19 @@ import type { FastifyRequest } from 'fastify';
 const sha = (s: string) => createHash('sha256').update(s).digest('base64url').slice(0, 22);
 const BEARER_KEY_RE = /^Bearer (hrv_(?:live|test)_[A-Za-z0-9]{32})$/;
 const SESSION_COOKIE_RE = /(?:^|;\s*)(?:__Secure-)?better-auth\.session_token=([^;]+)/;
+
+const VALIDATED_TTL_MS = 5 * 60_000;
+// Only keys the DB accepted get in, so this is bounded by the number of real keys.
+const validatedKeys = new Map<string, number>();
+
+/** Called by the auth guard after a Bearer key authenticates; lets that key have its own bucket. */
+export function markKeyValidated(authorization: string | undefined): void {
+  const key = authorization?.match(BEARER_KEY_RE)?.[1];
+  if (!key) return;
+  const now = Date.now();
+  for (const [k, exp] of validatedKeys) if (exp <= now) validatedKeys.delete(k);
+  validatedKeys.set(sha(key), now + VALIDATED_TTL_MS);
+}
 
 function signedSessionToken(cookie: string | undefined, secret: string): string | null {
   const raw = cookie?.match(SESSION_COOKIE_RE)?.[1];
@@ -44,6 +58,9 @@ export function rateLimitKey(request: FastifyRequest, authSecret: string): strin
   const token = signedSessionToken(request.headers.cookie, authSecret);
   if (token) return `s:${sha(token)}`;
   const key = request.headers.authorization?.match(BEARER_KEY_RE)?.[1];
-  if (key) return `k:${sha(key)}`;
+  if (key) {
+    const hash = sha(key);
+    if ((validatedKeys.get(hash) ?? 0) > Date.now()) return `k:${hash}`;
+  }
   return `ip:${request.ip}`;
 }

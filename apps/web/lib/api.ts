@@ -387,20 +387,6 @@ export const listRoles = async () => {
   return { roles: roles.map((r): Role => ({ ...r, isSystem: r.isSystem ?? !r.key.startsWith('custom_') })) };
 };
 
-/** POST /roles → Role. You can only grant permissions you hold. Optional: NotAvailableError on older backends. */
-export const createRole = (input: { name: string; description?: string; permissions: string[] }) =>
-  call<Role>('/backend/roles', { method: 'POST', body: JSON.stringify(input) }, OPTIONAL);
-
-/** PATCH /roles/:roleId → Role; 403 for system roles. Optional: NotAvailableError on older backends. */
-export const updateRole = (
-  roleId: string,
-  input: { name?: string; description?: string; permissions?: string[] },
-) => call<Role>(`/backend/roles/${roleId}`, { method: 'PATCH', body: JSON.stringify(input) }, OPTIONAL);
-
-/** DELETE /roles/:roleId → `{ deleted: true }`; 409 while members or pending invites use it. Optional. */
-export const deleteRole = (roleId: string) =>
-  call<{ deleted: true }>(`/backend/roles/${roleId}`, { method: 'DELETE' }, OPTIONAL);
-
 export interface PermissionInfo {
   key: string;
   label: string;

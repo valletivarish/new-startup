@@ -33,7 +33,7 @@ function TeamBody() {
         inviteRequested={params.get('invite') === '1'}
         onInviteHandled={clearInvite}
       />
-      {can('roles.read') ? <AccessLevels profile={profile} /> : null}
+      {can('roles.read') ? <AccessLevels /> : null}
     </div>
   );
 }

@@ -22,6 +22,7 @@ import {
 } from '@nestjs/common';
 import { z } from 'zod';
 import type { FastifyReply } from 'fastify';
+import { RouteConfig } from '@nestjs/platform-fastify';
 import { sql, withTenantContext, withoutTenantContext, type Database } from '@platform/db';
 
 import { Authenticated, Public, RequirePermission } from './authz/decorators.js';
@@ -32,6 +33,7 @@ import { parse } from './validate.js';
 import { PaginationQuery, decodeCursor, toPage } from './pagination.js';
 import {
   AUDIT_SERVICE,
+  BETTER_AUTH,
   DATABASE,
   ENV,
   INVITATIONS_SERVICE,
@@ -43,6 +45,7 @@ import type { OrganizationsService } from './organizations/organizations.service
 import type { MembersService } from './organizations/members.service.js';
 import type { InvitationsService } from './organizations/invitations.service.js';
 import type { AuditService } from './audit/audit.service.js';
+import type { BetterAuthInstance } from './auth/better-auth.js';
 import type { SessionService } from './auth/session.service.js';
 import { COST_SERVICE, SESSION_SERVICE } from './tokens.more.js';
 import type { CostService } from './costs/costs.service.js';
@@ -62,6 +65,8 @@ function auditEventLabel(eventType: string): string {
     'invitation.created': 'Invited a teammate',
     'invitation.accepted': 'Teammate joined',
     'invitation.revoked': 'Invite revoked',
+    'invitation.resent': 'Invite sent again',
+    'membership.password_reset_sent': 'Sent a password reset',
     'org.member_invited': 'Invited a teammate',
     'org.member_joined': 'Teammate joined',
     'org.settings_updated': 'Updated company settings',
@@ -99,6 +104,8 @@ function actorOf(req: RequestWithAuth) {
 }
 
 const UuidParam = z.string().uuid();
+const TokenParam = z.string().min(20).max(200);
+const INVITE_LIMIT = { rateLimit: { max: 10, timeWindow: '1 minute' } };
 
 // ---------------------------------------------------------------------------
 
@@ -348,7 +355,22 @@ export class OrganizationController {
 export class MembersController {
   constructor(
     @Inject(MEMBERS_SERVICE) private readonly members: MembersService,
+    @Inject(BETTER_AUTH) private readonly auth: BetterAuthInstance,
+    @Inject(ENV) private readonly env: Env,
   ) {}
+
+  /** Emails the member Better Auth's reset link; the link never travels in the response. */
+  @RequirePermission('users.update')
+  @Post(':id/password-reset')
+  async passwordReset(@Req() req: RequestWithAuth, @Param('id') id: string) {
+    const membershipId = parse(UuidParam, id);
+    await this.members.sendPasswordReset(actorOf(req), membershipId, async (email) => {
+      await this.auth.api.requestPasswordReset({
+        body: { email, redirectTo: `${this.env.WEB_URL}/reset-password` },
+      });
+    });
+    return { sent: true };
+  }
 
   @RequirePermission('users.read')
   @Get()
@@ -425,6 +447,40 @@ export class InvitationsController {
     const invitationId = parse(UuidParam, id);
     await this.invitations.revoke(actorOf(req), invitationId);
     return { revoked: true };
+  }
+
+  @RequirePermission('users.invite')
+  @Post('organization/invitations/:id/resend')
+  async resend(@Req() req: RequestWithAuth, @Param('id') id: string) {
+    return this.invitations.resend(actorOf(req), parse(UuidParam, id));
+  }
+
+  /** Public, 10/min per IP: the token is the credential and the answer is only what the page shows. */
+  @Public()
+  @RouteConfig(INVITE_LIMIT)
+  @Get('invitations/:token')
+  async preview(@Param('token') token: string) {
+    return this.invitations.preview(parse(TokenParam, token));
+  }
+
+  /** Public: creates the account for the invited email, joins, and signs the person in. */
+  @Public()
+  @RouteConfig(INVITE_LIMIT)
+  @Post('invitations/accept-new')
+  async acceptNew(@Body() body: unknown, @Res({ passthrough: true }) reply: FastifyReply) {
+    const input = parse(
+      z.object({
+        token: TokenParam,
+        name: z.string().trim().min(1).max(100),
+        password: z.string().min(8).max(128),
+        email: z.string().email().optional(),
+      }),
+      body,
+    );
+    const result = await this.invitations.acceptNew(input);
+    await this.sessions.setActiveOrganization(result.sessionToken, result.organizationId);
+    if (result.cookies.length > 0) void reply.header('set-cookie', [...result.cookies]);
+    return { organizationId: result.organizationId, userId: result.userId };
   }
 
   /**

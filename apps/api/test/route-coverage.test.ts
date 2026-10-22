@@ -199,6 +199,9 @@ describe('every route declares its authorization requirement', () => {
       'HealthController.health',
       // Verified by HMAC signature (INBOUND_EMAIL_SECRET) inside the handler.
       'InboundEmailController.inbound',
+      // The invite token is the credential; 10 requests a minute per IP.
+      'InvitationsController.acceptNew',
+      'InvitationsController.preview',
       'OpenApiController.get',
       'PublicCandidateLinksController.get',
       'PublicCandidateLinksController.submit',

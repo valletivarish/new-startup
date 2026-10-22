@@ -11,7 +11,7 @@ export interface JobCardContext {
   funnel: JobFunnel | undefined;
 }
 
-const NO_PEOPLE = { people: 0, answered: 0, undecided: 0 };
+const NO_PEOPLE = { total: 0, notCalled: 0, notConnected: 0, toReview: 0 };
 
 /**
  * The Next line for a job card from data the list already holds (no per-job request).
@@ -31,6 +31,5 @@ export function jobCardNext(job: Job, ctx: JobCardContext): NextAction | null {
   if (r.agent === 'checking') return { label: 'Open the job', href: `/jobs/${id}`, tab: 'people' };
   if (r.agent !== 'live') return nextAction(r, NO_PEOPLE, id);
   if (!ctx.funnel) return { label: 'Open the job', href: `/jobs/${id}`, tab: 'people' };
-  const { total, notCalled, toReview } = ctx.funnel;
-  return nextAction(r, { people: total, answered: total - notCalled, undecided: toReview }, id);
+  return nextAction(r, ctx.funnel, id);
 }

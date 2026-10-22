@@ -96,13 +96,17 @@ import { hiringPeopleQueryKey, homeQueryKey } from '@/lib/hiring-people';
 import { fromPublicId, toPublicId } from '@/lib/public-id';
 import { useOnline } from '@/lib/use-online';
 import { useUseCase } from '@/lib/use-cases';
+import {
+  defaultCallFor,
+  defaultStageFor,
+  needsTypedConfirm,
+  peopleListFilters,
+  type BoardMode,
+  type CallFilter,
+  type StageFilter,
+} from './people-filters';
 
 const PEOPLE_PAGE_SIZE = 40;
-// From this many people at once, a bulk decision asks to be typed out first.
-const BULK_CONFIRM_AT = 24;
-
-type StageFilter = 'all' | CandidateStage;
-type CallFilter = 'all' | 'not_called' | 'calling' | 'completed' | 'failed';
 type Decision = { candidateId: string; status: CandidateStage; previous: CandidateStage; name: string };
 
 const CALL_FILTERS: { value: CallFilter; label: string }[] = [
@@ -136,7 +140,7 @@ const isApple = () => /Mac|iPhone|iPad|iPod/.test(navigator.platform);
  * The job's people board. `people` is every person on the job; `review` is the same board opened
  * on answered calls, fit lanes first, and "No decision yet" as the decision filter.
  */
-export type BoardMode = 'people' | 'review';
+export type { BoardMode };
 
 export function JobBoardView({ mode }: { mode: BoardMode }) {
   return (
@@ -179,8 +183,8 @@ function JobBoardInner({ mode }: { mode: BoardMode }) {
   const { counts } = useJobReadiness(jobPublicId);
   const basePath = `/jobs/${jobPublicId}/${mode}`;
   // Review opens on answered calls nobody has decided on yet; People on everyone.
-  const defaultStage: StageFilter = mode === 'review' ? 'new' : 'all';
-  const defaultCall: CallFilter = mode === 'review' ? 'completed' : 'all';
+  const defaultStage = defaultStageFor(mode);
+  const defaultCall = defaultCallFor(mode);
   const selectedCandidateId = fromPublicId(searchParams.get('c'));
   const contactOne = labels.contact.one.toLowerCase();
   const contactMany = labels.contact.many.toLowerCase();
@@ -260,6 +264,16 @@ function JobBoardInner({ mode }: { mode: BoardMode }) {
     setUrlFilter('fit', key);
   }
 
+  // Server-side filter like stage and fit: start again from the first page.
+  function changeCallFilter(key: CallFilter) {
+    setPeoplePage(0);
+    setPeoplePageCursors([undefined]);
+    setNextPeopleCursor(null);
+    setListCursor(0);
+    setSelectedIds(new Set());
+    setCallFilter(key);
+  }
+
   function setUrlFilter(param: 'stage' | 'fit', key: string) {
     setPeoplePage(0);
     setPeoplePageCursors([undefined]);
@@ -297,10 +311,8 @@ function JobBoardInner({ mode }: { mode: BoardMode }) {
     router.replace(`${basePath}${qs ? `?${qs}` : ''}`, { scroll: false });
   }
 
-  const pagedAssignments = useMemo(() => {
-    if (callFilter === 'all') return assignments;
-    return assignments.filter((row) => (row.callStatus ?? 'not_called') === callFilter);
-  }, [assignments, callFilter]);
+  // The server applies every filter, so a page is what it says.
+  const pagedAssignments = assignments;
 
   useEffect(() => {
     setListCursor((c) => Math.min(c, Math.max(0, pagedAssignments.length - 1)));
@@ -474,9 +486,7 @@ function JobBoardInner({ mode }: { mode: BoardMode }) {
       const res = await listJobCandidates(jobId, {
         limit: PEOPLE_PAGE_SIZE,
         cursor,
-        status: pipelineFilter === 'all' ? undefined : pipelineFilter,
-        fit: fitFilter === 'all' ? undefined : fitFilter,
-        q: peopleQuery.trim() || undefined,
+        ...peopleListFilters({ stage: pipelineFilter, fit: fitFilter, call: callFilter, q: peopleQuery }),
       });
       if (seq !== listSeq.current) return;
       setAssignments(res.candidates);
@@ -484,7 +494,7 @@ function JobBoardInner({ mode }: { mode: BoardMode }) {
       setFitTotals(res.fitTotals ?? null);
       setNextPeopleCursor(res.nextCursor);
     },
-    [jobId, pipelineFilter, fitFilter, peopleQuery],
+    [jobId, pipelineFilter, fitFilter, callFilter, peopleQuery],
   );
 
   const loadList = useCallback(
@@ -510,7 +520,10 @@ function JobBoardInner({ mode }: { mode: BoardMode }) {
     void loadList(undefined);
   }, [canReadCandidates, jobReady, loadList]);
 
-  const refreshList = () => loadList(peoplePageCursors[peoplePage]);
+  const refreshList = () => {
+    void queryClient.invalidateQueries({ queryKey: ['job-funnel'] });
+    return loadList(peoplePageCursors[peoplePage]);
+  };
 
   useEffect(() => {
     const handle = window.setTimeout(() => {
@@ -780,7 +793,7 @@ function JobBoardInner({ mode }: { mode: BoardMode }) {
   }
 
   function requestBulkStatus(status: CandidateStage) {
-    if (selectedIds.size >= BULK_CONFIRM_AT) {
+    if (needsTypedConfirm(selectedIds.size)) {
       setPendingBulkStatus(status);
       setBulkConfirmText('');
       return;
@@ -957,7 +970,7 @@ function JobBoardInner({ mode }: { mode: BoardMode }) {
   function clearFilters() {
     setPeopleQueryDraft('');
     setPeopleQuery('');
-    setCallFilter(defaultCall);
+    changeCallFilter(defaultCall);
     if (pipelineFilter !== defaultStage || fitFilter !== 'all') {
       const q = new URLSearchParams(searchParams.toString());
       q.delete('stage');
@@ -1053,7 +1066,7 @@ function JobBoardInner({ mode }: { mode: BoardMode }) {
                 />
                 <Select
                   value={callFilter}
-                  onChange={(e) => setCallFilter(e.target.value as CallFilter)}
+                  onChange={(e) => changeCallFilter(e.target.value as CallFilter)}
                   aria-label="Filter by call"
                   className={cn('sm:w-44', hasRequirements && 'max-lg:hidden')}
                 >
@@ -1069,10 +1082,10 @@ function JobBoardInner({ mode }: { mode: BoardMode }) {
                     onChange={(e) => {
                       const v = e.target.value;
                       if (v.startsWith('fit:')) {
-                        setCallFilter('all');
+                        changeCallFilter('all');
                         setFitFilter(v.slice(4) as FitLane);
                       } else {
-                        setCallFilter(v as CallFilter);
+                        changeCallFilter(v as CallFilter);
                         if (fitFilter !== 'all') setFitFilter('all');
                       }
                     }}

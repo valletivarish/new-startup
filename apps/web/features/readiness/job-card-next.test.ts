@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import type { Job } from '../../lib/api';
 import type { JobFunnel } from '../../lib/hiring-people';
 import { toPublicId } from '../../lib/public-id';
+import { jobReadiness } from '../../components/jobs/setup';
 import { jobCardNext } from './job-card-next';
+import { nextAction } from './next-action';
 
 const base: Job = {
   id: '11111111-1111-4111-8111-111111111111',
@@ -19,7 +21,7 @@ const base: Job = {
 const id = toPublicId(base.id);
 const ready: Job = { ...base, status: 'open', description: 'Run the night shift.', agentId: 'a1' };
 const live = [{ id: 'a1', status: 'published' }];
-const funnel = (f: Partial<JobFunnel>): JobFunnel => ({ total: 0, notCalled: 0, toReview: 0, onHold: 0, movedForward: 0, ...f });
+const funnel = (f: Partial<JobFunnel>): JobFunnel => ({ total: 0, notCalled: 0, notConnected: 0, toReview: 0, onHold: 0, movedForward: 0, ...f });
 
 describe('jobCardNext', () => {
   it('draft without a description: Add the job description', () => {
@@ -37,6 +39,26 @@ describe('jobCardNext', () => {
     const r = jobCardNext(ready, { agents: live, funnel: funnel({ total: 6, notCalled: 2, toReview: 3 }) });
     expect(r?.label).toBe('Review 3 answers');
     expect(r?.href).toBe(`/jobs/${id}/review`);
+  });
+  it('calls that did not connect: Retry N calls, after review and before calling', () => {
+    expect(jobCardNext(ready, { agents: live, funnel: funnel({ total: 9, notCalled: 2, notConnected: 5 }) })?.label).toBe(
+      "Retry 5 calls that didn't connect",
+    );
+    expect(jobCardNext(ready, { agents: live, funnel: funnel({ total: 9, notConnected: 1 }) })?.label).toBe(
+      "Retry 1 call that didn't connect",
+    );
+    expect(jobCardNext(ready, { agents: live, funnel: funnel({ total: 9, notConnected: 5, toReview: 1 }) })?.label).toBe(
+      'Review 1 answer',
+    );
+  });
+  it('the card and the job banner read one funnel, so they say the same thing, exact above 100', () => {
+    const f = funnel({ total: 400, notCalled: 120, notConnected: 5, toReview: 130 });
+    const r = jobReadiness(ready, [], true, 'connected');
+    expect(jobCardNext(ready, { agents: live, funnel: f })).toEqual(nextAction(r, f, id));
+    expect(nextAction(r, f, id).label).toBe('Review 130 answers');
+    const retry = funnel({ total: 400, notConnected: 5 });
+    expect(jobCardNext(ready, { agents: live, funnel: retry })).toEqual(nextAction(r, retry, id));
+    expect(nextAction(r, retry, id).label).toBe("Retry 5 calls that didn't connect");
   });
   it('not called: Start calling', () => {
     expect(jobCardNext(ready, { agents: live, funnel: funnel({ total: 4, notCalled: 4 }) })?.label).toBe('Start calling');

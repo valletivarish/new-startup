@@ -1,5 +1,5 @@
-import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
+import { BULK_CONFIRM_AT, needsTypedConfirm } from '../components/jobs/people-filters';
 import { jobReadiness } from '../components/jobs/setup';
 import { meetsAllFirst } from '../components/candidates/fit';
 import { adminLinks, buildNav, gate } from '../components/layout/app-shell/nav';
@@ -57,16 +57,10 @@ describe('redesign baseline', () => {
   });
 
   describe('bulk decisions', () => {
-    // The page is a 'use client' file that imports through the Next-only `@/` alias, so vitest
-    // cannot load it; pin the constant and its comparison in the source instead.
-    const src = readFileSync(new URL('../components/jobs/job-board-view.tsx', import.meta.url), 'utf8');
-    const at = Number(/const BULK_CONFIRM_AT = (\d+);/.exec(src)?.[1]);
-
     it('asks for the typed confirmation at exactly 24 people and not at 23', () => {
-      expect(at).toBe(24);
-      expect(src).toContain('selectedIds.size >= BULK_CONFIRM_AT');
-      expect(24 >= at).toBe(true);
-      expect(23 >= at).toBe(false);
+      expect(BULK_CONFIRM_AT).toBe(24);
+      expect(needsTypedConfirm(23)).toBe(false);
+      expect(needsTypedConfirm(24)).toBe(true);
     });
   });
 

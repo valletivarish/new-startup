@@ -92,7 +92,7 @@ export function JobPageHeader({
         <JobTabs
           jobId={jobId}
           current={current}
-          counts={counts ? { people: counts.people, review: counts.undecided } : undefined}
+          counts={counts ? { people: counts.total, review: counts.toReview } : undefined}
         />
       </div>
     </div>

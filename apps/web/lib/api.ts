@@ -1040,10 +1040,13 @@ export const listJobCandidates = (
     status?: CandidateStage;
     q?: string;
     fit?: FitLane;
+    /** The latest phone call's state, filtered on the server. */
+    call?: 'completed' | 'failed' | 'calling' | 'not_called';
   },
 ) => {
   const params = new URLSearchParams();
   if (opts?.fit) params.set('fit', opts.fit);
+  if (opts?.call) params.set('call', opts.call);
   if (opts?.limit != null) params.set('limit', String(opts.limit));
   if (opts?.cursor) params.set('cursor', opts.cursor);
   if (opts?.status) params.set('status', opts.status);
@@ -1097,7 +1100,15 @@ export interface HiringSummary {
     jobId: string;
     jobTitle: string;
     jobStatus: string;
-    funnel: { total: number; notCalled: number; toReview: number; onHold: number; movedForward: number } | null;
+    funnel: {
+      total: number;
+      notCalled: number;
+      /** Newer backends. */
+      notConnected?: number;
+      toReview: number;
+      onHold: number;
+      movedForward: number;
+    } | null;
   }[];
   queues: Record<
     'readyForReview' | 'notConnected' | 'notCalled' | 'onHold',

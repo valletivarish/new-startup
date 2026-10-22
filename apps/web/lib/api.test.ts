@@ -182,6 +182,8 @@ describe('new client functions', () => {
     expect(lastCall()[0]).toBe('/backend/hiring/summary');
     await api.listJobCandidates('j1', { status: 'declined' });
     expect(lastCall()[0]).toBe('/backend/jobs/j1/candidates?status=declined');
+    await api.listJobCandidates('j1', { status: 'new', call: 'completed', limit: 40 });
+    expect(lastCall()[0]).toBe('/backend/jobs/j1/candidates?call=completed&limit=40&status=new');
   });
 
   it('listRoles derives isSystem on older backends', async () => {

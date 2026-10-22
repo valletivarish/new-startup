@@ -12,7 +12,8 @@ const ok: Readiness = {
   ready: true,
   phoneReady: true,
 };
-const none = { people: 0, answered: 0, undecided: 0 };
+const none = { total: 0, notCalled: 0, notConnected: 0, toReview: 0 };
+const counts = (c: Partial<typeof none>) => ({ ...none, ...c });
 
 describe('nextAction', () => {
   it('asks for the description first', () => {
@@ -23,7 +24,7 @@ describe('nextAction', () => {
   it('then for a live agent', () => {
     const n = nextAction(
       { ...ok, agent: 'not-live', ready: false, phoneReady: false },
-      { people: 5, answered: 2, undecided: 2 },
+      counts({ total: 5, toReview: 2 }),
       'abc',
     );
     expect(n).toMatchObject({ label: 'Finish setting up the call', tab: 'setup' });
@@ -34,23 +35,35 @@ describe('nextAction', () => {
   });
 
   it('then for answers to review, ahead of calling', () => {
-    expect(nextAction(ok, { people: 10, answered: 4, undecided: 3 }, 'abc')).toEqual({
+    expect(nextAction(ok, counts({ total: 10, notCalled: 6, toReview: 3 }), 'abc')).toEqual({
       label: 'Review 3 answers',
       href: '/jobs/abc/review',
       tab: 'review',
     });
-    expect(nextAction(ok, { people: 10, answered: 1, undecided: 1 }, 'abc').label).toBe('Review 1 answer');
+    expect(nextAction(ok, counts({ total: 10, toReview: 1 }), 'abc').label).toBe('Review 1 answer');
+  });
+
+  it('then for retrying calls that did not connect, ahead of calling', () => {
+    expect(nextAction(ok, counts({ total: 10, notCalled: 3, notConnected: 5 }), 'abc')).toEqual({
+      label: "Retry 5 calls that didn't connect",
+      href: '/jobs/abc/people',
+      tab: 'people',
+    });
+  });
+
+  it('counts above 100 are exact', () => {
+    expect(nextAction(ok, counts({ total: 900, toReview: 340 }), 'abc').label).toBe('Review 340 answers');
   });
 
   it('then for calling people who have not been called', () => {
-    expect(nextAction(ok, { people: 10, answered: 4, undecided: 0 }, 'abc')).toMatchObject({
+    expect(nextAction(ok, counts({ total: 10, notCalled: 6 }), 'abc')).toMatchObject({
       label: 'Start calling',
       tab: 'people',
     });
   });
 
   it('otherwise says all caught up', () => {
-    expect(nextAction(ok, { people: 4, answered: 4, undecided: 0 }, 'abc')).toMatchObject({
+    expect(nextAction(ok, counts({ total: 4 }), 'abc')).toMatchObject({
       label: 'All caught up',
       tab: 'people',
     });
@@ -64,12 +77,10 @@ describe('openingTab', () => {
     expect(openingTab('closed')).toBe('people');
   });
 
-  it('Review is empty only when everyone is counted and nobody answered', () => {
-    expect(noAnswersYet({ people: 3, answered: 0, undecided: 0 })).toBe(true);
-    expect(noAnswersYet({ people: 0, answered: 0, undecided: 0 })).toBe(true);
-    expect(noAnswersYet({ people: 3, answered: 1, undecided: 1 })).toBe(false);
-    // More people than the counted page: an answer may be past it, so don't claim there are none.
-    expect(noAnswersYet({ people: 250, answered: 0, undecided: 0 })).toBe(false);
+  it('Review is empty only when the exact funnel has nothing to review', () => {
+    expect(noAnswersYet(counts({ total: 3 }))).toBe(true);
+    expect(noAnswersYet(counts({ total: 250, notCalled: 250 }))).toBe(true);
+    expect(noAnswersYet(counts({ total: 3, toReview: 1 }))).toBe(false);
     expect(noAnswersYet(undefined)).toBe(false);
   });
 });

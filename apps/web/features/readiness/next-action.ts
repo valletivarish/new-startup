@@ -1,4 +1,5 @@
 import type { Readiness } from '../../components/jobs/setup';
+import type { JobFunnel } from '../../lib/hiring-people';
 
 export type JobTabKey = 'setup' | 'people' | 'review';
 export type JobStatus = 'draft' | 'open' | 'closed';
@@ -7,20 +8,12 @@ export interface NextAction {
   href: string;
   tab: JobTabKey;
 }
-export interface JobCounts {
-  people: number;
-  /** People whose call ended with answers. */
-  answered: number;
-  /** Answered people nobody has decided on yet. */
-  undecided: number;
-}
+/** The per-job funnel from GET /hiring/summary: the one source for the card, the banner and the tabs. */
+export type JobCounts = Pick<JobFunnel, 'total' | 'notCalled' | 'notConnected' | 'toReview'>;
 
-/** How many people the counts look at (the API has no "answered" total yet). */
-export const COUNT_PAGE = 100;
-
-/** True when everyone on the job was counted and nobody has answered: Review is then just empty. */
+/** Nobody has an answer to read: Review is empty. Exact, whatever the size of the job. */
 export function noAnswersYet(counts: JobCounts | undefined): boolean {
-  return counts !== undefined && counts.answered === 0 && counts.people <= COUNT_PAGE;
+  return counts !== undefined && counts.toReview === 0;
 }
 
 export const ALL_CAUGHT_UP = 'All caught up';
@@ -33,10 +26,11 @@ export function nextAction(r: Readiness, counts: JobCounts, jobId = ''): NextAct
   const to = (label: string, tab: JobTabKey): NextAction => ({ label, href: `/jobs/${jobId}/${tab}`, tab });
   if (r.description === 'missing') return to('Add the job description', 'setup');
   if (r.description === 'preparing' || r.agent !== 'live') return to('Finish setting up the call', 'setup');
-  if (counts.people === 0) return to('Add people', 'people');
-  if (counts.answered > 0 && counts.undecided > 0) {
-    return to(`Review ${counts.undecided} ${counts.undecided === 1 ? 'answer' : 'answers'}`, 'review');
+  if (counts.total === 0) return to('Add people', 'people');
+  if (counts.toReview > 0) return to(`Review ${counts.toReview} ${counts.toReview === 1 ? 'answer' : 'answers'}`, 'review');
+  if (counts.notConnected > 0) {
+    return to(`Retry ${counts.notConnected} ${counts.notConnected === 1 ? 'call' : 'calls'} that didn't connect`, 'people');
   }
-  if (counts.people > counts.answered) return to('Start calling', 'people');
+  if (counts.notCalled > 0) return to('Start calling', 'people');
   return to(ALL_CAUGHT_UP, 'people');
 }

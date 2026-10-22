@@ -10,8 +10,8 @@ import { cn } from '../ui/cn';
 import { Sheet, SheetBody, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '../ui/sheet';
 
 export interface SiteMenuLink {
-  /** A section on the page: "#pricing". */
-  href: `#${string}`;
+  /** A section on the page ("#pricing") or another page on the site ("/developers"). */
+  href: `#${string}` | `/${string}`;
   label: string;
 }
 

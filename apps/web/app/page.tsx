@@ -5,7 +5,7 @@ import { FaqSection } from '../components/site/faq';
 import { SiteFooter } from '../components/site/footer';
 import { SiteHero } from '../components/site/hero';
 import { HowItWorksSection } from '../components/site/how-it-works';
-import { SECTIONS, WORDMARK } from '../components/site/kit';
+import { HEADER_LINKS, WORDMARK } from '../components/site/kit';
 import { SiteMotion } from '../components/site/motion';
 import { LiquidNav } from '../components/site/nav-liquid';
 import { PricingSection } from '../components/site/pricing';
@@ -43,7 +43,7 @@ export default function HomePage() {
       >
         Skip to content
       </a>
-      <LiquidNav sections={SECTIONS} />
+      <LiquidNav sections={HEADER_LINKS} />
       <main id="main-content">
         <SiteHero />
         <SampleCallSection />

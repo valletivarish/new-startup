@@ -70,7 +70,7 @@ export function SiteMenu({ links, className }: SiteMenuProps) {
                   <a
                     href={href}
                     onClick={() => {
-                      jumpedTo.current = href.slice(1);
+                      jumpedTo.current = href.startsWith('#') ? href.slice(1) : null;
                       setOpen(false);
                     }}
                     className="flex min-h-12 items-center rounded-input px-3 text-title font-medium text-text transition-colors duration-fast hover:bg-subtle"

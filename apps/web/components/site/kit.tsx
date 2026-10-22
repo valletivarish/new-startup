@@ -16,12 +16,14 @@ export const WORDMARK = 'HRVoice';
 
 /** The page's sections, in page order: the header's links, the menu sheet and the footer. */
 export const SECTIONS: readonly SiteMenuLink[] = [
-  { href: '#sample-call', label: 'Sample call' },
   { href: '#product', label: 'Product' },
   { href: '#how-it-works', label: 'How it works' },
   { href: '#pricing', label: 'Pricing' },
   { href: '#faq', label: 'FAQ' },
 ];
+
+/** The header's links: the page's sections plus the one real page beyond them. */
+export const HEADER_LINKS: readonly SiteMenuLink[] = [...SECTIONS, { href: '/developers', label: 'Developers' }];
 
 /** The website container: 1280px wide, 20px gutters on phones, 32px from md, 48px from lg. */
 export const CONTAINER = 'mx-auto w-full max-w-[80rem] px-5 md:px-8 lg:px-12';

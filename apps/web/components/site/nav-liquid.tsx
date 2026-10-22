@@ -240,7 +240,7 @@ export function LiquidNav({ sections }: { sections: readonly SiteMenuLink[] }) {
     const i = nearest(x.get() + w.get() / 2);
     moveTo(i);
     const href = sections[i]?.href;
-    if (href) document.querySelector(href)?.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth' });
+    if (href?.startsWith('#')) document.querySelector(href)?.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth' });
     dragged.current = true;
     window.setTimeout(() => (dragged.current = false), 0);
     e.preventDefault();
